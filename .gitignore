@@ -1,0 +1,12 @@
+# Local user data and credentials
+office.db
+office.db-wal
+office.db-shm
+settings.json
+startup.log
+update_status.json
+local_backups/
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]

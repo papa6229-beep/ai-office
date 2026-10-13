@@ -4,7 +4,7 @@ ROOT=pathlib.Path(__file__).resolve().parent
 STATUS=ROOT/'update_status.json'
 BACKUPS=ROOT/'local_backups'
 PRIVATE=('office.db','settings.json')
-TRACKED_PRIVATE=('office.db','settings.json','startup.log','office.db-wal','office.db-shm')
+TRACKED_PRIVATE=('office.db','settings.json','startup.log','office.db-wal','office.db-shm','update_status.json')
 
 def git(*args, timeout=45):
     return subprocess.run(['git','-C',str(ROOT),*args],text=True,capture_output=True,timeout=timeout,encoding='utf-8',errors='replace')
@@ -46,8 +46,10 @@ def backup():
     folder=BACKUPS/datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')
     folder.mkdir()
     if (ROOT/'office.db').exists():
-        with sqlite3.connect(str(ROOT/'office.db')) as src, sqlite3.connect(str(folder/'office.db')) as dest:
-            src.backup(dest)
+        src=sqlite3.connect(str(ROOT/'office.db'))
+        dest=sqlite3.connect(str(folder/'office.db'))
+        try:src.backup(dest)
+        finally:dest.close();src.close()
     if (ROOT/'settings.json').exists():shutil.copy2(ROOT/'settings.json',folder/'settings.json')
     return folder
 
@@ -60,6 +62,20 @@ def restore(folder):
     for name in PRIVATE:
         source=folder/name
         if source.exists():shutil.copy2(source,ROOT/name)
+
+def restore_code(revision, files, expected_head=None):
+    """Restore only files changed by this update; never reset the whole worktree."""
+    paths=sorted({str(pathlib.PurePosixPath(p)) for p in files if p and not pathlib.PurePosixPath(p).is_absolute() and '..' not in pathlib.PurePosixPath(p).parts})
+    if not paths:return
+    dirty=git('status','--porcelain','--',*paths)
+    if dirty.returncode or dirty.stdout.strip():raise RuntimeError('복구 대상 파일에 별도 변경이 있어 자동 복구를 중단했습니다.')
+    if expected_head:
+        current=git('rev-parse','HEAD')
+        if current.returncode or current.stdout.strip()!=expected_head:raise RuntimeError('현재 커밋이 업데이트 결과와 달라 자동 복구를 중단했습니다.')
+        moved=git('update-ref','HEAD',revision,expected_head)
+        if moved.returncode:raise RuntimeError('업데이트 커밋 복구에 실패했습니다: '+moved.stderr[-300:])
+    result=git('restore',f'--source={revision}','--staged','--worktree','--',*paths)
+    if result.returncode:raise RuntimeError('업데이트 파일 복구 실패: '+result.stderr[-300:])
 
 def launch():
     if os.name=='nt':
@@ -83,15 +99,22 @@ def apply():
         write('applying','GitHub 코드를 적용 중입니다.',backup_dir=str(folder))
         pull=git('merge','--ff-only','origin/main',timeout=60)
         if pull.returncode:raise RuntimeError('코드 갱신 실패: '+pull.stderr[-400:])
-        files=['app.py','scanner.py','project_intelligence.py','workspace_insights.py','updater.py']
+        merged_head=git('rev-parse','HEAD').stdout.strip()
+        changed=git('diff','--name-only',before,'HEAD')
+        if changed.returncode:raise RuntimeError('변경 파일 목록을 확인하지 못했습니다.')
+        changed_files=changed.stdout.splitlines()
+        files=['app.py','scanner.py','project_intelligence.py','workspace_insights.py','content_analysis.py','updater.py']
         compile_result=subprocess.run([sys.executable,'-c', 'import ast,pathlib,sys; [ast.parse(pathlib.Path(p).read_text(encoding="utf-8")) for p in sys.argv[1:] if pathlib.Path(p).exists()]',*files],cwd=ROOT,capture_output=True,text=True,timeout=20)
         if compile_result.returncode:raise RuntimeError('새 코드 검사 실패: '+compile_result.stderr[-400:])
-        write('done','업데이트 완료. AI OFFICE를 다시 실행합니다.',backup_dir=str(folder))
+        write('done','업데이트가 완료되었습니다.',backup_dir=str(folder))
     except Exception as exc:
         write('rollback','오류가 발생하여 이전 코드를 복구합니다: '+str(exc),backup_dir=str(folder) if folder else '')
         if folder:
-            git('reset','--hard',before)
-            restore(folder)
+            try:
+                restore_code(before,changed_files if 'changed_files' in locals() else [],expected_head=merged_head if 'merged_head' in locals() else None)
+                restore(folder)
+            except Exception as rollback_error:
+                exc=RuntimeError(str(exc)+' / 복구 확인 필요: '+str(rollback_error))
         write('error','업데이트 실패. 이전 버전을 유지했습니다: '+str(exc),backup_dir=str(folder) if folder else '')
     finally:
         launch()

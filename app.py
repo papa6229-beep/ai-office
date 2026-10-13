@@ -2,6 +2,7 @@ import scanner
 import updater
 import project_intelligence
 import workspace_insights
+import content_analysis
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, shutil, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -103,6 +104,12 @@ class Handler(BaseHTTPRequestHandler):
             from urllib.parse import parse_qs
             q=parse_qs(urlparse(self.path).query)
             return self.reply(scanner.sample(q.get('page',['0'])[0],q.get('category',[''])[0],q.get('term',[''])[0]))
+        if path=='/api/analyze-file':
+            from urllib.parse import parse_qs
+            q=parse_qs(urlparse(self.path).query)
+            try:return self.reply(content_analysis.analyze_file(q.get('path',[''])[0]))
+            except ValueError as exc:return self.reply({'error':str(exc)},400)
+            except OSError:return self.reply({'error':'파일을 읽을 수 없습니다.'},400)
         if path=='/api/state':
             with db() as c:tasks=[dict(r) for r in c.execute('SELECT * FROM tasks ORDER BY created DESC')];runs=[dict(r) for r in c.execute('SELECT * FROM runs ORDER BY created DESC LIMIT 30')]
             s=config();s['api_key']='' if not s.get('api_key') else '(설정됨)';return self.reply({'tasks':tasks,'runs':runs,'settings':s})
