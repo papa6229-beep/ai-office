@@ -1,22 +1,36 @@
-"""Conservative review of selected scanned files using a loopback Gemma endpoint."""
-import ipaddress, json
+"""Conservative review of selected scanned files using the configured Gemma endpoint."""
+import ipaddress, json, re
 from urllib.parse import urlparse
 
 MAX_FILES=8
 MIN_CONFIDENCE=0.65
 ALLOWED_EXTENSIONS={'.txt','.md','.rst','.csv','.tsv','.log','.py','.js','.ts','.jsx','.tsx','.html','.css','.json','.xml','.yaml','.yml','.toml','.ini','.cfg','.sql','.java','.kt','.cs','.go','.rs','.c','.h','.cpp','.hpp','.sh','.svg','.docx','.pdf'}
 
-def _loopback(url):
-    parsed=urlparse(str(url))
-    host=parsed.hostname
-    if parsed.scheme not in {'http','https'} or not host:return False
-    if host.lower()=='localhost':return True
-    try:return ipaddress.ip_address(host).is_loopback
-    except ValueError:return False
+def validate_endpoint(url):
+    """Validate the explicitly configured HTTP(S) base without exposing its value."""
+    error='Gemma 서버 주소는 인증 정보 없이 올바른 HTTP(S) 주소로 설정하세요.'
+    if not isinstance(url,str) or not url or any(char.isspace() or ord(char)<32 for char in url) or '\\' in url or '?' in url or '#' in url:
+        raise ValueError(error)
+    try:
+        parsed=urlparse(url)
+        host=parsed.hostname
+        if parsed.scheme not in {'http','https'} or not host or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
+            raise ValueError(error)
+        if parsed.port is not None and not 1<=parsed.port<=65535:
+            raise ValueError(error)
+        if not re.fullmatch(r'(?:\[[0-9a-fA-F:.]+\]|[^:]+)(?::[0-9]+)?',parsed.netloc):
+            raise ValueError(error)
+        try:ipaddress.ip_address(host)
+        except ValueError:
+            labels=host.encode('idna').decode('ascii').rstrip('.').split('.')
+            if len(host)>253 or any(not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?',label) for label in labels):
+                raise ValueError(error)
+    except (ValueError,UnicodeError):
+        raise ValueError(error) from None
+    return url.rstrip('/')
 
 def analyze(files, settings, reader, model):
-    if not _loopback(settings.get('gemma_url','')):
-        raise ValueError('내용 기반 AI 분석은 localhost 또는 loopback Gemma 주소에서만 실행할 수 있습니다.')
+    validate_endpoint(settings.get('gemma_url',''))
     if not isinstance(files,list) or not 1<=len(files)<=MAX_FILES:
         raise ValueError(f'분석할 파일을 1~{MAX_FILES}개 선택하세요.')
     documents=[]
@@ -46,4 +60,4 @@ def analyze(files, settings, reader, model):
         confidence=max(0,min(1,float(confidence)))
         source=by_id[str(item['id'])]
         results.append({'name':source['name'],'project':str(item.get('project',''))[:120],'task':str(item.get('task',''))[:120],'confidence':round(confidence,2),'reason':str(item.get('reason',''))[:300],'state':'검토 후보' if confidence>=MIN_CONFIDENCE else '보류'})
-    return {'items':results,'note':'선택한 파일 내용으로 로컬 Gemma가 만든 검토 후보입니다. 자동 분류 확정이나 파일 변경은 하지 않습니다.'}
+    return {'items':results,'note':'선택한 파일 내용으로 설정된 Gemma 서버가 만든 검토 후보입니다. 자동 분류 확정이나 파일 변경은 하지 않습니다.'}

@@ -110,10 +110,19 @@ class LocalImageReviewTests(unittest.TestCase):
         self.assertEqual(ai.read_bytes(), original)
         self.assertEqual(result['items'][0]['state'], '보류')
 
-    def test_remote_endpoint_rejected_before_model_or_file_access(self):
-        for url in ['https://example.com', 'file:///x', 'http://127.0.0.1@example.com', 'http://localhost@example.com']:
+    def test_unsafe_endpoint_rejected_before_model_or_file_access(self):
+        for url in ['http://server:invalid', 'file:///x', 'http://127.0.0.1@example.com', 'http://localhost@example.com']:
             with self.subTest(url=url), self.assertRaises(ValueError):
                 local_image_review.analyze(self.files, dict(self.settings, gemma_url=url), lambda *args: self.fail('model called'))
+
+    def test_configured_lan_server_receives_selected_image_without_changes(self):
+        before = self.path.read_bytes()
+        calls = []
+        result = local_image_review.analyze(self.files, dict(self.settings, gemma_url='http://192.168.0.40:11434'),
+            lambda prompt, image: calls.append(image) or '{"confidence":0.8}')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result['items'][0]['state'], '검토 후보')
+        self.assertEqual(self.path.read_bytes(), before)
 
     def test_non_vision_models_rejected(self):
         for name in ['gemma2:27b', 'gemma3:1b', 'llama3', 'gemma3:270m', 'gemma4:cloud', 'gemma4:26b-cloud']:

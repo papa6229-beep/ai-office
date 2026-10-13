@@ -5,7 +5,6 @@ The model callback accepts (prompt, JPEG base64) and returns generated text.
 """
 import base64
 import io
-import ipaddress
 import json
 import math
 import pathlib
@@ -13,7 +12,7 @@ import struct
 import warnings
 import zlib
 import adobe_preview
-from urllib.parse import urlparse
+from local_content_review import validate_endpoint
 
 MAX_FILES = 3
 MAX_BYTES = 8 * 1024 * 1024
@@ -24,20 +23,6 @@ MAX_ENCODED_BYTES = 2 * 1024 * 1024
 MIN_CONFIDENCE = .65
 ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.psd', '.ai'}
 FORMATS = {'.png': 'PNG', '.jpg': 'JPEG', '.jpeg': 'JPEG', '.webp': 'WEBP', '.psd': 'PSD'}
-
-
-def _loopback(url):
-    try:
-        parsed = urlparse(str(url))
-        if parsed.scheme not in {'http', 'https'} or not parsed.hostname:
-            return False
-        if parsed.username or parsed.password:
-            return False
-        if parsed.hostname.lower() == 'localhost':
-            return True
-        return ipaddress.ip_address(parsed.hostname).is_loopback
-    except ValueError:
-        return False
 
 
 def _vision_model(name):
@@ -220,13 +205,12 @@ def _prediction(raw, name):
 
 
 def analyze(files, settings, model):
-    if not _loopback(settings.get('gemma_url', '')):
-        raise ValueError('이미지 내용 분석은 localhost 또는 loopback Ollama 주소에서만 실행할 수 있습니다.')
+    validate_endpoint(settings.get('gemma_url', ''))
     if not _vision_model(settings.get('gemma_model', '')):
         raise ValueError('이미지 입력을 지원하는 Gemma 4 또는 Gemma 3 4B·12B·27B 모델을 설정하세요.')
     if not isinstance(files, list) or not 1 <= len(files) <= MAX_FILES:
         raise ValueError(f'분석할 이미지를 1~{MAX_FILES}개 선택하세요.')
-    # Validate and prepare the whole selection before transmitting any image to the local model.
+    # Validate and prepare the whole selection before transmitting any image to the configured model.
     prepared = []
     paths = set()
     for item in files:
@@ -249,4 +233,4 @@ def analyze(files, settings, model):
             '참고 파일명: ' + json.dumps(name, ensure_ascii=False)
         )
         results.append(_prediction(model(prompt, payload), name))
-    return {'items': results, 'note': '크기 제한을 확인한 선택 이미지를 로컬 Gemma로 검토한 결과입니다. 신뢰도가 낮은 결과는 보류합니다.'}
+    return {'items': results, 'note': '크기 제한을 확인한 선택 이미지를 설정된 Gemma 서버로 검토한 결과입니다. 신뢰도가 낮은 결과는 보류합니다.'}
