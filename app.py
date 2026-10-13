@@ -1,4 +1,5 @@
 import scanner
+import updater
 import project_intelligence
 import workspace_insights
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, shutil, pathlib, datetime, re, subprocess, sys
@@ -86,6 +87,13 @@ class Handler(BaseHTTPRequestHandler):
                 if result.returncode:raise RuntimeError(result.stderr[-500:] or '선택창 실행 실패')
                 return self.reply({'path':result.stdout.strip(),'cancelled':not bool(result.stdout.strip())})
             except Exception as ex:return self.reply({'error':'Windows 폴더 선택창 실행 실패: '+str(ex)},500)
+        if path=='/api/update-status':
+            status=updater.check()
+            f=ROOT/'update_status.json'
+            if f.exists():
+                try:status['last_run']=json.loads(f.read_text(encoding='utf-8'))
+                except (OSError,ValueError):pass
+            return self.reply(status)
         if path=='/api/scan-status':return self.reply(scanner.status())
         if path=='/api/workspace-insights':
             if scanner.status()['status']!='done':return self.reply({'error':'먼저 PC 자료 조사를 완료하세요.'},409)
@@ -102,6 +110,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             p=urlparse(self.path).path;d=self.body()
+            if p=='/api/update-check':return self.reply(updater.fetch())
+            if p=='/api/update-apply':
+                status=updater.fetch()
+                if status.get('phase')!='available':return self.reply(status)
+                subprocess.Popen([sys.executable,str(ROOT/'updater.py'),'apply'],cwd=str(ROOT),stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=getattr(subprocess,'CREATE_NEW_PROCESS_GROUP',0)|getattr(subprocess,'CREATE_NO_WINDOW',0))
+                threading.Thread(target=lambda:(__import__('time').sleep(1.2),__import__('urllib.request').request.urlopen('http://127.0.0.1:8765/api/none',timeout=2) if False else os._exit(0)),daemon=True).start()
+                return self.reply({'phase':'starting','message':'업데이트를 시작합니다. 잠시 후 화면을 새로고침해 주세요.'})
             if p=='/api/project-archives':
                 result=project_intelligence.analyze(str(d.get('folder','')))
                 runlog('프로젝트 비교','완료',f"ZIP {result['archive_count']}개 비교 · 관련 그룹 {len(result['groups'])}개",result['folder'])
