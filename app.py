@@ -3,6 +3,7 @@ import updater
 import project_intelligence
 import workspace_insights
 import content_analysis
+import local_content_review
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, shutil, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -29,7 +30,9 @@ def call_gemma(prompt):
     else:
         u=base+'/api/chat';payload={'model':model,'messages':[{'role':'system','content':'당신은 한국어 업무 보조 AI입니다. 임의 실행을 약속하지 않고 확인 가능한 사실만 보고합니다.'},{'role':'user','content':prompt}],'stream':False,'options':{'temperature':0.2}};headers={'Content-Type':'application/json'}
     req=urllib.request.Request(u,data=json.dumps(payload).encode(),headers=headers,method='POST')
-    with urllib.request.urlopen(req,timeout=t) as r:response=json.load(r)
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self,*args,**kwargs):return None
+    with urllib.request.build_opener(NoRedirect).open(req,timeout=t) as r:response=json.load(r)
     if s['api_type']=='openai':return response['choices'][0]['message']['content']
     return response['message']['content']
 def runlog(kind,status,summary,detail=''):
@@ -117,6 +120,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             p=urlparse(self.path).path;d=self.body()
+            if p=='/api/analyze-workspace-content':
+                paths=d.get('paths')
+                if not isinstance(paths,list) or not 1<=len(paths)<=local_content_review.MAX_FILES:raise ValueError('분석할 파일을 1~8개 선택하세요.')
+                with scanner.LOCK:
+                    available={f['path']:dict(f) for f in scanner.FILES if not f.get('protected')}
+                if any(path not in available for path in paths):raise ValueError('현재 PC 조사 결과에 포함된 비보호 파일만 분석할 수 있습니다.')
+                result=local_content_review.analyze([available[path] for path in paths],config(),content_analysis.analyze_file,call_gemma)
+                runlog('내용 기반 후보 분석','완료',f"로컬 Gemma · {len(paths)}개 파일 · {len(result['items'])}개 후보")
+                return self.reply(result)
             if p=='/api/update-check':return self.reply(updater.fetch())
             if p=='/api/update-apply':
                 status=updater.fetch()

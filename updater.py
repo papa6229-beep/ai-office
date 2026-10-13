@@ -4,7 +4,7 @@ ROOT=pathlib.Path(__file__).resolve().parent
 STATUS=ROOT/'update_status.json'
 BACKUPS=ROOT/'local_backups'
 PRIVATE=('office.db','settings.json')
-TRACKED_PRIVATE=('office.db','settings.json','startup.log','office.db-wal','office.db-shm','update_status.json')
+TRACKED_PRIVATE=('office.db','settings.json','startup.log','office.db-wal','office.db-shm','office.db-journal','update_status.json')
 
 def git(*args, timeout=45):
     return subprocess.run(['git','-C',str(ROOT),*args],text=True,capture_output=True,timeout=timeout,encoding='utf-8',errors='replace')
@@ -85,7 +85,10 @@ def launch():
 def apply():
     write('checking','배포 상태를 확인 중입니다.')
     available=fetch()
-    if available['phase']!='available':write(**available);return
+    if available['phase']!='available':
+        write(**available)
+        launch()
+        return
     before=git('rev-parse','HEAD').stdout.strip()
     folder=None
     try:
@@ -103,18 +106,19 @@ def apply():
         changed=git('diff','--name-only',before,'HEAD')
         if changed.returncode:raise RuntimeError('변경 파일 목록을 확인하지 못했습니다.')
         changed_files=changed.stdout.splitlines()
-        files=['app.py','scanner.py','project_intelligence.py','workspace_insights.py','content_analysis.py','updater.py']
+        files=['app.py','scanner.py','project_intelligence.py','workspace_insights.py','content_analysis.py','local_content_review.py','updater.py']
         compile_result=subprocess.run([sys.executable,'-c', 'import ast,pathlib,sys; [ast.parse(pathlib.Path(p).read_text(encoding="utf-8")) for p in sys.argv[1:] if pathlib.Path(p).exists()]',*files],cwd=ROOT,capture_output=True,text=True,timeout=20)
         if compile_result.returncode:raise RuntimeError('새 코드 검사 실패: '+compile_result.stderr[-400:])
         write('done','업데이트가 완료되었습니다.',backup_dir=str(folder))
     except Exception as exc:
         write('rollback','오류가 발생하여 이전 코드를 복구합니다: '+str(exc),backup_dir=str(folder) if folder else '')
         if folder:
-            try:
-                restore_code(before,changed_files if 'changed_files' in locals() else [],expected_head=merged_head if 'merged_head' in locals() else None)
-                restore(folder)
-            except Exception as rollback_error:
-                exc=RuntimeError(str(exc)+' / 복구 확인 필요: '+str(rollback_error))
+            rollback_errors=[]
+            try:restore_code(before,changed_files if 'changed_files' in locals() else [],expected_head=merged_head if 'merged_head' in locals() else None)
+            except Exception as rollback_error:rollback_errors.append(str(rollback_error))
+            try:restore(folder)
+            except Exception as rollback_error:rollback_errors.append(str(rollback_error))
+            if rollback_errors:exc=RuntimeError(str(exc)+' / 복구 확인 필요: '+'; '.join(rollback_errors))
         write('error','업데이트 실패. 이전 버전을 유지했습니다: '+str(exc),backup_dir=str(folder) if folder else '')
     finally:
         launch()

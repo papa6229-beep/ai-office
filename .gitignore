@@ -2,6 +2,7 @@
 office.db
 office.db-wal
 office.db-shm
+office.db-journal
 settings.json
 startup.log
 update_status.json

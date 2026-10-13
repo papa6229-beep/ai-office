@@ -1,4 +1,4 @@
-import pathlib, tempfile, unittest, sys, json, sqlite3, subprocess
+import pathlib, tempfile, unittest, sys, json, sqlite3, subprocess, zipfile
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import updater, content_analysis
 
@@ -92,6 +92,24 @@ class ContentAnalysisTests(unittest.TestCase):
             self.assertIn('deliver_report',r['preview']);self.assertEqual(before,p.stat().st_mtime_ns)
             secret=pathlib.Path(td)/'config.json';secret.write_text('{"api_key":"do-not-show","ok":true}')
             self.assertNotIn('do-not-show',content_analysis.analyze_file(str(secret))['preview'])
+            xml=pathlib.Path(td)/'service.xml';xml.write_text('<config><api_key>hidden-value</api_key></config>')
+            self.assertNotIn('hidden-value',content_analysis.analyze_file(str(xml))['preview'])
+    def test_extracts_docx_text_with_zip_safety_limits(self):
+        import xml.sax.saxutils
+        with tempfile.TemporaryDirectory() as td:
+            p=pathlib.Path(td)/'brief.docx'
+            xml='<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Project delivery plan</w:t></w:r></w:p></w:body></w:document>'
+            with zipfile.ZipFile(p,'w') as z:z.writestr('word/document.xml',xml)
+            result=content_analysis.analyze_file(str(p))
+            self.assertIn('Project delivery plan',result['preview'])
+    def test_extracts_pdf_pages_when_reader_is_available(self):
+        try:from pypdf import PdfWriter
+        except ImportError:self.skipTest('pypdf optional')
+        with tempfile.TemporaryDirectory() as td:
+            p=pathlib.Path(td)/'brief.pdf';writer=PdfWriter();writer.add_blank_page(width=72,height=72)
+            with p.open('wb') as stream:writer.write(stream)
+            result=content_analysis.analyze_file(str(p))
+            self.assertTrue(result['preview'].strip().endswith('1'))
     def test_rejects_secrets_and_binary(self):
         with tempfile.TemporaryDirectory() as td:
             p=pathlib.Path(td)/'.env';p.write_text('API_KEY=secret')
@@ -102,6 +120,27 @@ class ContentAnalysisTests(unittest.TestCase):
             with self.assertRaises(ValueError):content_analysis.analyze_file(str(p))
 
 class AnalyzeApiTests(unittest.TestCase):
+    def test_local_review_api_only_uses_scanned_files_and_loopback(self):
+        import app, threading, urllib.request, urllib.error
+        with tempfile.TemporaryDirectory() as td:
+            p=pathlib.Path(td)/'brief.txt';p.write_text('Project launch')
+            old_files=app.scanner.FILES;old_config=app.config;old_model=app.call_gemma;old_log=app.runlog
+            app.scanner.FILES=[{'name':p.name,'path':str(p),'extension':'.txt','protected':False}]
+            app.config=lambda:{'gemma_url':'http://127.0.0.1:11434'}
+            app.call_gemma=lambda prompt:'{"items":[{"id":"1","project":"Launch","task":"Prepare","confidence":0.9,"reason":"Content evidence"}]}'
+            app.runlog=lambda *args,**kwargs:None
+            server=app.ThreadingHTTPServer(('127.0.0.1',0),app.Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+            try:
+                url='http://127.0.0.1:%s/api/analyze-workspace-content'%server.server_port
+                req=urllib.request.Request(url,data=json.dumps({'paths':[str(p)]}).encode(),headers={'Content-Type':'application/json'},method='POST')
+                with urllib.request.urlopen(req,timeout=3) as response:result=json.load(response)
+                self.assertEqual(result['items'][0]['state'],'검토 후보')
+                req=urllib.request.Request(url,data=json.dumps({'paths':[str(pathlib.Path(td)/'outside.txt')]}).encode(),headers={'Content-Type':'application/json'},method='POST')
+                with self.assertRaises(urllib.error.HTTPError) as err:urllib.request.urlopen(req,timeout=3)
+                self.assertEqual(err.exception.code,400)
+            finally:
+                server.shutdown();server.server_close();thread.join(timeout=2)
+                app.scanner.FILES=old_files;app.config=old_config;app.call_gemma=old_model;app.runlog=old_log
     def test_http_endpoint_returns_preview_without_secret(self):
         import app, threading, urllib.request, urllib.parse
         with tempfile.TemporaryDirectory() as td:
@@ -115,4 +154,3 @@ class AnalyzeApiTests(unittest.TestCase):
             finally:server.shutdown();server.server_close();thread.join(timeout=2)
 
 if __name__=='__main__':unittest.main()
-
