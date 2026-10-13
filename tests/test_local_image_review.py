@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import pathlib
+import struct
 import sys
 import tempfile
 import unittest
@@ -21,6 +22,61 @@ class LocalImageReviewTests(unittest.TestCase):
         self.files = [{'path': str(self.path), 'name': 'sample.png', 'extension': '.png'}]
         self.settings = {'gemma_url': 'http://127.0.0.1:11434', 'gemma_model': 'gemma4:26b'}
 
+    def psd_item(self, width=40, height=30, pixels=True):
+        path = self.path.with_suffix('.psd')
+        # PSD v1, RGB 8-bit, no color/resource/layer sections, raw composite.
+        header = b'8BPS' + struct.pack('>H6sHIIHH', 1, b'\0' * 6, 3, height, width, 8, 3)
+        composite = b'\xff' * (width * height) + b'\0' * (width * height * 2) if pixels else b''
+        path.write_bytes(header + b'\0' * 12 + b'\0\0' + composite)
+        return {'path': str(path), 'name': path.name, 'extension': '.psd'}
+
+    def test_psd_composite_is_jpeg_and_source_remains_unchanged(self):
+        item = self.psd_item(1800, 2)
+        path = pathlib.Path(item['path'])
+        before = path.read_bytes()
+        payloads = []
+        result = local_image_review.analyze([item], self.settings,
+            lambda _, data: payloads.append(data) or '{"confidence":0.8}')
+        from PIL import Image
+        payload = base64.b64decode(payloads[0])
+        with Image.open(io.BytesIO(payload)) as image:
+            self.assertEqual(image.format, 'JPEG')
+            self.assertLessEqual(max(image.size), 1600)
+            self.assertFalse(image.getexif())
+            self.assertNotIn('icc_profile', image.info)
+            self.assertGreater(image.getpixel((0, 0))[0], 200)
+        self.assertLessEqual(len(payload), local_image_review.MAX_ENCODED_BYTES)
+        self.assertEqual(result['items'][0]['state'], '검토 후보')
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_psd_header_bounds_are_rejected_before_pillow_decoding(self):
+        for width, height in [(0, 30), (8193, 1), (5000, 5000)]:
+            item = self.psd_item(width, height, pixels=False)
+            with self.subTest(size=(width, height)), patch('PIL.Image.open') as decoder, self.assertRaisesRegex(ValueError, '해상도'):
+                local_image_review.analyze([item], self.settings, lambda *args: self.fail('model called'))
+            decoder.assert_not_called()
+
+    def test_psd_type_source_and_encoded_size_limits(self):
+        item = self.psd_item()
+        with patch.object(local_image_review, 'MAX_BYTES', 10), self.assertRaisesRegex(ValueError, '8MB'):
+            local_image_review.analyze([item], self.settings, lambda *args: self.fail('model called'))
+        with patch.object(local_image_review, 'MAX_ENCODED_BYTES', 10), self.assertRaisesRegex(ValueError, '전송 크기'):
+            local_image_review.analyze([item], self.settings, lambda *args: self.fail('model called'))
+        pathlib.Path(item['path']).write_bytes(self.path.read_bytes())
+        with self.assertRaises(ValueError):
+            local_image_review.analyze([item], self.settings, lambda *args: self.fail('model called'))
+        # PSB v2 must not be treated as the supported PSD v1 container.
+        item = self.psd_item()
+        path = pathlib.Path(item['path'])
+        path.write_bytes(path.read_bytes()[:4] + b'\x00\x02' + path.read_bytes()[6:])
+        with self.assertRaises(ValueError):
+            local_image_review.analyze([item], self.settings, lambda *args: self.fail('model called'))
+
+    def test_missing_pillow_psd_is_actionable_and_never_calls_model(self):
+        item = self.psd_item()
+        with patch.dict(sys.modules, {'PIL': None}), self.assertRaisesRegex(ValueError, 'PSD.*Pillow.*pip install Pillow'):
+            local_image_review.analyze([item], self.settings, lambda *args: self.fail('model called'))
+
     def test_payload_is_bounded_raster_without_metadata(self):
         calls = []
         def model(prompt, image_b64):
@@ -35,6 +91,24 @@ class LocalImageReviewTests(unittest.TestCase):
         self.assertNotIn(str(self.path.parent), calls[0][0])
         self.assertEqual(result['items'][0]['state'], '검토 후보')
         self.assertEqual(result['items'][0]['name'], 'sample.png')
+
+    def test_ai_uses_temporary_illustrator_composite_and_preserves_source(self):
+        from unittest.mock import patch
+        from PIL import Image
+        import adobe_preview
+        ai = self.path.with_suffix('.ai')
+        original = b'illustrator source bytes'
+        ai.write_bytes(original)
+        fixture = io.BytesIO()
+        Image.new('RGB', (16, 12), 'purple').save(fixture, format='JPEG')
+        encoded = []
+        item = {'path': str(ai), 'name': ai.name, 'extension': '.ai'}
+        with patch.object(adobe_preview, 'render_ai_preview', return_value=fixture.getvalue()) as export:
+            result = local_image_review.analyze([item], self.settings, lambda prompt, image: encoded.append(image) or json.dumps({'confidence': .2}))
+        export.assert_called_once_with(ai.resolve())
+        self.assertEqual(base64.b64decode(encoded[0]), fixture.getvalue())
+        self.assertEqual(ai.read_bytes(), original)
+        self.assertEqual(result['items'][0]['state'], '보류')
 
     def test_remote_endpoint_rejected_before_model_or_file_access(self):
         for url in ['https://example.com', 'file:///x', 'http://127.0.0.1@example.com', 'http://localhost@example.com']:

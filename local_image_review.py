@@ -1,4 +1,4 @@
-"""Read-only, bounded visual review of scanner-selected raster images.
+"""Read-only, bounded visual review of scanner-selected images and PSD composites.
 
 The caller validates that every item belongs to the active scanner snapshot.
 The model callback accepts (prompt, JPEG base64) and returns generated text.
@@ -12,6 +12,7 @@ import pathlib
 import struct
 import warnings
 import zlib
+import adobe_preview
 from urllib.parse import urlparse
 
 MAX_FILES = 3
@@ -21,8 +22,8 @@ MAX_EDGE = 8192
 MAX_INPUT_EDGE = 1600
 MAX_ENCODED_BYTES = 2 * 1024 * 1024
 MIN_CONFIDENCE = .65
-ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}
-FORMATS = {'.png': 'PNG', '.jpg': 'JPEG', '.jpeg': 'JPEG', '.webp': 'WEBP'}
+ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.psd', '.ai'}
+FORMATS = {'.png': 'PNG', '.jpg': 'JPEG', '.jpeg': 'JPEG', '.webp': 'WEBP', '.psd': 'PSD'}
 
 
 def _loopback(url):
@@ -53,7 +54,10 @@ def _vision_model(name):
 
 def _header_dimensions(data, extension):
     """Inspect bounded container headers without decompressing pixels."""
-    if extension == '.png' and data.startswith(b'\x89PNG\r\n\x1a\n'):
+    if extension == '.psd' and len(data) >= 26 and data[:6] == b'8BPS\x00\x01':
+        height, width = struct.unpack('>II', data[14:22])
+        return width, height
+    elif extension == '.png' and data.startswith(b'\x89PNG\r\n\x1a\n'):
         offset, dimensions, ended = 8, None, False
         while offset + 12 <= len(data):
             size = int.from_bytes(data[offset:offset + 4], 'big')
@@ -130,7 +134,11 @@ def _image_payload(item):
     path = pathlib.Path(item['path']).resolve(strict=True)
     extension = str(item.get('extension', '')).lower()
     if item.get('protected') or extension not in ALLOWED_EXTENSIONS or path.suffix.lower() != extension:
-        raise ValueError('보호된 파일 또는 지원하지 않는 이미지 형식입니다. PNG·JPEG·WebP를 선택하세요.')
+        raise ValueError('보호된 파일 또는 지원하지 않는 이미지 형식입니다. PNG·JPEG·WebP·PSD·AI를 선택하세요.')
+    if extension == '.ai':
+        if not path.is_file():
+            raise ValueError('AI 파일을 읽을 수 없습니다.')
+        return base64.b64encode(adobe_preview.render_ai_preview(path)).decode('ascii')
     if not path.is_file() or path.stat().st_size > MAX_BYTES:
         raise ValueError('이미지 파일 크기가 분석 제한(8MB)을 넘거나 일반 파일이 아닙니다.')
     with path.open('rb') as stream:
@@ -140,6 +148,8 @@ def _image_payload(item):
     try:
         from PIL import Image, ImageOps
     except ImportError:
+        if extension == '.psd':
+            raise ValueError('PSD 합성 미리보기에는 Pillow가 필요합니다. 앱 실행 Python에서 python -m pip install Pillow 후 분석하세요.')
         width, height = _header_dimensions(data, extension)
         if min(width, height) < 1 or width * height > MAX_PIXELS or max(width, height) > MAX_EDGE:
             raise ValueError('이미지 해상도가 분석 제한을 넘습니다.')
@@ -147,6 +157,10 @@ def _image_payload(item):
             raise ValueError('Pillow가 없으면 최대 1600px·2MB 이미지까지 분석합니다. 더 큰 파일은 앱 실행 Python에서 python -m pip install Pillow 후 분석하세요.')
         return base64.b64encode(data).decode('ascii')
     try:
+        if extension == '.psd':
+            width, height = _header_dimensions(data, extension)
+            if min(width, height) < 1 or max(width, height) > MAX_EDGE or width * height > MAX_PIXELS:
+                raise ValueError('이미지 해상도가 분석 제한(최대 8192px, 2천만 화소)을 넘습니다.')
         with warnings.catch_warnings():
             warnings.simplefilter('error', Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(data)) as source:
@@ -155,7 +169,9 @@ def _image_payload(item):
                     raise ValueError('파일 확장자와 실제 이미지 형식이 다릅니다.')
                 if min(width, height) < 1 or max(width, height) > MAX_EDGE or width * height > MAX_PIXELS:
                     raise ValueError('이미지 해상도가 분석 제한(최대 8192px, 2천만 화소)을 넘습니다.')
-                if getattr(source, 'n_frames', 1) != 1:
+                # Pillow's PSD frames are layers. The initially opened image is
+                # the stored composite; accessing n_frames parses layer data.
+                if extension != '.psd' and getattr(source, 'n_frames', 1) != 1:
                     raise ValueError('움직이는 이미지는 분석하지 않습니다. 정지 이미지를 선택하세요.')
                 source.load()
                 image = ImageOps.exif_transpose(source).convert('RGBA')
