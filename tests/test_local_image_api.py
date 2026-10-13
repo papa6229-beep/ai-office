@@ -24,7 +24,7 @@ class LocalImageApiTests(unittest.TestCase):
             app.scanner.FILES=[{'path':str(image),'name':image.name,'extension':'.png','protected':False}]
             app.scanner.STATE.update(status='done')
             app.config=lambda:{'gemma_url':'http://127.0.0.1:11434','gemma_model':'gemma4:26b','api_type':'ollama','timeout':1}
-            app.call_gemma_vision=lambda prompt,data:json.dumps({'project':'Campaign','task':'Review banner','confidence':.9,'reason':'Blue banner artwork'})
+            app.call_gemma_vision=lambda prompt,data,settings=None:json.dumps({'project':'Campaign','task':'Review banner','confidence':.9,'reason':'Blue banner artwork'})
             app.runlog=lambda *args,**kwargs:None
             server=app.ThreadingHTTPServer(('127.0.0.1',0),app.Handler)
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()

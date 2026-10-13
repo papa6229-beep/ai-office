@@ -127,7 +127,7 @@ class AnalyzeApiTests(unittest.TestCase):
             old_files=app.scanner.FILES;old_config=app.config;old_model=app.call_gemma;old_log=app.runlog
             app.scanner.FILES=[{'name':p.name,'path':str(p),'extension':'.txt','protected':False}]
             app.config=lambda:{'gemma_url':'http://127.0.0.1:11434'}
-            app.call_gemma=lambda prompt:'{"items":[{"id":"1","project":"Launch","task":"Prepare","confidence":0.9,"reason":"Content evidence"}]}'
+            app.call_gemma=lambda prompt,settings=None:'{"items":[{"id":"1","project":"Launch","task":"Prepare","confidence":0.9,"reason":"Content evidence"}]}'
             app.runlog=lambda *args,**kwargs:None
             server=app.ThreadingHTTPServer(('127.0.0.1',0),app.Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
             try:

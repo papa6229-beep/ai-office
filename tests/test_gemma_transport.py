@@ -14,8 +14,10 @@ import app
 
 class GemmaTransportTests(unittest.TestCase):
     def settings(self, **updates):
-        return dict(gemma_url='http://192.168.0.40:11434', gemma_model='gemma4:26b',
-                    api_type='ollama', timeout=3, api_key='', **updates)
+        values = dict(gemma_url='http://192.168.0.40:11434', gemma_model='gemma4:26b',
+                      api_type='ollama', timeout=3, api_key='')
+        values.update(updates)
+        return values
 
     def test_configured_remote_ollama_uses_auth_for_text_and_vision(self):
         for callback, args in [(app.call_gemma, ('selected text',)), (app.call_gemma_vision, ('selected image', 'base64-image'))]:
@@ -41,6 +43,18 @@ class GemmaTransportTests(unittest.TestCase):
             self.assertEqual(req.get_header('Authorization'), 'Bearer test-key')
             with self.assertRaises(ValueError):app.call_gemma_vision('image', 'payload')
             self.assertEqual(build.call_count, 1)
+
+    def test_analysis_uses_its_initial_settings_snapshot(self):
+        selected = self.settings(gemma_url='http://192.168.0.40:11434', api_key='selected-key')
+        changed = self.settings(gemma_url='http://192.168.0.99:11434', api_key='changed-key')
+        for callback, args in [(app.call_gemma, ('selected text', selected)),
+                               (app.call_gemma_vision, ('selected image', 'base64-image', selected))]:
+            with self.subTest(callback=callback.__name__), patch.object(app, 'config', return_value=changed), patch('urllib.request.build_opener') as build:
+                build.return_value.open.return_value = io.BytesIO(b'{"message":{"content":"ok"}}')
+                self.assertEqual(callback(*args), 'ok')
+                req = build.return_value.open.call_args.args[0]
+                self.assertEqual(req.full_url, 'http://192.168.0.40:11434/api/chat')
+                self.assertEqual(req.get_header('Authorization'), 'Bearer selected-key')
 
     def test_unsafe_endpoint_never_opens_connection_or_echoes_credentials(self):
         for url in ['file:///secret', 'http://user:secret@server', 'http://server:bad']:
