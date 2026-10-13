@@ -4,6 +4,7 @@ import project_intelligence
 import workspace_insights
 import content_analysis
 import local_content_review
+import local_image_review
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, shutil, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -34,6 +35,16 @@ def call_gemma(prompt):
         def redirect_request(self,*args,**kwargs):return None
     with urllib.request.build_opener(NoRedirect).open(req,timeout=t) as r:response=json.load(r)
     if s['api_type']=='openai':return response['choices'][0]['message']['content']
+    return response['message']['content']
+def call_gemma_vision(prompt,image_b64):
+    s=config()
+    if s.get('api_type')!='ollama':raise ValueError('이미지 내용 분석은 로컬 Ollama Gemma에서만 지원합니다.')
+    base=s['gemma_url'].rstrip('/');model=s['gemma_model'];t=int(s.get('timeout',60))
+    payload={'model':model,'messages':[{'role':'user','content':prompt,'images':[image_b64]}],'stream':False,'options':{'temperature':0.2}}
+    req=urllib.request.Request(base+'/api/chat',data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'},method='POST')
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self,*args,**kwargs):return None
+    with urllib.request.build_opener(NoRedirect).open(req,timeout=t) as r:response=json.load(r)
     return response['message']['content']
 def runlog(kind,status,summary,detail=''):
     with db() as c:c.execute('INSERT INTO runs VALUES (?,?,?,?,?,?)',(uuid.uuid4().hex,kind,status,summary,detail,now()))
@@ -128,6 +139,16 @@ class Handler(BaseHTTPRequestHandler):
                 if any(path not in available for path in paths):raise ValueError('현재 PC 조사 결과에 포함된 비보호 파일만 분석할 수 있습니다.')
                 result=local_content_review.analyze([available[path] for path in paths],config(),content_analysis.analyze_file,call_gemma)
                 runlog('내용 기반 후보 분석','완료',f"로컬 Gemma · {len(paths)}개 파일 · {len(result['items'])}개 후보")
+                return self.reply(result)
+            if p=='/api/analyze-workspace-images':
+                paths=d.get('paths')
+                if scanner.status()['status']!='done':raise ValueError('먼저 PC 자료 조사를 완료하세요.')
+                if not isinstance(paths,list) or not 1<=len(paths)<=local_image_review.MAX_FILES:raise ValueError('분석할 이미지를 1~3개 선택하세요.')
+                with scanner.LOCK:
+                    available={f['path']:dict(f) for f in scanner.FILES if not f.get('protected')}
+                if any(path not in available for path in paths):raise ValueError('현재 PC 조사 결과에 포함된 비보호 파일만 분석할 수 있습니다.')
+                result=local_image_review.analyze([available[path] for path in paths],config(),call_gemma_vision)
+                runlog('이미지 내용 후보 분석','완료',f"로컬 Gemma · {len(paths)}개 파일 · {len(result['items'])}개 후보")
                 return self.reply(result)
             if p=='/api/update-check':return self.reply(updater.fetch())
             if p=='/api/update-apply':
