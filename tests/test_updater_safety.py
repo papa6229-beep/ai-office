@@ -60,7 +60,7 @@ class UpdaterSafetyTests(unittest.TestCase):
         self.assertEqual(state['phase'],'error');self.assertEqual(code,'value = 1\n');self.assertEqual(db,42);self.assertEqual(settings['api_key'],'test-only');self.assertFalse(status)
 
     def test_new_required_module_syntax_failure_rolls_back(self):
-        for name in ('browser_workspace.py','document_reader.py','streamdock_import.py','windows_workspace.py','windows_actions.py'):
+        for name in ('browser_workspace.py','document_reader.py','streamdock_import.py','windows_workspace.py','windows_actions.py','system_settings.py'):
             with self.subTest(module=name):
                 state,code,db,settings,head,status=self._run_update_fixture(broken_module=name)
                 self.assertEqual(state['phase'],'error');self.assertEqual(code,'value = 1\n')

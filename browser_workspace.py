@@ -50,6 +50,16 @@ class BrowserWorkspaceError(ValueError):
     pass
 
 
+def _is_target_closed_error(error):
+    # Optional, pinned Playwright dependency. Never classify a timeout or a
+    # navigation error as safe to replay just by matching its message text.
+    try:
+        from playwright._impl._errors import is_target_closed_error
+    except ImportError:
+        return False
+    return is_target_closed_error(error)
+
+
 def validate_url(url):
     try:
         if not isinstance(url, str) or not url or len(url) > 4096 or any(c.isspace() or ord(c) < 32 for c in url) or '\\' in url:
@@ -248,12 +258,15 @@ class BrowserWorkspace:
             self._context.set_default_timeout(15000)
             self._context.set_default_navigation_timeout(20000)
             self._context.route('**/*', self._route)
-            self._context.on('close', self._on_context_closed)
+            context = self._context
+            context.on('close', lambda *_args: self._on_context_closed(context))
         except Exception:
             self._cleanup()
             raise BrowserWorkspaceError('전용 Chrome 창을 열 수 없습니다. Chrome 설치 상태를 확인하세요.') from None
 
-    def _on_context_closed(self, *_args):
+    def _on_context_closed(self, context=None):
+        if context is not None and self._context is not context:
+            return
         self._context = None
         self._pages.clear()
         self._snapshots.clear()
@@ -326,16 +339,38 @@ class BrowserWorkspace:
 
     def _do_open(self, url):
         validate_url(url)
-        self._ensure()
-        self._prune()
-        if len(self._pages) >= 20:
-            raise BrowserWorkspaceError('전용 브라우저 탭은 최대 20개입니다. 사용하지 않는 탭을 닫아주세요.')
-        page = self._context.new_page()
+        for attempt in range(2):
+            self._ensure()
+            self._prune()
+            context = self._context
+            if context is None:
+                if attempt == 0:
+                    continue
+                raise BrowserWorkspaceError('전용 Chrome 창이 닫혔습니다. 다시 열어주세요.')
+            if len(self._pages) >= 20:
+                raise BrowserWorkspaceError('전용 브라우저 탭은 최대 20개입니다. 사용하지 않는 탭을 닫아주세요.')
+            try:
+                page = context.new_page()
+            except Exception as error:
+                # While the worker is idle, sync Playwright cannot deliver a
+                # manual Chrome-close event. new_page may be the first RPC to
+                # receive it. Recreate only a definitively closed context and
+                # only before any site navigation has been dispatched.
+                closed = self._context is None or _is_target_closed_error(error)
+                if closed:
+                    self._on_context_closed(context)
+                    if attempt == 0:
+                        continue
+                raise BrowserWorkspaceError('전용 Chrome 탭을 열 수 없습니다. 창 상태를 확인하세요.') from None
+            break
         try:
             page.goto(url, wait_until='domcontentloaded')
             validate_url(page.url)
         except Exception:
-            page.close()
+            try:
+                page.close()
+            except Exception:
+                pass
             raise BrowserWorkspaceError('사이트를 열지 못했습니다. 주소와 연결 상태를 확인하세요.') from None
         self._prune()
         tab_id = next((key for key, known in self._pages.items() if known is page), None)

@@ -179,6 +179,129 @@ class BrowserWorkspaceTests(unittest.TestCase):
         finally:
             workspace.close()
 
+    def test_external_idle_close_is_recovered_before_first_navigation(self):
+        workspace = bw.BrowserWorkspace()
+        try:
+            stale = Mock()
+            stale.pages = []
+            fresh = Mock()
+            fresh.pages = []
+            page = Mock()
+            page.url = 'https://example.org/next'
+            page.is_closed.return_value = False
+            page.title.return_value = 'Next site'
+            fresh.new_page.return_value = page
+            def delayed_close():
+                # Sync Playwright delivers the external close callback only
+                # when the next channel call pumps events, not while Queue.get
+                # waits for the next user request.
+                workspace._on_context_closed(stale)
+                raise RuntimeError('closed before navigation')
+            stale.new_page.side_effect = delayed_close
+            workspace._context = stale
+            def ensure():
+                if workspace._context is None:
+                    workspace._context = fresh
+            with patch.object(workspace, '_ensure', side_effect=ensure):
+                result = workspace.open('https://example.org/next')
+            self.assertEqual(result['url'], 'https://example.org/next')
+            stale.new_page.assert_called_once()
+            fresh.new_page.assert_called_once()
+            page.goto.assert_called_once_with('https://example.org/next', wait_until='domcontentloaded')
+        finally:
+            workspace.close()
+
+    def test_old_context_close_callback_does_not_forget_replacement(self):
+        workspace = bw.BrowserWorkspace()
+        try:
+            old, replacement = Mock(), Mock()
+            workspace._context = replacement
+            workspace._pages['live'] = Mock()
+            workspace._on_context_closed(old)
+            self.assertIs(workspace._context, replacement)
+            self.assertIn('live', workspace._pages)
+        finally:
+            workspace.close()
+
+    def test_two_consecutive_opens_do_not_recreate_live_context(self):
+        workspace = bw.BrowserWorkspace()
+        try:
+            context = Mock()
+            context.pages = []
+            pages = []
+            for url in ('https://example.org/one', 'https://example.org/two'):
+                page = Mock()
+                page.url = url
+                page.title.return_value = url
+                page.is_closed.return_value = False
+                pages.append(page)
+            context.new_page.side_effect = pages
+            workspace._context = context
+            workspace.open(pages[0].url)
+            workspace.open(pages[1].url)
+            self.assertIs(workspace._context, context)
+            self.assertEqual(context.new_page.call_count, 2)
+            for page in pages:
+                page.goto.assert_called_once()
+        finally:
+            workspace.close()
+
+    def test_failure_after_navigation_dispatch_is_never_replayed(self):
+        workspace = bw.BrowserWorkspace()
+        try:
+            context = Mock()
+            context.pages = []
+            page = Mock()
+            page.is_closed.return_value = False
+            def fail_after_dispatch(*args, **kwargs):
+                workspace._on_context_closed(context)
+                raise RuntimeError('closed after navigation was dispatched')
+            page.goto.side_effect = fail_after_dispatch
+            context.new_page.return_value = page
+            workspace._context = context
+            with self.assertRaises(bw.BrowserWorkspaceError):
+                workspace.open('https://example.org/effect')
+            page.goto.assert_called_once()
+            context.new_page.assert_called_once()
+        finally:
+            workspace.close()
+
+    def test_unknown_new_page_error_is_not_retried(self):
+        workspace = bw.BrowserWorkspace()
+        try:
+            context = Mock()
+            context.pages = []
+            context.new_page.side_effect = RuntimeError('private failure before navigation')
+            workspace._context = context
+            with patch.object(workspace, '_ensure') as ensure, self.assertRaises(bw.BrowserWorkspaceError) as caught:
+                workspace.open('https://example.org')
+            self.assertNotIn('private', str(caught.exception))
+            self.assertIs(workspace._context, context)
+            ensure.assert_called_once()
+            context.new_page.assert_called_once()
+        finally:
+            workspace.close()
+
+    def test_repeated_pre_navigation_close_is_bounded(self):
+        workspace = bw.BrowserWorkspace()
+        contexts = []
+        try:
+            def ensure():
+                context = Mock()
+                context.pages = []
+                def close_before_navigation():
+                    workspace._on_context_closed(context)
+                    raise RuntimeError('closed')
+                context.new_page.side_effect = close_before_navigation
+                contexts.append(context)
+                workspace._context = context
+            with patch.object(workspace, '_ensure', side_effect=ensure), self.assertRaises(bw.BrowserWorkspaceError):
+                workspace.open('https://example.org')
+            self.assertEqual(len(contexts), 2)
+            self.assertTrue(all(context.new_page.call_count == 1 for context in contexts))
+        finally:
+            workspace.close()
+
     def test_excessive_redirect_chain_is_blocked(self):
         workspace = bw.BrowserWorkspace()
         try:

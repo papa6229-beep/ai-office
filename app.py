@@ -127,6 +127,7 @@ def work_service():
     settings=dict(config())
     return work_assistant.WorkAssistant(DB,config,call_gemma,
         native_model=lambda messages,tools:call_assistant_model(messages,tools,settings),
+        intent_model=lambda messages,tools:call_assistant_intent(messages,tools,settings),
         registry_factory=lambda:ToolRegistry(DB,
             work_factory=lambda:work_assistant.WorkAssistant(DB,config,call_gemma),
             configure_ai=configure_ai,browser_service=browser_workspace.manager(),
@@ -145,6 +146,9 @@ def launcher_service():
 
 def call_assistant_model(messages,tools,settings=None):
     return assistant_model.call(messages,tools,settings if settings is not None else config())
+
+def call_assistant_intent(messages,tools,settings=None):
+    return assistant_model.execution_decision(messages,tools,settings if settings is not None else config())
 
 def work_view():
     data=work_service().overview()

@@ -11,6 +11,7 @@ import uuid
 SYSTEM = '''당신은 AI OFFICE 업무 비서입니다. 사용자의 자연어 의도를 이해해 제공된 도구를 직접 호출하세요.
 사용자가 원하는 결과를 파악하고 현재 상태 관찰 → 적절한 실행 도구 선택 → 실제 실행 → 결과 재관찰 순서로 처리하세요. 이미 요청한 실행을 수동 사용법으로 돌리지 마세요. 현재 실행 환경 정보와 도구 결과를 과거 대화나 일반적인 제품 지식보다 우선하세요. 기능 미연결·모듈 미설치·대상 앱 미지원·실제 OS 접근 거부를 구별하고 확인 없이 권한 부족이라고 말하지 마세요.
 일반 Windows 앱은 windows_list → windows_inspect → windows_action을 사용하세요. 관찰한 요소 ref와 지원 동작만 사용하고 새 화면의 근거를 확인하세요. action_dispatched는 업무 전체 완료가 아닙니다. 알 수 없는 변경 동작의 승인 카드를 우회하거나 같은 동작을 재시도하지 마세요. Windows UIA 텍스트만 읽었으면 실제 이미지까지 보았다고 말하지 마세요.
+Windows 설정 요청에는 settings_status로 현재 기록을 조회하고 settings_open으로 관련 화면을 연 뒤 windows_list/inspect로 실제 상태를 확인하세요. 기본 앱 페이지는 조회한 등록 앱 ref로 직접 열 수 있습니다. 기록만으로 실제 적용을 단정하지 말고, 이미 원하는 상태라면 변경하지 않고 확인된 현재 상태를 보고하세요. 실제 시도 전 권한 부족이나 사용자 수동 변경이 필요하다고 단정하지 마세요.
 한국어 별명, 발음, 오타는 설치된 앱 목록을 보고 의미로 판단하세요. 앱 이름을 엄격하게 일치시키도록 사용자에게 요구하지 마세요.
 앱/자료/업무 조회 도구로 현재 대상을 먼저 확인하고 조회가 반환한 ref만 후속 도구에 사용하세요. 대상을 만들거나 경로를 추측하지 마세요.
 명확한 추가·실행 지시는 직접 처리하고 실제로 여러 후보가 있을 때만 선택 도구를 사용하세요. 부정/취소 지시를 실행 지시로 오해하지 마세요.
@@ -122,10 +123,11 @@ class AssistantRuntime:
     MAX_ROUNDS = 6
     MAX_CALLS = 12
 
-    def __init__(self, db_path, model_call, registry_factory):
+    def __init__(self, db_path, model_call, registry_factory, intent_call=None):
         self.db_path = str(db_path)
         self.model_call = model_call
         self.registry_factory = registry_factory
+        self.intent_call = intent_call
         with _connect(self.db_path) as c:
             initialize(c)
 
@@ -326,7 +328,42 @@ class AssistantRuntime:
             if not isinstance(calls, list) or len(calls) > self.MAX_CALLS:
                 raise ValueError('도구 호출 수를 확인할 수 없습니다.')
             if not calls:
-                return str(output.get('content') or '')[:6000]
+                if not receipts and count == 0 and callable(self.intent_call):
+                    # Reassess an unattempted answer semantically. The assessor
+                    # can select only a registered observation, never an effect.
+                    # Its selection enters the same audited tool path below.
+                    try:
+                        observations = [d for d in definitions
+                                        if registry.effect(d['function']['name']) == 'read']
+                        decision = self.intent_call(json.loads(_json(messages)), observations)
+                        if not isinstance(decision, dict) or set(decision) - {'decision', 'observation', 'message'}:
+                            raise ValueError('Invalid execution decision')
+                        kind = decision.get('decision')
+                        if kind not in ('execute', 'answer', 'clarify', 'cancel'):
+                            raise ValueError('Invalid execution decision')
+                        if not isinstance(decision.get('message'), str) or len(decision['message']) > 6000:
+                            raise ValueError('Invalid execution explanation')
+                        observation = decision.get('observation')
+                        if kind != 'execute':
+                            if observation is not None or not decision['message'].strip():
+                                raise ValueError('Invalid non-execution decision')
+                            return decision['message']
+                        if not isinstance(observation, dict) or set(observation) != {'name', 'arguments'}:
+                            raise ValueError('Invalid observation')
+                        name, arguments = observation['name'], observation['arguments']
+                        if not isinstance(name, str) or name not in schemas or registry.effect(name) != 'read':
+                            raise ValueError('Observation must be a registered read tool')
+                        if not isinstance(arguments, dict):
+                            raise ValueError('Invalid observation arguments')
+                        _validate(arguments, schemas[name])
+                        calls = [{'id': uuid.uuid4().hex, 'name': name, 'arguments': arguments}]
+                        output = {'content': ''}
+                    except Exception:
+                        receipts.append({'status': 'error', 'message':
+                            '요청을 실행할 방법을 확인하지 못해 아직 시도하지 않았습니다. 권한 부족이나 완료 여부는 확인되지 않았습니다.'})
+                        return
+                else:
+                    return str(output.get('content') or '')[:6000]
             normalized = []
             for call in calls:
                 if not isinstance(call, dict) or not isinstance(call.get('name'), str) or not isinstance(call.get('arguments'), dict):

@@ -64,6 +64,36 @@ class AssistantModelTests(unittest.TestCase):
                 assistant_model.call([{'role': 'user', 'content': 'hello'}], [], self.settings())
         self.assertNotIn('fixture-key', str(error.exception))
 
+    def test_semantic_execution_decision_uses_ollama_schema_and_only_observations(self):
+        decision={'decision':'execute','observation':{'name':'settings_status','arguments':{}},'message':'현재 설정부터 확인합니다.'}
+        tools=[{'type':'function','function':{'name':'settings_status','description':'설정을 읽습니다.','parameters':{'type':'object','properties':{}}}}]
+        with patch('assistant_model.urllib.request.build_opener') as opener:
+            opener.return_value.open.return_value=io.BytesIO(json.dumps({'message':{'content':json.dumps(decision)}}).encode())
+            result=assistant_model.execution_decision([{'role':'user','content':'기본 브라우저 바꿔줘'}],tools,self.settings())
+            payload=json.loads(opener.return_value.open.call_args.args[0].data)
+        self.assertEqual(result,decision)
+        self.assertEqual(payload['tools'],[])
+        self.assertEqual(payload['format'],'json')
+        self.assertIn('settings_status',payload['messages'][-1]['content'])
+
+    def test_execution_decision_openai_uses_json_object_format(self):
+        decision={'decision':'answer','observation':None,'message':'안녕하세요.'}
+        with patch('assistant_model.urllib.request.build_opener') as opener:
+            opener.return_value.open.return_value=io.BytesIO(json.dumps({'choices':[{'message':{'content':json.dumps(decision)}}]}).encode())
+            result=assistant_model.execution_decision([{'role':'user','content':'안녕'}],[],self.settings('openai'))
+            payload=json.loads(opener.return_value.open.call_args.args[0].data)
+        self.assertEqual(result,decision)
+        self.assertEqual(payload['response_format'],{'type':'json_object'})
+
+    def test_execution_decision_rejects_unoffered_tools_and_malformed_values(self):
+        bad=[{'decision':'execute','observation':{'name':'write_anything','arguments':{}},'message':''},
+             {'decision':'execute','observation':None,'message':''},
+             {'decision':'answer','observation':None,'message':1}]
+        for decision in bad:
+            with self.subTest(decision=decision),patch('assistant_model.urllib.request.build_opener') as opener:
+                opener.return_value.open.return_value=io.BytesIO(json.dumps({'message':{'content':json.dumps(decision)}}).encode())
+                with self.assertRaises(ValueError):assistant_model.execution_decision([{'role':'user','content':'실행'}],[],self.settings())
+
 
 if __name__ == '__main__':
     unittest.main()

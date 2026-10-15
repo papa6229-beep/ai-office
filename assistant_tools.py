@@ -27,6 +27,7 @@ import streamdock_import
 import windows_app_catalog
 import windows_workspace
 import windows_actions
+import system_settings
 
 
 def _string(description='', **kwargs):
@@ -93,6 +94,10 @@ _SPECS = {
     'organizer_policy_preview': ('write', '정책의 실제 이동 후보를 읽기 전용으로 미리 봅니다. 채팅에서 정책 실행은 아직 지원하지 않습니다.', {}, []),
 }
 _SPECS.update(windows_actions.SPECS)
+_SPECS.update({
+    'settings_status': ('read','현재 Windows 설정 진입점, 등록 앱과 HTTP/HTTPS 기본 앱 설정 기록을 조회합니다. 기본 브라우저 변경 요청에는 먼저 실제 상태를 확인하세요. 설정 화면을 열 앱 ref도 반환합니다. query는 Chrome 같은 앱 이름입니다.',{'query':_string()},[]),
+    'settings_open': ('external','Windows 설정 화면을 직접 엽니다. default_apps는 settings_status에서 확인한 앱 ref를 지정해 해당 앱 기본값 화면으로 이동할 수 있습니다. 이후 windows_list/inspect로 실제 화면을 읽고 필요한 조작과 결과 확인을 이어가세요. 열기만으로 설정 변경 완료가 아닙니다.',{'section':_string(enum=list(system_settings.SECTIONS)),'app_ref':_string()},['section']),
+})
 # Avoid a second source of truth for string length limits.
 for _spec in _SPECS.values():
     for _field in _spec[2].values():
@@ -150,6 +155,8 @@ class ToolRegistry:
                            'uses_windows_default':not managed,'default_browser_change_required_for_managed_chrome':False,
                            'scope':'AI OFFICE 전용 Chrome 창; 기존 다른 Chrome 탭은 별개'},
                 'windows':windows_workspace.capabilities(),
+                'settings':{'navigation':list(system_settings.SECTIONS),'association_status':'read_only_current_user_records',
+                            'change_workflow':'settings_status -> settings_open -> windows_inspect/action -> verify'},
                 'permissions':{'uses_current_windows_user':True,'arbitrary_shell':False,
                                'unknown_native_changes':'exact_action_approval','protected_os_prompts':False},
                 'reporting':'모듈 미설치·기능 미연결·요소 미지원·실제 OS 접근 거부를 구별하고 실행 결과로 확인하세요.'}
@@ -351,6 +358,23 @@ class ToolRegistry:
 
     def _execute(self,name,a,c):
         if name in windows_actions.SPECS: return self.windows.execute(name,a,c)
+        if name=='settings_status':
+            status=system_settings.status()
+            query=a.get('query','').casefold().strip()
+            apps=status.pop('registered_apps',[])
+            matched=[row for row in apps if query and query in row['name'].casefold()]
+            chosen=(matched if matched else apps)[:100]
+            status['apps']=[{'ref':self._ref(c,'settings_app',row['id']),'name':row['name'],'scope':row['scope']} for row in chosen]
+            status['apps_truncated']=len(matched if matched else apps)>100
+            records=status.get('web_associations',{})
+            message='현재 Windows 기본 앱 설정 기록: '+', '.join(key.upper()+': '+str(records.get(key,{}).get('prog_id') or '확인 못함') for key in ('http','https'))
+            message+='\n실제 적용 상태는 설정 화면에서 확인해야 합니다. 설정을 변경한 결과는 아닙니다.'
+            return dict(_ok(message,status),evidence=True,answer_complete=True)
+        if name=='settings_open':
+            app_id=self._get(c,a['app_ref'],'settings_app') if a.get('app_ref') else None
+            result=system_settings.open_section(a['section'],app_id)
+            result.pop('application',None)
+            return _ok(result['message'],result)
         if name=='browser_open':
             row=self._browser().open(a['url'])
             return _ok('AI OFFICE Chrome에서 사이트를 열었습니다: '+row.get('title',''),{'tab':self._browser_card(c,row)})
