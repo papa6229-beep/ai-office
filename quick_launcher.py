@@ -159,8 +159,9 @@ def _suggestions():
 
 
 class QuickLauncher:
-    def __init__(self, db_path):
+    def __init__(self, db_path, web_opener=None):
         self.db_path = str(db_path)
+        self.web_opener = web_opener
         with _LOCKS_GUARD:
             self._lock = _LOCKS.setdefault(os.path.normcase(os.path.abspath(self.db_path)), threading.RLock())
         with self._lock, self._connect() as c:
@@ -257,12 +258,15 @@ class QuickLauncher:
                     c.execute('INSERT INTO launcher_requests VALUES (?,?,?)', (request_id, signature, json.dumps(response, ensure_ascii=False)))
                     return response
             item_id, kind, target = launch
+            browser = None
             try:
                 # Validate again after reserving the request and immediately before opening.
                 target = _target(kind, target)
                 if kind == 'web':
-                    if not webbrowser.open(target):
+                    opened = self.web_opener(target) if self.web_opener else webbrowser.open(target)
+                    if not opened:
                         raise OSError()
+                    if isinstance(opened, dict): browser = opened
                 elif kind == 'app' and target.startswith('startapp:'):
                     windows_app_catalog.launch(target)
                 else:
@@ -274,6 +278,9 @@ class QuickLauncher:
             with self._connect() as c:
                 response = self._overview(c)
                 response['result'] = {'id': item_id, 'item_id': item_id, 'message': '열기를 요청했습니다.'}
+                if browser:
+                    response['result']['browser'] = browser
+                    response['result']['message'] = browser.get('message', 'AI OFFICE Chrome에서 사이트를 열었습니다.')
                 c.execute('UPDATE launcher_requests SET response=? WHERE id=?', (json.dumps(response, ensure_ascii=False), request_id))
                 return response
 

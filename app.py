@@ -16,6 +16,7 @@ import work_assistant
 import quick_launcher
 import browser_bookmarks
 import assistant_model
+import browser_workspace
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -127,7 +128,19 @@ def work_service():
         native_model=lambda messages,tools:call_assistant_model(messages,tools,settings),
         registry_factory=lambda:ToolRegistry(DB,
             work_factory=lambda:work_assistant.WorkAssistant(DB,config,call_gemma),
-            configure_ai=configure_ai))
+            configure_ai=configure_ai,browser_service=browser_workspace.manager(),
+            vision_model=lambda prompt,image:call_gemma_vision(prompt,image,settings),
+            workspace=settings.get('workspace'),web_opener=open_managed_web))
+
+def open_managed_web(url):
+    import importlib.util,webbrowser
+    if importlib.util.find_spec('playwright') is None:
+        if not webbrowser.open(url): raise ValueError('브라우저를 열지 못했습니다.')
+        return {'message':'일반 브라우저 열기를 요청했습니다. 화면 읽기에는 Playwright 설치가 필요합니다.'}
+    return browser_workspace.manager().open(url)
+
+def launcher_service():
+    return quick_launcher.QuickLauncher(DB,web_opener=open_managed_web)
 
 def call_assistant_model(messages,tools,settings=None):
     return assistant_model.call(messages,tools,settings if settings is not None else config())
@@ -279,7 +292,7 @@ class Handler(BaseHTTPRequestHandler):
                         return self.reply({'path':selected,'cancelled':not bool(selected)})
                     except (OSError,subprocess.TimeoutExpired):raise ValueError('프로그램 선택창을 열지 못했습니다. 경로를 직접 입력할 수 있습니다.') from None
                 payload={k:v for k,v in d.items() if k!='token'}
-                result=quick_launcher.QuickLauncher(DB).perform(p.rsplit('/',1)[-1],payload)
+                result=launcher_service().perform(p.rsplit('/',1)[-1],payload)
                 result['action_token']=DESK_TOKEN
                 return self.reply(result)
             if p.startswith('/api/work/') or p in {'/api/task','/api/task/status'}:

@@ -91,6 +91,19 @@ class RuntimeTests(unittest.TestCase):
             {'tool_calls':[call('apps')]},{'content':'두 조회 결과를 함께 설명합니다.'}]))
         self.assertEqual(response['result']['answer'],'두 조회 결과를 함께 설명합니다.')
 
+    def test_open_then_read_evidence_keeps_grounded_summary(self):
+        original=self.registry.execute
+        def execute(name,args,context):
+            result=original(name,args,context)
+            if name=='apps' and len(self.registry.calls)>2: result['evidence']=True
+            return result
+        self.registry.execute=execute
+        response=self.command(self.runtime([{'tool_calls':[call('apps')]},
+            {'tool_calls':[call('launch',{'ref':'app:1'})]},
+            {'tool_calls':[call('apps')]},{'content':'읽은 본문의 납기는 금요일입니다.'}]))
+        self.assertIn('금요일',response['result']['answer'])
+        self.assertIn('열기를 요청',response['result']['message'])
+
     def test_relative_due_dates_have_current_local_date_context(self):
         self.command(self.runtime([{'content': '어떤 업무인지 알려주세요.'}]), message='내일까지 할 일 추가해줘')
         self.assertIn(datetime.datetime.now().astimezone().date().isoformat(), self.model_inputs[0][0]['content'])

@@ -29,7 +29,7 @@ class UpdaterSafetyTests(unittest.TestCase):
                 self.assertFalse(updater.git('status','--porcelain').stdout.strip())
             finally:updater.ROOT=old
 
-    def _run_update_fixture(self, broken=False):
+    def _run_update_fixture(self, broken=False, broken_module=None):
         with tempfile.TemporaryDirectory() as td:
             base=pathlib.Path(td);source=base/'source';source.mkdir();remote=base/'origin.git';work=base/'work'
             def git_at(cwd,*args):return subprocess.run(['git','-C',str(cwd),*args],capture_output=True,text=True)
@@ -39,7 +39,10 @@ class UpdaterSafetyTests(unittest.TestCase):
             git_at(source,'add','.');git_at(source,'commit','-m','base');git_at(base,'init','--bare',str(remote));git_at(source,'remote','add','origin',str(remote));git_at(source,'push','-u','origin','main')
             subprocess.run(['git','clone','--branch','main',str(remote),str(work)],capture_output=True,check=True)
             git_at(source,'config','user.email','test@example.invalid');git_at(source,'config','user.name','Test')
-            (source/'app.py').write_text('def broken(:\n' if broken else 'value = 2\n');git_at(source,'commit','-am','update');git_at(source,'push','origin','main')
+            (source/'app.py').write_text('def broken(:\n' if broken else 'value = 2\n')
+            if broken_module:
+                (source/broken_module).write_text('def broken(:\n');git_at(source,'add',broken_module)
+            git_at(source,'commit','-am','update');git_at(source,'push','origin','main')
             c=sqlite3.connect(work/'office.db');c.execute('CREATE TABLE keep(v)');c.execute('INSERT INTO keep VALUES (42)');c.commit();c.close();(work/'settings.json').write_text('{"api_key":"test-only"}')
             old=(updater.ROOT,updater.BACKUPS,updater.STATUS,updater.check,updater.launch,updater.port_open)
             updater.ROOT=work;updater.BACKUPS=work/'local_backups';updater.STATUS=work/'update_status.json';updater.check=lambda:{'phase':'ready'};updater.launch=lambda:None;updater.port_open=lambda:False
@@ -55,6 +58,13 @@ class UpdaterSafetyTests(unittest.TestCase):
     def test_local_remote_code_validation_failure_rolls_back_commit_and_data(self):
         state,code,db,settings,head,status=self._run_update_fixture(broken=True)
         self.assertEqual(state['phase'],'error');self.assertEqual(code,'value = 1\n');self.assertEqual(db,42);self.assertEqual(settings['api_key'],'test-only');self.assertFalse(status)
+
+    def test_new_required_module_syntax_failure_rolls_back(self):
+        for name in ('browser_workspace.py','document_reader.py','streamdock_import.py'):
+            with self.subTest(module=name):
+                state,code,db,settings,head,status=self._run_update_fixture(broken_module=name)
+                self.assertEqual(state['phase'],'error');self.assertEqual(code,'value = 1\n')
+                self.assertEqual(db,42);self.assertEqual(settings['api_key'],'test-only');self.assertFalse(status)
 
     def test_backup_preserves_db_and_settings_in_isolated_root(self):
         with tempfile.TemporaryDirectory() as td:

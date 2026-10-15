@@ -18,6 +18,7 @@ desktop_ai_state.json
 desktop_ai_state.json.tmp
 desktop_ai_state.json.*.tmp
 desktop_recovery/
+browser_runtime/
 
 # Python runtime artifacts
 __pycache__/

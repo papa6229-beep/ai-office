@@ -73,10 +73,11 @@ class LauncherApiTests(unittest.TestCase):
         self.assertEqual(self.program.read_bytes(),b'MZ-fixture-only')
 
     def test_web_launch_and_unsafe_schemes(self):
-        with patch('webbrowser.open',return_value=True) as opened:
+        with patch.object(app,'open_managed_web',return_value={'tab_id':'fixture-tab','title':'업무 웹','url':'https://example.com/work'}) as opened:
             data=self.write('save',title='업무 웹',kind='web',target='https://example.com/work',icon='🌐')
-            self.write('launch',id=data['items'][0]['id'])
+            launched=self.write('launch',id=data['items'][0]['id'])
             opened.assert_called_once_with('https://example.com/work')
+            self.assertEqual(launched['result']['browser']['tab_id'],'fixture-tab')
         for target in ['javascript:alert(1)','file:///C:/Windows','https://name:secret@example.com']:
             with self.subTest(target=target),self.assertRaises(urllib.error.HTTPError):
                 self.write('save',title='차단',kind='web',target=target)
