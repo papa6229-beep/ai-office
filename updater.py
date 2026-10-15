@@ -3,8 +3,15 @@ import datetime, json, os, pathlib, shutil, socket, sqlite3, subprocess, sys, ti
 ROOT=pathlib.Path(__file__).resolve().parent
 STATUS=ROOT/'update_status.json'
 BACKUPS=ROOT/'local_backups'
-PRIVATE=('office.db','settings.json','desktop_state.json')
-TRACKED_PRIVATE=PRIVATE+('startup.log','office.db-wal','office.db-shm','office.db-journal','update_status.json','desktop_state.json.tmp','organizer_lab')
+PRIVATE=('office.db','settings.json','desktop_state.json','organizer_policy.json')
+TRACKED_PRIVATE=PRIVATE+('startup.log','office.db-wal','office.db-shm','office.db-journal','update_status.json','desktop_state.json.tmp','organizer_lab','organizer_policy.json.tmp','organizer_policy.json.*.tmp','organizer_runtime')
+
+def regular_route(path):
+    for part in (path,*path.parents):
+        try:info=part.lstat()
+        except FileNotFoundError:continue
+        if part.is_symlink() or getattr(info,'st_file_attributes',0)&1024:return False
+    return True
 
 def git(*args, timeout=45):
     return subprocess.run(['git','-C',str(ROOT),*args],text=True,capture_output=True,timeout=timeout,encoding='utf-8',errors='replace')
@@ -51,7 +58,22 @@ def backup():
         try:src.backup(dest)
         finally:dest.close();src.close()
     for name in PRIVATE:
-        if name!='office.db' and (ROOT/name).exists():shutil.copy2(ROOT/name,folder/name)
+        if name!='office.db' and (ROOT/name).exists():
+            if not regular_route(ROOT/name):raise RuntimeError('개인 설정의 링크 경로는 백업하지 않습니다.')
+            shutil.copy2(ROOT/name,folder/name)
+    # Execution history remains local. Copy regular JSON records only, never follow links.
+    runtime=ROOT/'organizer_runtime'
+    if runtime.is_dir():
+        if not regular_route(runtime):raise RuntimeError('정리 기록의 링크 경로는 백업하지 않습니다.')
+        copied=0
+        for base,dirs,files in os.walk(runtime,followlinks=False):
+            dirs[:]=[name for name in dirs if not (pathlib.Path(base)/name).is_symlink() and not (getattr((pathlib.Path(base)/name).lstat(),'st_file_attributes',0)&1024)]
+            for name in files:
+                source=pathlib.Path(base)/name
+                if source.suffix!='.json' or source.is_symlink() or getattr(source.lstat(),'st_file_attributes',0)&1024:continue
+                if copied>=2000 or source.stat().st_size>512*1024:raise RuntimeError('정리 기록의 백업 범위를 확인하세요.')
+                target=folder/'organizer_runtime'/source.relative_to(runtime)
+                target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target);copied+=1
     return folder
 
 def port_open():
@@ -62,7 +84,33 @@ def port_open():
 def restore(folder):
     for name in PRIVATE:
         source=folder/name
-        if source.exists():shutil.copy2(source,ROOT/name)
+        if source.exists():
+            if name=='organizer_policy.json':
+                target=ROOT/name
+                if not regular_route(target):raise ValueError('정리 설정의 링크 경로를 복원하지 않습니다.')
+                payload=json.loads(source.read_text(encoding='utf-8'))
+                if not isinstance(payload,dict) or not isinstance(payload.get('jobs'),list):raise ValueError('백업 정리 설정을 확인하세요.')
+                current=json.loads(target.read_text(encoding='utf-8')) if target.exists() else {'jobs':[]}
+                if not isinstance(current,dict) or not isinstance(current.get('jobs'),list):raise ValueError('현재 정리 설정이 손상되어 보존했습니다.')
+                # Preserve newer independent job authority as well as its journal.
+                records={record['id']:record for record in payload['jobs']}
+                records.update({record['id']:record for record in current['jobs']})
+                payload['jobs']=list(records.values());payload['fingerprint']=''
+                if payload.get('policy') is not None:payload['policy']['auto_enabled']=False
+                temp=target.with_name(target.name+'.restore.tmp')
+                with temp.open('x',encoding='utf-8') as stream:
+                    json.dump(payload,stream,ensure_ascii=False,indent=2);stream.flush();os.fsync(stream.fileno())
+                os.replace(temp,target)
+            else:shutil.copy2(source,ROOT/name)
+    # A newer journal may describe files moved after backup; never rewind it.
+    history=folder/'organizer_runtime'
+    if history.exists() and regular_route(history):
+        for source in history.rglob('*.json'):
+            target=ROOT/'organizer_runtime'/source.relative_to(history)
+            if not regular_route(source) or not regular_route(target):raise ValueError('정리 기록의 링크 경로를 복원하지 않습니다.')
+            if not target.exists():
+                target.parent.mkdir(parents=True,exist_ok=True)
+                with source.open('rb') as reader,target.open('xb') as writer:shutil.copyfileobj(reader,writer)
 
 def restore_code(revision, files, expected_head=None):
     """Restore only files changed by this update; never reset the whole worktree."""
@@ -93,13 +141,13 @@ def apply():
     before=git('rev-parse','HEAD').stdout.strip()
     folder=None
     try:
-        write('backup','사용자 데이터를 백업하고 있습니다.')
-        folder=backup()
-        write('waiting','기존 서버가 종료되기를 기다리는 중입니다.',backup_dir=str(folder))
+        write('waiting','기존 서버와 자동 정리가 종료되기를 기다리는 중입니다.')
         for _ in range(100):
             if not port_open():break
             time.sleep(0.25)
         else:raise RuntimeError('기존 AI OFFICE 서버가 종료되지 않았습니다. 업데이트를 중단했습니다.')
+        write('backup','사용자 데이터와 정리 기록을 백업하고 있습니다.')
+        folder=backup()
         write('applying','GitHub 코드를 적용 중입니다.',backup_dir=str(folder))
         pull=git('merge','--ff-only','origin/main',timeout=60)
         if pull.returncode:raise RuntimeError('코드 갱신 실패: '+pull.stderr[-400:])
@@ -107,7 +155,7 @@ def apply():
         changed=git('diff','--name-only',before,'HEAD')
         if changed.returncode:raise RuntimeError('변경 파일 목록을 확인하지 못했습니다.')
         changed_files=changed.stdout.splitlines()
-        files=['app.py','scanner.py','project_intelligence.py','workspace_insights.py','content_analysis.py','local_content_review.py','local_image_review.py','adobe_preview.py','desktop_workspace.py','desktop_preferences.py','desktop_collections.py','file_executor.py','organizer_lab.py','updater.py']
+        files=['app.py','scanner.py','project_intelligence.py','workspace_insights.py','content_analysis.py','local_content_review.py','local_image_review.py','adobe_preview.py','desktop_workspace.py','desktop_preferences.py','desktop_collections.py','file_executor.py','organizer_lab.py','organizer_policy.py','updater.py']
         compile_result=subprocess.run([sys.executable,'-c', 'import ast,pathlib,sys; [ast.parse(pathlib.Path(p).read_text(encoding="utf-8")) for p in sys.argv[1:] if pathlib.Path(p).exists()]',*files],cwd=ROOT,capture_output=True,text=True,timeout=20)
         if compile_result.returncode:raise RuntimeError('새 코드 검사 실패: '+compile_result.stderr[-400:])
         write('done','업데이트가 완료되었습니다.',backup_dir=str(folder))

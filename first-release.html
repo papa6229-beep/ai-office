@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI OFFICE · 1차 기능 보고서</title><link rel="icon" href="data:,"><style>
+*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#233f56;font-family:"Segoe UI","Malgun Gothic",sans-serif;line-height:1.75}main{max-width:960px;margin:auto;padding:42px 24px 70px}header{border-top:5px solid #4a789b;padding-top:23px;margin-bottom:32px}h1{font-size:32px;letter-spacing:-1px;line-height:1.4;margin:0 0 13px}h2{font-size:21px;margin:32px 0 14px}p{margin:10px 0;color:#60788d;font-size:14px}a{color:#2c658e}header a{display:inline-block;background:#294f71;color:white;padding:10px 17px;border-radius:6px;text-decoration:none;font-size:13px;margin-top:10px}.summary{background:#e6eef6;padding:22px;border-left:4px solid #577fa4;border-radius:6px;font-size:15px;color:#385e7f}.features{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.feature{background:white;border:1px solid #dae4ee;padding:19px;border-radius:8px}.feature h3{margin:0 0 8px;font-size:16px}.feature p{font-size:13px;margin:0}.steps{counter-reset:step;list-style:none;padding:0;display:grid;gap:10px}.steps li{counter-increment:step;position:relative;background:white;border:1px solid #dce5ee;padding:17px 20px 17px 65px;border-radius:7px;font-size:14px}.steps li:before{content:counter(step);position:absolute;left:19px;top:17px;width:29px;height:29px;border-radius:50%;text-align:center;background:#e9f0f6;color:#3d6686;font-weight:700}.steps strong{display:block}.steps small{display:block;color:#70869a;font-size:12px;margin-top:4px}table{width:100%;border-collapse:collapse;font-size:13px;background:white}td,th{border-bottom:1px solid #dee6ef;text-align:left;padding:13px;vertical-align:top}th{color:#547690;background:#e9eff6}.table-wrap{overflow:auto;border:1px solid #dce5ee;border-radius:7px}.checklist{background:white;border:1px solid #dce5ee;border-radius:8px;padding:20px 24px}.checklist li{font-size:14px;margin:9px 0}.scope{border-top:1px solid #d4e1ec;margin-top:28px;padding-top:18px}.feedback{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px}.feedback div{background:#e9eff6;padding:17px;border-radius:6px;font-size:13px}.feedback b{display:block;margin-bottom:5px}.feedback span{color:#6c8295;font-size:12px}.verification{padding:16px;background:#e8f2ed;color:#46765e;border-radius:6px;font-size:13px}.footer{font-size:12px;color:#8295a5;margin-top:40px}@media(max-width:650px){main{padding:26px 16px}h1{font-size:26px}.features,.feedback{grid-template-columns:1fr}td,th{padding:10px;font-size:12px}}@media print{body{background:white}main{max-width:none;padding:15px}header a{display:none}.feature,.steps li{break-inside:avoid}}
+</style></head><body><main>
+<header><h1>AI OFFICE<br>1차 기능 보고서</h1><p>바탕화면 대신 자료와 도구를 찾고, 정해둔 폴더를 자동으로 정리하는 첫 사용 버전입니다.</p><a href="/">AI OFFICE 열기</a></header>
+<div class="summary">사용자는 <strong>정리 범위를 한 번 설정</strong>하고, 이후에는 <strong>처리 결과와 확인이 필요한 항목</strong>을 봅니다. 파일마다 선택하거나 승인하는 방식은 줄였습니다.</div>
+<h2>지금 사용할 수 있는 기능</h2>
+<div class="features">
+<article class="feature"><h3>내 작업 데스크</h3><p>실제 바탕화면의 앱·폴더·파일을 검색하고 엽니다. 즐겨찾기, 유형별 보기, 이미지 미리보기, 전체화면을 제공합니다.</p></article>
+<article class="feature"><h3>자동 업무 작업함</h3><p>비슷한 이름의 자료를 앱 안에서 자동으로 묶습니다. 작업함을 수정하거나 되돌릴 수 있고, 원본 위치는 유지됩니다.</p></article>
+<article class="feature"><h3>자동 폴더 정리</h3><p>원본·보관 폴더와 제외 이름을 저장합니다. 자동 정리를 켜면 앱이 실행 중일 때 주기적으로 지원 파일을 유형별 폴더에 이동합니다.</p></article>
+<article class="feature"><h3>처리 결과·되돌리기</h3><p>이동·보류·충돌을 기록합니다. 중단된 작업은 이어갈 수 있고, 수정된 파일이나 새로 생긴 파일을 덮어쓰지 않고 되돌립니다.</p></article>
+<article class="feature"><h3>PC 자료 조사·중복 비교</h3><p>파일·폴더 현황을 카드로 확인합니다. 동일 내용 비교와 ZIP 내부 비교로 중복·관련 자료 후보를 찾습니다.</p></article>
+<article class="feature"><h3>Gemma 내용 분석</h3><p>설정한 Ollama·Gemma 서버로 선택한 텍스트·문서 또는 이미지를 분석합니다. 프로젝트와 업무 후보를 보여주며, 결과만으로 파일을 이동하지 않습니다.</p></article>
+</div>
+<h2>처음 테스트하는 순서</h2>
+<ol class="steps">
+<li><strong>내 작업 데스크를 사용해 보세요.</strong><small>검색, 즐겨찾기, 파일 열기와 작업함이 일상 업무에 편한지 확인합니다.</small></li>
+<li><strong>우측 상단 ‘정리 실행 연습’을 누르세요.</strong><small>앱이 만든 샘플 4개를 정리하고 1개를 보류합니다. ‘이 정리 되돌리기’로 원위치 복원도 확인합니다.</small></li>
+<li><strong>별도의 작은 시험 폴더 두 개를 준비하세요.</strong><small>원본 폴더에는 프로젝트와 연결되지 않은 시험 파일 몇 개만 복사해 두고, 다른 기존 폴더를 보관 위치로 선택합니다. 중요한 원본으로 첫 시험을 시작하지 않아도 됩니다.</small></li>
+<li><strong>‘자동 폴더 정리’에서 범위를 저장하세요.</strong><small>원본·보관 위치, 제외 이름을 입력하고 범위 허용을 체크합니다. 저장·미리보기까지는 파일을 이동하지 않습니다.</small></li>
+<li><strong>미리보기 후 ‘자동 정리 시작’을 누르세요.</strong><small>60초마다 확인합니다. 최근 작성된 파일은 안정될 때까지 기다립니다. 바로 확인하려면 ‘지금 한 번 정리’를 사용합니다.</small></li>
+<li><strong>결과·보류 사유와 되돌리기를 확인하세요.</strong><small>되돌리기를 누르면 자동 정리가 일시 정지됩니다. 바뀐 파일은 보존하고 확인 대상으로 남깁니다.</small></li>
+</ol>
+<h2>자동 처리의 현재 범위</h2>
+<div class="table-wrap"><table><thead><tr><th>항목</th><th>현재 동작</th></tr></thead><tbody>
+<tr><td>정리 대상</td><td>저장한 독립 파일 수신함의 최상위 지원 파일. 하위 폴더는 이동하지 않습니다.</td></tr>
+<tr><td>정리 기준</td><td>파일 종류별 분류. Gemma가 내용으로 프로젝트를 판단해 자동 이동하는 기능은 이후 단계입니다.</td></tr>
+<tr><td>이름 충돌·사용 중 파일</td><td>덮어쓰지 않고 확인 대상으로 남깁니다.</td></tr>
+<tr><td>AI·PSD와 보호 자료</td><td>AI·PSD 등 프로젝트 원본이 있는 폴더는 연결 자료 보호를 위해 실제 정리를 보류합니다. 보호 파일도 이동하지 않습니다.</td></tr>
+<tr><td>이동량</td><td>한 작업 최대 100개, 파일당 20MB, 합계 200MB. 첫 묶음이 모두 충돌·사용 중이면 뒤의 자료도 대기할 수 있습니다. 같은 로컬 드라이브의 분리된 기존 폴더를 사용합니다.</td></tr>
+<tr><td>내용 분석</td><td>분석을 실행할 때 선택한 파일을 설정된 서버로 보냅니다. 폴더 정리 허용은 서버 전송 허용으로 사용하지 않습니다.</td></tr>
+<tr><td>PDF·디자인 미리보기</td><td>PDF 내용 추출에는 선택 구성요소 pypdf가 필요합니다. PSD에는 Pillow, AI 미리보기에는 Illustrator가 필요합니다.</td></tr>
+<tr><td>자동 확인</td><td>AI OFFICE가 실행 중일 때 작동합니다. PC를 끄거나 프로그램을 종료하면 멈춥니다.</td></tr>
+</tbody></table></div>
+<h2>보존과 복구</h2>
+<div class="checklist"><ul><li>DB·설정·API 키·정리 기록은 GitHub에 올리지 않습니다.</li><li>파일을 삭제하거나 기존 이름을 덮어쓰는 기능은 없습니다.</li><li>정리 기록을 먼저 저장하고 이동합니다. 중단 후 기록과 실제 파일을 비교해 이어갑니다.</li><li>되돌리기는 이후 바뀐 파일과 새로 생긴 원본 위치의 파일을 보존합니다.</li><li>업데이트는 DB·설정을 백업하고 실패 시 변경한 코드만 조건부로 복구합니다. 실패 복구 후 자동 정리는 정지 상태로 돌아옵니다.</li></ul></div>
+<h2>검증 결과</h2>
+<div id="verification" class="verification">Windows 자동 검증 155개 통과. 실제 앱 실행 환경에서도 154개 통과했으며, 선택 PDF 구성요소 미설치 항목 1개는 제외했습니다. 화면에서 범위 저장·계획 취소·제외 규칙·60초 자동 처리·원위치 복원을 확인했습니다. 좁은 화면의 가로 넘침과 브라우저 오류는 없었고, 설정된 Gemma 서버의 연결 응답도 확인했습니다. 시험에는 생성한 파일만 사용했으며 실제 바탕화면 자료와 기존 DB·설정은 보존했습니다.</div>
+<h2>피드백은 세 가지만 알려주세요</h2>
+<div class="feedback"><div><b>찾기 쉬운가요?</b><span>검색·작업함·즐겨찾기로 원하는 자료에 빨리 도달하는지.</span></div><div><b>정리가 맞나요?</b><span>남겨야 할 파일, 묶을 자료, 보류 사유가 기대와 같은지.</span></div><div><b>맡길 수 있나요?</b><span>결과와 되돌리기를 보고 자동 처리 범위를 넓힐 수 있을지.</span></div></div>
+<div class="scope"><h2>다음 단계</h2><p>내용 기반 프로젝트 연결, 승인한 범위의 보관·정리 확대, 반복 업무와 브라우저 작업 순서로 확장합니다. 브라우저 자율 조작, 자동 삭제, 네이트온 배포·외부 전송은 이번 1차 버전에 포함되지 않습니다.</p></div>
+<p class="footer">AI OFFICE · 1차 사용자 시험용 · 2026년 10월 15일. 전원 장애·특수 파일 시스템·악의적인 동시 경로 변경까지 보장하는 버전은 아닙니다.</p>
+</main></body></html>

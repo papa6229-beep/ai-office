@@ -10,6 +10,10 @@ startup.log
 update_status.json
 local_backups/
 organizer_lab/
+organizer_policy.json
+organizer_policy.json.tmp
+organizer_policy.json.*.tmp
+organizer_runtime/
 
 # Python runtime artifacts
 __pycache__/

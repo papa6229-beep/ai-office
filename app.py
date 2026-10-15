@@ -9,7 +9,8 @@ import desktop_workspace
 import desktop_preferences
 import desktop_collections
 import organizer_lab
-import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, shutil, pathlib, datetime, re, subprocess, sys
+import organizer_policy
+import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 ROOT=pathlib.Path(__file__).resolve().parent
@@ -54,28 +55,8 @@ def call_gemma_vision(prompt,image_b64,settings=None):
     return response['message']['content']
 def runlog(kind,status,summary,detail=''):
     with db() as c:c.execute('INSERT INTO runs VALUES (?,?,?,?,?,?)',(uuid.uuid4().hex,kind,status,summary,detail,now()))
-def safe_path(path):
-    p=pathlib.Path(path).expanduser().resolve()
-    if not p.is_dir():raise ValueError('존재하는 폴더를 지정하세요.')
-    if str(p)==str(pathlib.Path(p.anchor)) or p==pathlib.Path.home():raise ValueError('드라이브 전체나 홈 폴더는 허용하지 않습니다.')
-    return p
-def plan_files(folder):
-    p=safe_path(folder); mapping={'.png':'이미지','.jpg':'이미지','.jpeg':'이미지','.webp':'이미지','.gif':'이미지','.psd':'디자인원본','.ai':'디자인원본','.fig':'디자인원본','.pdf':'문서','.docx':'문서','.xlsx':'문서','.pptx':'문서','.txt':'문서','.zip':'압축파일','.7z':'압축파일','.rar':'압축파일','.mp4':'영상','.mov':'영상'}
-    items=[]
-    for f in sorted(p.iterdir()):
-        if not f.is_file() or f.name.startswith('.'):continue
-        category=mapping.get(f.suffix.lower(),'기타')
-        dest=p/category/f.name
-        if dest.exists():
-            stem,suffix=f.stem,f.suffix
-            n=1
-            while (p/category/f'{stem} ({n}){suffix}').exists():n+=1
-            dest=p/category/f'{stem} ({n}){suffix}'
-        items.append({'source':str(f),'target':str(dest),'category':category})
-    return {'folder':str(p),'items':items,'count':len(items)}
-PLANS={}; LOCK=threading.Lock()
 DESK_TOKEN=uuid.uuid4().hex
-DESK_ACTIONS={'/api/desk/'+name for name in ('open','reveal','pin','create-collection','rename-collection','remove-member','dissolve-collection','dismiss-suggestion','restore-dismissed','duplicates','auto-organize','undo-auto','organizer-create','organizer-execute','organizer-undo')}
+DESK_ACTIONS={'/api/desk/'+name for name in ('open','reveal','pin','create-collection','rename-collection','remove-member','dissolve-collection','dismiss-suggestion','restore-dismissed','duplicates','auto-organize','undo-auto','organizer-create','organizer-execute','organizer-undo','policy-save','policy-preview','policy-run','policy-enabled','policy-undo','policy-resume')}
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def reply(self,data,code=200):
@@ -86,11 +67,18 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/desk','/api/desk/thumbnail','/api/desk/organizer'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
-        if path in {'/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js'}:
+        if path in {'/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js'}:
             b=(ROOT/path.lstrip('/')).read_bytes()
             self.send_response(200);self.send_header('Content-Type','text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.end_headers();self.wfile.write(b);return
+        if path=='/first-release.html':
+            b=(ROOT/'first-release.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
+        if path=='/api/desk/policy':
+            try:
+                organizer_policy.ensure_worker()
+                return self.reply(organizer_policy.status())
+            except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
         if path=='/api/desk/organizer':
             try:return self.reply({'job':organizer_lab.latest()})
             except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
@@ -107,6 +95,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(b);return
             except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
         if path=='/':
+            organizer_policy.ensure_worker()
             b=(ROOT/'index.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
         if path=='/api/desktop-path':
             home=pathlib.Path.home()
@@ -165,6 +154,18 @@ class Handler(BaseHTTPRequestHandler):
                 if d.get('token')!=DESK_TOKEN or (origin and origin not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'작업 데스크를 새로고침한 뒤 다시 선택하세요.'},403)
                 item_id=d.get('id')
+                if p.startswith('/api/desk/policy-'):
+                    action=p.rsplit('-',1)[-1]
+                    allowed_keys={'token','source_dir','destination_dir','exclusions','auto_enabled','authorized'} if action=='save' else {'token','enabled'} if action=='enabled' else {'token','id'} if action in ('undo','resume') else {'token'}
+                    if set(d)-allowed_keys:raise ValueError('정리 범위 설정과 기록 번호만 사용할 수 있습니다.')
+                    if action=='save':result=organizer_policy.save({k:v for k,v in d.items() if k!='token'})
+                    elif action=='preview':result=organizer_policy.preview()
+                    elif action=='run':result=organizer_policy.run()
+                    elif action=='enabled':result=organizer_policy.set_enabled(d.get('enabled'))
+                    elif action=='undo':result=organizer_policy.undo(item_id)
+                    else:result=organizer_policy.resume(item_id)
+                    organizer_policy.ensure_worker()
+                    return self.reply(result)
                 if p.endswith(('/organizer-create','/organizer-execute','/organizer-undo')):
                     if set(d)-{'id','token'}:raise ValueError('시험 정리는 앱이 만든 샘플 폴더에서만 실행할 수 있습니다.')
                     if p.endswith('/organizer-create'):job=organizer_lab.create()
@@ -211,6 +212,7 @@ class Handler(BaseHTTPRequestHandler):
             if p=='/api/update-apply':
                 status=updater.fetch()
                 if status.get('phase')!='available':return self.reply(status)
+                organizer_policy.stop_worker()
                 subprocess.Popen([sys.executable,str(ROOT/'updater.py'),'apply'],cwd=str(ROOT),stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=getattr(subprocess,'CREATE_NEW_PROCESS_GROUP',0)|getattr(subprocess,'CREATE_NO_WINDOW',0))
                 threading.Thread(target=lambda:(__import__('time').sleep(1.2),__import__('urllib.request').request.urlopen('http://127.0.0.1:8765/api/none',timeout=2) if False else os._exit(0)),daemon=True).start()
                 return self.reply({'phase':'starting','message':'업데이트를 시작합니다. 잠시 후 화면을 새로고침해 주세요.'})
@@ -244,28 +246,15 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     answer=call_gemma(text);runlog('Gemma','완료',text[:100],answer[:12000]);return self.reply({'answer':answer})
                 except Exception as e:runlog('Gemma','실패',text[:100],str(e));raise
-            if p=='/api/plan-files':
-                plan=plan_files(str(d.get('folder','')));token=uuid.uuid4().hex
-                with LOCK:PLANS[token]=plan
-                runlog('파일정리','미리보기',f"{plan['count']}개 파일 분류 계획",plan['folder'])
-                return self.reply({'token':token,**plan})
-            if p=='/api/execute-files':
-                token=d.get('token');
-                with LOCK:plan=PLANS.pop(token,None)
-                if not plan:raise ValueError('먼저 미리보기를 생성하세요. 계획은 한 번만 실행됩니다.')
-                moved=[];skipped=[]
-                for entry in plan['items']:
-                    src=pathlib.Path(entry['source']);dst=pathlib.Path(entry['target'])
-                    if not src.is_file() or dst.exists() or src.parent.resolve()!=pathlib.Path(plan['folder']).resolve():skipped.append(str(src));continue
-                    dst.parent.mkdir(parents=True,exist_ok=True);shutil.move(str(src),str(dst));moved.append({'from':str(src),'to':str(dst)})
-                runlog('파일정리','완료',f'{len(moved)}개 이동, {len(skipped)}개 건너뜀',json.dumps(moved,ensure_ascii=False))
-                return self.reply({'moved':moved,'skipped':skipped})
+            if p in ('/api/plan-files','/api/execute-files'):
+                return self.reply({'error':'파일 정리는 저장한 정리 범위에서 실행하도록 변경되었습니다. 자동 폴더 정리 화면을 이용하세요.','page':'files'},409)
             if p=='/api/test':
                 result=call_gemma('연결 테스트입니다. 한국어로 연결 성공이라고 짧게 답하세요.');return self.reply({'answer':result[:500]})
             self.reply({'error':'not found'},404)
         except Exception as e:self.reply({'error':str(e)},400)
 if __name__=='__main__':
     config();db().close()
+    organizer_policy.ensure_worker()
     import webbrowser, time
     try:
         server = ThreadingHTTPServer((HOST, PORT), Handler)
