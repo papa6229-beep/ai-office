@@ -19,6 +19,7 @@ import desktop_recovery
 import desktop_workspace
 import organizer_policy
 import quick_launcher
+import streamdock_import
 import windows_app_catalog
 
 
@@ -46,6 +47,8 @@ _SPECS = {
     'bookmarks_list': ('read', '사용자가 북마크/웹사이트 사용을 요청한 경우 Chrome/Edge 북마크 이름과 URL을 읽기 전용으로 찾습니다.', {'query':_string()}, []),
     'bookmark_add': ('write', '조회한 북마크 ref로 바로가기를 추가합니다.', {'ref':_string()}, ['ref']),
     'bookmark_open': ('external', '조회한 북마크 ref의 HTTP/HTTPS 웹사이트를 엽니다.', {'ref':_string()}, ['ref']),
+    'streamdeck_shortcuts': ('read', '사용자가 스트림덱/G-Clicker/지클리커의 즐겨찾기·바로가기를 가져오거나 보려는 경우 저장된 G-Clicker 프로필을 읽습니다. 등록된 웹·앱만 반환하며 전체 앱 선택 목록·암호·매크로는 제외합니다. 전체 가져오기에 사용할 collection_ref와 개별 ref를 제공합니다.', {}, []),
+    'streamdeck_import': ('write', 'streamdeck_shortcuts가 발급한 collection_ref로 표시된 바로가기 전체를, 개별 ref로 하나를 AI OFFICE에 등록합니다. 사용자가 가져오라고 요청하면 조회 후 이 도구로 직접 처리하세요. 원본과 기존 타일은 유지하며 프로그램을 실행하지 않습니다.', {'ref':_string()}, ['ref']),
     'work_list': ('read', '업무 상태, 메모, 연결 자료, 보고 초안을 조회합니다.', {}, []),
     'work_create': ('write', '사용자가 요청한 업무를 기록합니다.', {'title':_string(),'detail':_string(),'due_date':_string()}, ['title']),
     'work_status': ('write', '선택한 업무 상태를 변경합니다.', {'ref':_string(),'status':_string(enum=['todo','doing','done'])}, ['ref','status']),
@@ -205,7 +208,60 @@ class ToolRegistry:
         result=self.launcher.perform('save',dict(item,request_id=context['step_id']))
         return _ok(item['title']+' 바로가기를 저장했습니다.',{'added':True},refresh=['launcher'])
 
+    @staticmethod
+    def _streamdeck_catalog():
+        try:
+            return streamdock_import.catalog()
+        except (OSError, ValueError):
+            raise ValueError('G-Clicker 바로가기 설정을 읽지 못했습니다. 프로그램의 프로필 저장 상태를 확인하세요.') from None
+
+    def _streamdeck_list(self,context):
+        source=self._streamdeck_catalog()
+        items=source.get('items',[])[:500]
+        snapshots=[{k:item[k] for k in ('id','kind','target')} for item in items]
+        cards=[{'ref':self._ref(context,'streamdeck_item',snapshot),'title':item['title'],'kind':item['kind']}
+               for item,snapshot in zip(items[:100],snapshots[:100])]
+        batch=self._ref(context,'streamdeck_collection',snapshots)
+        data={'source':'g-clicker','items':cards,'collection_ref':batch,'total':len(items),'listed':len(cards),
+              'profiles':source.get('profiles',0),'skipped':source.get('skipped',{}),
+              'warnings':source.get('warnings',[]),'truncated':source.get('truncated',False) or len(source.get('items',[]))>500}
+        message='G-Clicker에서 가져올 수 있는 바로가기 '+str(len(items))+'개를 확인했습니다.'
+        if cards: message+='\n'+ '\n'.join(('웹사이트' if card['kind']=='web' else '앱')+' · '+card['title'] for card in cards)
+        if len(items)>len(cards): message+='\n개별 목록은 앞의 '+str(len(cards))+'개입니다. 전체 가져오기는 조회한 '+str(len(items))+'개를 대상으로 합니다.'
+        if data['truncated']: message+='\n조사 한도에 도달하여 전체 원본이 포함되지 않았습니다.'
+        if data['warnings']: message+='\n'+'\n'.join(data['warnings'])
+        # This inventory is already a complete answer; do not append guessed counts.
+        return dict(_ok(message,data),answer_complete=True)
+
+    def _streamdeck_import(self,ref,context):
+        value=self._get(context,ref,{'streamdeck_item','streamdeck_collection'})
+        selected=value if isinstance(value,list) else [value]
+        if not selected: raise ValueError('가져올 수 있는 G-Clicker 바로가기가 없습니다.')
+        source=self._streamdeck_catalog()
+        current={item['id']:item for item in source.get('items',[])}
+        results=[]
+        for snapshot in selected:
+            item=current.get(snapshot['id'])
+            if not item or any(item.get(k)!=snapshot[k] for k in ('kind','target')):
+                results.append({'title':'변경된 바로가기','status':'error','message':'설정이 변경되어 추가하지 않았습니다. 다시 조회하세요.'})
+                continue
+            child=dict(context,step_id=hashlib.sha256((context['step_id']+':streamdeck:'+item['id']).encode()).hexdigest()[:32])
+            payload={k:item[k] for k in ('title','kind','target','icon','icon_data') if k in item}
+            try:
+                saved=self._once('streamdeck_item',{'id':item['id']},child,lambda:self._save(payload,child))
+                results.append({'title':item['title'],'status':'added' if saved.get('data',{}).get('added') else 'existing'})
+            except (ValueError,OSError,sqlite3.Error):
+                results.append({'title':item['title'],'status':'error','message':'등록 대상을 확인할 수 없어 추가하지 못했습니다.'})
+        counts={status:sum(item['status']==status for item in results) for status in ('added','existing','error')}
+        message='G-Clicker 바로가기: '+str(counts['added'])+'개 추가, '+str(counts['existing'])+'개 기존 유지, '+str(counts['error'])+'개 실패.'
+        skipped=source.get('skipped',{})
+        if any(type(count) is int and count>0 for count in skipped.values()): message+='\n중복되거나 지원하지 않는 원본 항목은 제외했습니다.'
+        if source.get('truncated') or len(source.get('items',[]))>500: message+='\n조사 한도에 도달했습니다. 전체 원본이 포함되지 않았습니다.'
+        return _ok(message,{'items':results,'counts':counts,'skipped':skipped,'warnings':source.get('warnings',[])},refresh=['launcher'])
+
     def _execute(self,name,a,c):
+        if name=='streamdeck_shortcuts': return self._streamdeck_list(c)
+        if name=='streamdeck_import': return self._streamdeck_import(a['ref'],c)
         if name in {'apps_list','apps_find'}: return self._apps(c,a.get('query',''))
         if name=='apps_choose':
             options=[]

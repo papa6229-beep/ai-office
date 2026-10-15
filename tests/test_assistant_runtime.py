@@ -80,6 +80,17 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn('등록했습니다', response['result']['message'])
         self.assertEqual(self.registry.calls, [])
 
+    def test_complete_inventory_does_not_suppress_other_read_explanations(self):
+        original=self.registry.execute
+        def execute(name,args,context):
+            result=original(name,args,context)
+            if len(self.registry.calls)==1: result['answer_complete']=True
+            return result
+        self.registry.execute=execute
+        response=self.command(self.runtime([{'tool_calls':[call('apps')]},
+            {'tool_calls':[call('apps')]},{'content':'두 조회 결과를 함께 설명합니다.'}]))
+        self.assertEqual(response['result']['answer'],'두 조회 결과를 함께 설명합니다.')
+
     def test_relative_due_dates_have_current_local_date_context(self):
         self.command(self.runtime([{'content': '어떤 업무인지 알려주세요.'}]), message='내일까지 할 일 추가해줘')
         self.assertIn(datetime.datetime.now().astimezone().date().isoformat(), self.model_inputs[0][0]['content'])
