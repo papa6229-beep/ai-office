@@ -88,6 +88,41 @@ class DesktopApiTests(unittest.TestCase):
             desktop_preferences.pin('a' * 64, True)
         self.assertEqual(self.preferences.read_bytes(), original)
 
+    def test_automatic_grouping_persists_and_undo_pauses_without_changing_files(self):
+        (self.desktop / 'poster.ai').write_bytes(b'original')
+        (self.desktop / 'poster2.ai').write_bytes(b'revision')
+        original = {p.name: p.read_bytes() for p in self.desktop.iterdir()}
+        data = self.request()
+        self.assertEqual(len(data['suggestions']), 1)
+        self.assertFalse(self.preferences.exists())
+        result = self.request('/api/desk/auto-organize', {'enabled': True, 'token': data['action_token']})
+        self.assertEqual(result['automatic_created_count'], 1)
+        self.assertEqual(len(self.request()['collections']), 1)
+        repeated = self.request('/api/desk/auto-organize', {'enabled': True, 'token': data['action_token']})
+        self.assertEqual(repeated['automatic_created_count'], 0)
+        self.assertEqual(repeated['last_auto_group_ids'], result['last_auto_group_ids'])
+        undone = self.request('/api/desk/undo-auto', {'token': data['action_token']})
+        self.assertEqual(undone['collections'], [])
+        self.assertFalse(undone['auto_organize_enabled'])
+        self.assertFalse(self.request()['auto_organize_enabled'])
+        self.assertEqual({p.name: p.read_bytes() for p in self.desktop.iterdir()}, original)
+
+    def test_collection_edits_and_duplicate_inspection_require_action_token(self):
+        data = self.request()
+        selected = next(x for x in data['items'] if x['name'] == 'brief.txt')
+        result = self.request('/api/desk/create-collection', {'label': '이번 업무', 'item_ids': [selected['id']], 'token': data['action_token']})
+        group_id = result['collections'][0]['id']
+        renamed = self.request('/api/desk/rename-collection', {'id': group_id, 'label': '완료 자료', 'token': data['action_token']})
+        self.assertEqual(renamed['collections'][0]['label'], '완료 자료')
+        with patch.object(app.desktop_collections, 'duplicate_report') as read:
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                self.request('/api/desk/duplicates', {})
+            self.assertEqual(error.exception.code, 403)
+            read.assert_not_called()
+        dissolved = self.request('/api/desk/dissolve-collection', {'id': group_id, 'token': data['action_token']})
+        self.assertEqual(dissolved['collections'], [])
+        self.assertEqual(self.file.read_text(encoding='utf-8'), 'work brief')
+
     def test_preferences_participate_in_update_backup_and_recovery(self):
         original = '{"pinned_ids":["favorite"]}'
         self.preferences.write_text(original, encoding='utf-8')

@@ -23,6 +23,19 @@ def load():
     with LOCK:
         return _read()
 
+def _write(data):
+    temporary = STATE.with_suffix('.json.tmp')
+    temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    temporary.replace(STATE)
+
+def update(change):
+    """Serialize preference edits while preserving unrelated state fields."""
+    with LOCK:
+        data = _read()
+        change(data)
+        _write(data)
+        return data
+
 def pin(item_id, enabled):
     if not isinstance(item_id, str) or not item_id or len(item_id) > 100 or not isinstance(enabled, bool):
         raise ValueError('즐겨찾기 항목을 확인하세요.')
@@ -36,7 +49,5 @@ def pin(item_id, enabled):
         elif not enabled:
             pins = [p for p in pins if p != item_id]
         data['pinned_ids'] = pins
-        temporary = STATE.with_suffix('.json.tmp')
-        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-        temporary.replace(STATE)
+        _write(data)
         return data

@@ -7,6 +7,7 @@ import local_content_review
 import local_image_review
 import desktop_workspace
 import desktop_preferences
+import desktop_collections
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, shutil, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -73,6 +74,7 @@ def plan_files(folder):
     return {'folder':str(p),'items':items,'count':len(items)}
 PLANS={}; LOCK=threading.Lock()
 DESK_TOKEN=uuid.uuid4().hex
+DESK_ACTIONS={'/api/desk/'+name for name in ('open','reveal','pin','create-collection','rename-collection','remove-member','dissolve-collection','dismiss-suggestion','restore-dismissed','duplicates','auto-organize','undo-auto')}
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def reply(self,data,code=200):
@@ -85,12 +87,12 @@ class Handler(BaseHTTPRequestHandler):
         path=urlparse(self.path).path
         if path in {'/api/desk','/api/desk/thumbnail'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
-        if path in {'/desk.css','/desk.js'}:
+        if path in {'/desk.css','/desk.js','/desk-collections.js'}:
             b=(ROOT/path.lstrip('/')).read_bytes()
             self.send_response(200);self.send_header('Content-Type','text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.end_headers();self.wfile.write(b);return
         if path=='/api/desk':
             try:
-                data=desktop_workspace.inventory();data['pinned_ids']=desktop_preferences.load()['pinned_ids'];data['action_token']=DESK_TOKEN
+                data=desktop_workspace.inventory();data.update(desktop_collections.overview(data));data['pinned_ids']=desktop_preferences.load()['pinned_ids'];data['action_token']=DESK_TOKEN
                 return self.reply(data)
             except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
         if path=='/api/desk/thumbnail':
@@ -153,12 +155,21 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             p=urlparse(self.path).path;d=self.body()
-            if p in {'/api/desk/open','/api/desk/reveal','/api/desk/pin'}:
+            if p in DESK_ACTIONS:
                 origin=self.headers.get('Origin')
                 allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
                 if d.get('token')!=DESK_TOKEN or (origin and origin not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'작업 데스크를 새로고침한 뒤 다시 선택하세요.'},403)
                 item_id=d.get('id')
+                if p.endswith('/create-collection'):return self.reply(desktop_collections.create(d.get('label'),d.get('item_ids')))
+                if p.endswith('/rename-collection'):return self.reply(desktop_collections.rename(item_id,d.get('label')))
+                if p.endswith('/remove-member'):return self.reply(desktop_collections.remove_item(d.get('collection_id'),d.get('item_id')))
+                if p.endswith('/dissolve-collection'):return self.reply(desktop_collections.dissolve(item_id))
+                if p.endswith('/dismiss-suggestion'):return self.reply(desktop_collections.dismiss(item_id))
+                if p.endswith('/restore-dismissed'):return self.reply(desktop_collections.restore_dismissed())
+                if p.endswith('/duplicates'):return self.reply(desktop_collections.duplicate_report())
+                if p.endswith('/auto-organize'):return self.reply(desktop_collections.auto_organize(d.get('enabled',True)))
+                if p.endswith('/undo-auto'):return self.reply(desktop_collections.undo_auto())
                 if p.endswith('/open'):return self.reply(desktop_workspace.open_item(item_id))
                 if p.endswith('/reveal'):return self.reply(desktop_workspace.reveal_item(item_id))
                 enabled=d.get('enabled')
