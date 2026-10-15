@@ -56,6 +56,34 @@ class GemmaTransportTests(unittest.TestCase):
                 self.assertEqual(req.full_url, 'http://192.168.0.40:11434/api/chat')
                 self.assertEqual(req.get_header('Authorization'), 'Bearer selected-key')
 
+    def test_judgment_options_are_scoped_to_call_snapshot(self):
+        for api_type in ['ollama', 'openai']:
+            selected = self.settings(api_type=api_type, _judgment_json=True, _judgment_max_tokens=1024, _judgment_think=False)
+            original = dict(selected)
+            reply = b'{"choices":[{"message":{"content":"ok"}}]}' if api_type=='openai' else b'{"message":{"content":"ok"}}'
+            with self.subTest(api_type=api_type), patch('urllib.request.build_opener') as build:
+                build.return_value.open.return_value = io.BytesIO(reply)
+                self.assertEqual(app.call_gemma('JSON only', selected), 'ok')
+                payload = json.loads(build.return_value.open.call_args.args[0].data)
+                if api_type=='openai':
+                    self.assertEqual(payload['response_format'], {'type':'json_object'})
+                    self.assertEqual(payload['max_tokens'], 1024)
+                    self.assertNotIn('think', payload)
+                else:
+                    self.assertEqual(payload['format'], 'json')
+                    self.assertEqual(payload['options']['num_predict'], 1024)
+                    self.assertIs(payload['think'], False)
+                self.assertEqual(selected, original)
+
+    def test_regular_calls_do_not_enable_judgment_options(self):
+        with patch('urllib.request.build_opener') as build:
+            build.return_value.open.return_value = io.BytesIO(b'{"message":{"content":"ok"}}')
+            app.call_gemma('ordinary chat', self.settings())
+            payload = json.loads(build.return_value.open.call_args.args[0].data)
+            self.assertNotIn('format', payload)
+            self.assertNotIn('num_predict', payload['options'])
+            self.assertNotIn('think', payload)
+
     def test_unsafe_endpoint_never_opens_connection_or_echoes_credentials(self):
         for url in ['file:///secret', 'http://user:secret@server', 'http://server:bad']:
             settings = self.settings(); settings['gemma_url'] = url

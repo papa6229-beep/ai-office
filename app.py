@@ -10,6 +10,8 @@ import desktop_preferences
 import desktop_collections
 import organizer_lab
 import organizer_policy
+import desktop_judgment
+import desktop_recovery
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -34,6 +36,15 @@ def call_gemma(prompt,settings=None):
         u=base+'/chat/completions';payload={'model':model,'messages':[{'role':'system','content':'당신은 한국어 업무 보조 AI입니다. 임의 실행을 약속하지 않고 확인 가능한 사실만 보고합니다.'},{'role':'user','content':prompt}],'temperature':0.2};headers={'Content-Type':'application/json'}
     else:
         u=base+'/api/chat';payload={'model':model,'messages':[{'role':'system','content':'당신은 한국어 업무 보조 AI입니다. 임의 실행을 약속하지 않고 확인 가능한 사실만 보고합니다.'},{'role':'user','content':prompt}],'stream':False,'options':{'temperature':0.2}};headers={'Content-Type':'application/json'}
+    # Per-call judgment limits stay in the captured snapshot, never in user settings.
+    if s.get('_judgment_json') is True:
+        if s['api_type']=='openai':payload['response_format']={'type':'json_object'}
+        else:payload['format']='json'
+    output_limit=s.get('_judgment_max_tokens')
+    if type(output_limit) is int and 128<=output_limit<=1536:
+        if s['api_type']=='openai':payload['max_tokens']=output_limit
+        else:payload['options']['num_predict']=output_limit
+    if s['api_type']!='openai' and s.get('_judgment_think') is False:payload['think']=False
     if s.get('api_key'):headers['Authorization']='Bearer '+s['api_key']
     req=urllib.request.Request(u,data=json.dumps(payload).encode(),headers=headers,method='POST')
     class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -56,7 +67,55 @@ def call_gemma_vision(prompt,image_b64,settings=None):
 def runlog(kind,status,summary,detail=''):
     with db() as c:c.execute('INSERT INTO runs VALUES (?,?,?,?,?,?)',(uuid.uuid4().hex,kind,status,summary,detail,now()))
 DESK_TOKEN=uuid.uuid4().hex
-DESK_ACTIONS={'/api/desk/'+name for name in ('open','reveal','pin','create-collection','rename-collection','remove-member','dissolve-collection','dismiss-suggestion','restore-dismissed','duplicates','auto-organize','undo-auto','organizer-create','organizer-execute','organizer-undo','policy-save','policy-preview','policy-run','policy-enabled','policy-undo','policy-resume')}
+DESK_ACTIONS={'/api/desk/'+name for name in ('open','reveal','pin','create-collection','rename-collection','remove-member','dissolve-collection','dismiss-suggestion','restore-dismissed','duplicates','auto-organize','undo-auto','organizer-create','organizer-execute','organizer-undo','policy-save','policy-preview','policy-run','policy-enabled','policy-undo','policy-resume','judgment-start','judgment-stop','judgment-retain','judgment-hold','judgment-restore')}
+_AI_READY=False
+_AI_THREAD=None
+_AI_STOP=threading.Event()
+_AI_LOCK=threading.Lock()
+
+def configure_ai():
+    global _AI_READY
+    with _AI_LOCK:
+        if not _AI_READY:
+            desktop_judgment.configure(config,call_gemma,call_gemma_vision)
+            desktop_recovery.reconcile()
+            _AI_READY=True
+
+def start_ai_supervisor():
+    global _AI_THREAD
+    configure_ai()
+    with _AI_LOCK:
+        if _AI_THREAD and _AI_THREAD.is_alive():return
+        _AI_STOP.clear()
+        def supervise():
+            while not _AI_STOP.is_set():
+                try:
+                    state=desktop_judgment.status()
+                    if state.get('enabled') and not state.get('running'):desktop_judgment.start()
+                except (ValueError,OSError):pass
+                if _AI_STOP.wait(60):break
+        _AI_THREAD=threading.Thread(target=supervise,name='AI OFFICE desktop understanding',daemon=True)
+        _AI_THREAD.start()
+
+def stop_ai_supervisor():
+    _AI_STOP.set()
+    desktop_judgment.stop()
+
+def judgment_view():
+    configure_ai()
+    data=desktop_judgment.status()
+    eligibility=desktop_recovery.holdability([item['id'] for item in data.get('candidates',[])])
+    for item in data.get('candidates',[]):
+        item['hold_allowed']=eligibility.get(item['id'],{}).get('allowed',False)
+        item['hold_note']=eligibility.get(item['id'],{}).get('reason','')
+    try:
+        synced=desktop_collections.sync_content_groups(data.get('groups',[]))
+        data['applied_group_count']=sum(group.get('source')=='content_ai' for group in synced['collections'])
+    except ValueError:
+        data['group_warning']='작업함 설정을 보존했습니다. 내용 관계는 분석 결과에서 확인할 수 있습니다.'
+    data['recovery']=desktop_recovery.status()
+    return data
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def reply(self,data,code=200):
@@ -67,13 +126,16 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
-        if path in {'/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js'}:
+        if path in {'/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js'}:
             b=(ROOT/path.lstrip('/')).read_bytes()
             self.send_response(200);self.send_header('Content-Type','text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.end_headers();self.wfile.write(b);return
         if path=='/first-release.html':
             b=(ROOT/'first-release.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
+        if path=='/api/desk/judgment':
+            try:return self.reply(judgment_view())
+            except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
         if path=='/api/desk/policy':
             try:
                 organizer_policy.ensure_worker()
@@ -96,6 +158,7 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
         if path=='/':
             organizer_policy.ensure_worker()
+            start_ai_supervisor()
             b=(ROOT/'index.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
         if path=='/api/desktop-path':
             home=pathlib.Path.home()
@@ -154,6 +217,20 @@ class Handler(BaseHTTPRequestHandler):
                 if d.get('token')!=DESK_TOKEN or (origin and origin not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'작업 데스크를 새로고침한 뒤 다시 선택하세요.'},403)
                 item_id=d.get('id')
+                if p.startswith('/api/desk/judgment-'):
+                    configure_ai()
+                    action=p.rsplit('-',1)[-1]
+                    allowed_keys={'token','force'} if action=='start' else {'token','item_ids'} if action=='retain' else {'token','revision','candidate_ids','request_id'} if action=='hold' else {'token','batch_id'} if action=='restore' else {'token'}
+                    if set(d)-allowed_keys:raise ValueError('표시된 바탕화면 분석 결과만 처리할 수 있습니다.')
+                    if action=='start':
+                        force=d.get('force',False)
+                        if type(force) is not bool:raise ValueError('다시 분석 설정을 확인하세요.')
+                        desktop_judgment.start(force=force);start_ai_supervisor()
+                    elif action=='stop':desktop_judgment.stop()
+                    elif action=='retain':desktop_judgment.retain(d.get('item_ids'))
+                    elif action=='hold':desktop_recovery.hold(d.get('revision'),d.get('candidate_ids'),d.get('request_id'))
+                    else:desktop_recovery.restore(d.get('batch_id'))
+                    return self.reply(judgment_view())
                 if p.startswith('/api/desk/policy-'):
                     action=p.rsplit('-',1)[-1]
                     allowed_keys={'token','source_dir','destination_dir','exclusions','auto_enabled','authorized'} if action=='save' else {'token','enabled'} if action=='enabled' else {'token','id'} if action in ('undo','resume') else {'token'}
@@ -181,7 +258,12 @@ class Handler(BaseHTTPRequestHandler):
                 if p.endswith('/duplicates'):return self.reply(desktop_collections.duplicate_report())
                 if p.endswith('/auto-organize'):return self.reply(desktop_collections.auto_organize(d.get('enabled',True)))
                 if p.endswith('/undo-auto'):return self.reply(desktop_collections.undo_auto())
-                if p.endswith('/open'):return self.reply(desktop_workspace.open_item(item_id))
+                if p.endswith('/open'):
+                    result=desktop_workspace.open_item(item_id)
+                    if _AI_READY:
+                        try:desktop_judgment.record_open(item_id)
+                        except (OSError,ValueError):result['usage_warning']='열기는 요청했으나 사용 기록을 저장하지 못했습니다.'
+                    return self.reply(result)
                 if p.endswith('/reveal'):return self.reply(desktop_workspace.reveal_item(item_id))
                 enabled=d.get('enabled')
                 if not isinstance(enabled,bool):raise ValueError('즐겨찾기 선택을 확인하세요.')
@@ -213,6 +295,7 @@ class Handler(BaseHTTPRequestHandler):
                 status=updater.fetch()
                 if status.get('phase')!='available':return self.reply(status)
                 organizer_policy.stop_worker()
+                stop_ai_supervisor()
                 subprocess.Popen([sys.executable,str(ROOT/'updater.py'),'apply'],cwd=str(ROOT),stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=getattr(subprocess,'CREATE_NEW_PROCESS_GROUP',0)|getattr(subprocess,'CREATE_NO_WINDOW',0))
                 threading.Thread(target=lambda:(__import__('time').sleep(1.2),__import__('urllib.request').request.urlopen('http://127.0.0.1:8765/api/none',timeout=2) if False else os._exit(0)),daemon=True).start()
                 return self.reply({'phase':'starting','message':'업데이트를 시작합니다. 잠시 후 화면을 새로고침해 주세요.'})
@@ -255,6 +338,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__=='__main__':
     config();db().close()
     organizer_policy.ensure_worker()
+    start_ai_supervisor()
     import webbrowser, time
     try:
         server = ThreadingHTTPServer((HOST, PORT), Handler)

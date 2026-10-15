@@ -9,6 +9,20 @@ import updater
 
 
 class OrganizerBackupTests(unittest.TestCase):
+    def test_content_judgment_and_recovery_records_are_preserved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=pathlib.Path(folder);history=root/'desktop_recovery';history.mkdir()
+            state=root/'desktop_ai_state.json';state.write_text('{"enabled":true,"records":{}}',encoding='utf-8')
+            journal=history/'fixture.json';journal.write_text('old',encoding='utf-8')
+            with patch.object(updater,'ROOT',root),patch.object(updater,'BACKUPS',root/'backups'):
+                saved=updater.backup()
+                state.write_text('{"enabled":true,"records":{"new":"observation"}}',encoding='utf-8')
+                journal.write_text('new recovery result',encoding='utf-8')
+                updater.restore(saved)
+            current=json.loads(state.read_text(encoding='utf-8'))
+            self.assertFalse(current['enabled']);self.assertEqual(current['records'],{'new':'observation'})
+            self.assertEqual(journal.read_text(encoding='utf-8'),'new recovery result')
+
     def test_update_waits_for_server_before_taking_backup(self):
         order=[]
         def stopped():

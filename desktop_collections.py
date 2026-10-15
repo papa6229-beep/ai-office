@@ -168,7 +168,9 @@ def create(label, item_ids):
 def rename(collection_id, label):
     label = _label(label)
     def action(data, snapshot):
-        _group(data, collection_id)['label'] = label
+        group=_group(data, collection_id)
+        group['label'] = label
+        if group.get('source') in ('content_ai','automatic'):group['source']='manual'
     return _mutate(action)
 
 
@@ -178,6 +180,9 @@ def remove_item(collection_id, item_id):
         if item_id not in group['item_ids']:
             raise ValueError('묶음 항목이 변경되었습니다. 목록을 새로고침하세요.')
         group['item_ids'].remove(item_id)
+        if group.get('source')=='content_ai':
+            data.setdefault('ai_group_opt_out_ids',[]).append(item_id)
+            group['source']='manual'
         if not group['item_ids']:
             data['collections'].remove(group)
     return _mutate(action)
@@ -185,8 +190,55 @@ def remove_item(collection_id, item_id):
 
 def dissolve(collection_id):
     def action(data, snapshot):
-        data['collections'].remove(_group(data, collection_id))
+        group=_group(data, collection_id)
+        if group.get('source')=='content_ai':
+            data['ai_group_opt_out_ids']=list(dict.fromkeys(data.get('ai_group_opt_out_ids',[])+group['item_ids']))[-2000:]
+        data['collections'].remove(group)
     return _mutate(action)
+
+
+def sync_content_groups(proposals,snapshot=None):
+    """Reflect verified content relations automatically; preserve user-owned groups."""
+    snapshot=snapshot if snapshot is not None else workspace.inventory()
+    if not isinstance(proposals,list) or len(proposals)>MAX_COLLECTIONS:raise ValueError('내용 작업함 형식을 확인하세요.')
+    live={item['id'] for item in snapshot['items']}
+    checked=[];seen=set()
+    for proposal in proposals:
+        if not isinstance(proposal,dict):raise ValueError('내용 작업함 형식을 확인하세요.')
+        label=_label(proposal.get('label'));ids=_ids(proposal.get('item_ids'))
+        evidence=proposal.get('evidence');confidence=proposal.get('confidence')
+        if (len(ids)<2 or not set(ids).issubset(live) or seen.intersection(ids)
+                or not isinstance(evidence,str) or not evidence.strip() or len(evidence)>1000
+                or type(confidence) not in (int,float) or not .8<=confidence<=1):
+            raise ValueError('내용 근거가 확인된 작업함만 자동 반영합니다.')
+        seen.update(ids)
+        group_key=hashlib.sha256(('content:'+','.join(sorted(ids))).encode()).hexdigest()[:32]
+        checked.append({'id':group_key,'label':label,'item_ids':ids,'source':'content_ai',
+                        'evidence':evidence[:600],'confidence':confidence})
+    def desired(data):
+        _state(data)
+        opted=data.get('ai_group_opt_out_ids',[])
+        if not isinstance(opted,list) or len(opted)>2000 or any(not isinstance(i,str) or not re.fullmatch('[0-9a-f]{64}',i) for i in opted):
+            raise ValueError('사용자가 수정한 작업함 설정을 보존했습니다.')
+        original=data.get('collections',[])
+        manual=[group for group in original if group.get('source') not in ('content_ai','automatic')]
+        occupied=set(opted)|{item for group in manual for item in group['item_ids']}
+        automated=[]
+        for proposal in checked:
+            ids=[item for item in proposal['item_ids'] if item not in occupied]
+            if len(ids)<2:continue
+            automated.append({**proposal,'item_ids':ids});occupied.update(ids)
+        named=[]
+        for group in original:
+            if group.get('source')!='automatic':continue
+            ids=[item for item in group['item_ids'] if item not in occupied]
+            if ids:named.append({**group,'item_ids':ids})
+        return (manual+automated+named)[:MAX_COLLECTIONS]
+    data=preferences.load();wanted=desired(data)
+    if data.get('collections',[])!=wanted:
+        def edit(current):current['collections']=desired(current)
+        data=preferences.update(edit)
+    return _overview(snapshot,data)
 
 
 def dismiss(suggestion_id):
@@ -235,7 +287,7 @@ def auto_organize(enabled=True):
 def undo_auto():
     def action(data, snapshot):
         history = set(data.get('last_auto_group_ids', []))
-        data['collections'] = [group for group in data['collections'] if group['id'] not in history]
+        data['collections'] = [group for group in data['collections'] if group['id'] not in history or group.get('source')!='automatic']
         data['last_auto_group_ids'] = []
         data['auto_organize_enabled'] = False
     return _mutate(action)
