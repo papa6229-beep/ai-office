@@ -12,10 +12,10 @@
         <div id="workMessages" class="work-messages" role="log" aria-label="업무 비서 대화" aria-live="polite"><p class="work-empty">업무와 대화를 불러오고 있습니다.</p></div>
         <form id="workCommandForm">
           <div class="work-context"><span id="workContext">새 업무 또는 오늘 전체 업무에 대해 이야기합니다.</span><button type="button" id="workClearContext" class="work-text-button" data-work-action="clear-context" hidden>선택 해제</button></div>
-          <label class="work-sr-only" for="workCommand">업무 요청</label><textarea id="workCommand" rows="3" maxlength="6000" placeholder="업무를 알려주시거나, 바로가기에 추가할 프로그램을 말해주세요." required></textarea>
-          <div class="work-compose-footer"><span>업무 등록 · 진행 기록 · 바로가기 추가</span><button type="submit" id="workSend">요청 보내기</button></div>
+          <label class="work-sr-only" for="workCommand">업무 요청</label><textarea id="workCommand" rows="3" maxlength="6000" placeholder="평소 말하듯 요청하세요. 앱 열기, 업무 기록, 자료 조사와 정리를 도와드립니다." required></textarea>
+          <div class="work-compose-footer"><span>앱 실행 · 업무 · 자료와 정리</span><button type="submit" id="workSend">요청 보내기</button></div>
         </form>
-        <div class="work-examples" aria-label="요청 예시"><span>이렇게 요청해 보세요</span><button type="button" data-work-example="내일까지 행사 시안 준비를 업무로 등록해줘">내일까지 행사 시안 준비를 업무로 등록해줘</button><button type="button" data-work-example="바로가기에 코덱스, 포토샵, 일러스트레이터 추가해줘">바로가기에 코덱스, 포토샵, 일러스트레이터 추가해줘</button></div>
+        <div class="work-examples" aria-label="요청 예시"><span>이렇게 요청해 보세요</span><button type="button" data-work-example="포토샵 좀 켜줘">포토샵 좀 켜줘</button><button type="button" data-work-example="바탕화면에 뭐가 있는지 살펴봐줘">바탕화면에 뭐가 있는지 살펴봐줘</button><button type="button" data-work-example="내일까지 행사 시안 준비해야 해. 할 일에 넣어줘">내일까지 행사 시안 준비해야 해. 할 일에 넣어줘</button></div>
       </article>
       <article class="work-tasks" aria-labelledby="workTasksTitle">
         <div class="work-panel-heading"><div><h3 id="workTasksTitle">오늘의 업무</h3><p id="workCounts" class="work-muted"></p></div><button type="button" data-work-action="add-task" class="work-secondary">+ 업무 추가</button></div>

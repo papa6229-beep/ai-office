@@ -15,6 +15,7 @@ import desktop_recovery
 import work_assistant
 import quick_launcher
 import browser_bookmarks
+import assistant_model
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -120,7 +121,16 @@ def judgment_view():
     return data
 
 def work_service():
-    return work_assistant.WorkAssistant(DB,config,call_gemma)
+    from assistant_tools import ToolRegistry
+    settings=dict(config())
+    return work_assistant.WorkAssistant(DB,config,call_gemma,
+        native_model=lambda messages,tools:call_assistant_model(messages,tools,settings),
+        registry_factory=lambda:ToolRegistry(DB,
+            work_factory=lambda:work_assistant.WorkAssistant(DB,config,call_gemma),
+            configure_ai=configure_ai))
+
+def call_assistant_model(messages,tools,settings=None):
+    return assistant_model.call(messages,tools,settings if settings is not None else config())
 
 def work_view():
     data=work_service().overview()

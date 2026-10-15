@@ -21,6 +21,9 @@ class WorkApiTests(unittest.TestCase):
         patch.object(app, 'DB', self.root / 'office.db').start()
         patch.object(app, 'config', return_value={'api_type':'ollama','gemma_url':'http://localhost:11434','gemma_model':'gemma4:26b'}).start()
         patch.object(app, 'call_gemma', return_value='{"action":"create_task","title":"시험 행사 준비","detail":"일정 확인"}').start()
+        # Legacy journal contract; the production native tool route has its own API suite.
+        patch.object(app, 'work_service', side_effect=lambda: app.work_assistant.WorkAssistant(
+            app.DB, app.config, app.call_gemma)).start()
         app.db().close()
         self.server = app.ThreadingHTTPServer(('127.0.0.1', 0), app.Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)

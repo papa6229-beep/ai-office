@@ -78,6 +78,13 @@
 #work .work-launcher-choice button{text-align:left;padding:8px 10px}
 #work .work-launcher-choice button strong{font-size:12px;color:#2d63a8;margin:0}
 #work .work-launcher-choice button small{display:block;font-size:10px;color:#627c93;overflow-wrap:anywhere}
+#work .work-assistant-action{margin-top:12px;padding:12px;background:#fff;border:1px solid #cbdceb;border-radius:6px;white-space:normal}
+#work .work-assistant-action>b{display:block;font-size:12px;color:#244e70}
+#work .work-assistant-action>p{font-size:12px;line-height:1.7;margin:6px 0 10px;white-space:pre-wrap;overflow-wrap:anywhere}
+#work .work-assistant-action>div{display:flex;flex-wrap:wrap;gap:6px}
+#work .work-assistant-action button{text-align:left;max-width:100%}
+#work .work-assistant-action button small{display:block;font-size:10px;color:#627c93;overflow-wrap:anywhere}
+#work .work-action-approval{border-color:#c6ac76;background:#fffcf4}
 @media(max-width:1150px){#work .work-layout{grid-template-columns:minmax(0,1.2fr) minmax(300px,1fr);gap:20px}#work .work-launcher{padding:19px}#work .work-launcher-grid{gap:8px}}
 @media(max-width:850px){#work .work-layout{grid-template-columns:1fr}#work .work-rail{position:static;display:block}}
 @media(max-width:600px){#work .work-launcher-grid{grid-template-columns:repeat(4,minmax(0,1fr))}#work .work-launcher{padding:18px 14px}#work .work-dialog{padding:18px 16px}#work .work-resource-entry{flex-wrap:wrap}#work .work-dialog .work-resource-entry input,#work .work-dialog .work-resource-entry select{flex-basis:65%}#work .work-launcher .work-panel-heading{align-items:center}#work .work-heading h2{font-size:24px}}

@@ -68,10 +68,12 @@ def _resource(path):
 
 
 class WorkAssistant:
-    def __init__(self, db_path, settings_supplier, text_model):
+    def __init__(self, db_path, settings_supplier, text_model, native_model=None, registry_factory=None):
         self.db_path = str(db_path)
         self.settings_supplier = settings_supplier
         self.text_model = text_model
+        self.native_model = native_model
+        self.registry_factory = registry_factory
         self.launcher = quick_launcher.QuickLauncher(db_path)
         with _LOCKS_GUARD:
             self._lock = _LOCKS.setdefault(os.path.normcase(os.path.abspath(self.db_path)), threading.RLock())
@@ -115,14 +117,15 @@ class WorkAssistant:
                 except ValueError:
                     resource['exists'] = False
         events = [dict(row) for row in c.execute('SELECT * FROM work_events ORDER BY created DESC LIMIT 200')]
-        messages = [dict(row) for row in c.execute('SELECT * FROM (SELECT * FROM work_messages ORDER BY created DESC LIMIT 100) ORDER BY created')]
+        messages = [dict(row) for row in c.execute('SELECT id,role,content,created FROM (SELECT rowid seq,* FROM work_messages ORDER BY rowid DESC LIMIT 100) ORDER BY seq')]
         row = c.execute('SELECT id,day,body,created FROM work_reports WHERE day=? ORDER BY created DESC LIMIT 1', (day,)).fetchone()
         counts = {status: 0 for status in ('todo', 'doing', 'done')}
         for count in c.execute('SELECT status,count(*) n FROM tasks GROUP BY status'):
             if count['status'] in counts: counts[count['status']] = count['n']
+        from assistant_runtime import pending_actions
         return {'tasks': tasks, 'events': events, 'messages': messages,
                 'report': dict(row) if row else None, 'counts': counts,
-                'launcher_choices': chat_launcher.pending(c)}
+                'launcher_choices': chat_launcher.pending(c), 'assistant_actions': pending_actions(c)}
 
     def resource_path(self, resource_id):
         with self._connect() as c:
@@ -137,6 +140,9 @@ class WorkAssistant:
         return {'task_id':task_id,'events':list(reversed(rows[:1000])),'truncated':len(rows)>1000}
 
     def perform(self, action, payload):
+        if self.native_model is not None and action in ('command', 'assistant-action'):
+            from assistant_runtime import AssistantRuntime
+            return AssistantRuntime(self.db_path, self.native_model, self.registry_factory).perform(action, payload)
         if action not in _FIELDS or not isinstance(payload, dict) or set(payload) - (_FIELDS[action] | {'request_id'}):
             raise ValueError('지원하지 않는 요청 항목입니다.')
         request_id = payload.get('request_id')

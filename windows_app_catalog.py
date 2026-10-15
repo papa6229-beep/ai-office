@@ -95,7 +95,7 @@ def catalog(refresh=False):
                 # Some Codex Windows packages retain the display name ChatGPT.
                 # The registered package identity, not a guessed executable, proves this alias.
                 if re.match(r'^OpenAI\.Codex(?:_|!)', app_id, re.IGNORECASE):
-                    item['aliases'] = list(dict.fromkeys(['Codex', '코덱스', name.strip()[:120]]))
+                    item['aliases'] = list(dict.fromkeys(['Codex', '코덱스']))
                     item['title'] = 'Codex'
                     item['detail'] = 'Windows 표시 이름: ' + name.strip()[:120]
                 result['items'].append(item)

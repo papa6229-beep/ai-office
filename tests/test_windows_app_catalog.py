@@ -16,7 +16,7 @@ class WindowsCatalogTests(unittest.TestCase):
         with patch.object(apps, '_read_apps', return_value=[{'Name': 'ChatGPT', 'AppID': 'OpenAI.Codex_123!App'}]):
             item = apps.catalog()['items'][0]
             self.assertEqual(item['title'], 'Codex')
-            self.assertIn('ChatGPT', item['aliases'])
+            self.assertNotIn('ChatGPT', item['aliases'])
             self.assertIn('ChatGPT', item['detail'])
             self.assertEqual(apps.resolve(item['target']), 'OpenAI.Codex_123!App')
 
