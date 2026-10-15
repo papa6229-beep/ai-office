@@ -4,6 +4,8 @@ office.db-wal
 office.db-shm
 office.db-journal
 settings.json
+desktop_state.json
+desktop_state.json.tmp
 startup.log
 update_status.json
 local_backups/
@@ -11,3 +13,4 @@ local_backups/
 # Python runtime artifacts
 __pycache__/
 *.py[cod]
+.playwright-mcp/

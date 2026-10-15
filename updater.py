@@ -3,8 +3,8 @@ import datetime, json, os, pathlib, shutil, socket, sqlite3, subprocess, sys, ti
 ROOT=pathlib.Path(__file__).resolve().parent
 STATUS=ROOT/'update_status.json'
 BACKUPS=ROOT/'local_backups'
-PRIVATE=('office.db','settings.json')
-TRACKED_PRIVATE=('office.db','settings.json','startup.log','office.db-wal','office.db-shm','office.db-journal','update_status.json')
+PRIVATE=('office.db','settings.json','desktop_state.json')
+TRACKED_PRIVATE=PRIVATE+('startup.log','office.db-wal','office.db-shm','office.db-journal','update_status.json','desktop_state.json.tmp')
 
 def git(*args, timeout=45):
     return subprocess.run(['git','-C',str(ROOT),*args],text=True,capture_output=True,timeout=timeout,encoding='utf-8',errors='replace')
@@ -50,7 +50,8 @@ def backup():
         dest=sqlite3.connect(str(folder/'office.db'))
         try:src.backup(dest)
         finally:dest.close();src.close()
-    if (ROOT/'settings.json').exists():shutil.copy2(ROOT/'settings.json',folder/'settings.json')
+    for name in PRIVATE:
+        if name!='office.db' and (ROOT/name).exists():shutil.copy2(ROOT/name,folder/name)
     return folder
 
 def port_open():
@@ -106,7 +107,7 @@ def apply():
         changed=git('diff','--name-only',before,'HEAD')
         if changed.returncode:raise RuntimeError('변경 파일 목록을 확인하지 못했습니다.')
         changed_files=changed.stdout.splitlines()
-        files=['app.py','scanner.py','project_intelligence.py','workspace_insights.py','content_analysis.py','local_content_review.py','local_image_review.py','adobe_preview.py','updater.py']
+        files=['app.py','scanner.py','project_intelligence.py','workspace_insights.py','content_analysis.py','local_content_review.py','local_image_review.py','adobe_preview.py','desktop_workspace.py','desktop_preferences.py','updater.py']
         compile_result=subprocess.run([sys.executable,'-c', 'import ast,pathlib,sys; [ast.parse(pathlib.Path(p).read_text(encoding="utf-8")) for p in sys.argv[1:] if pathlib.Path(p).exists()]',*files],cwd=ROOT,capture_output=True,text=True,timeout=20)
         if compile_result.returncode:raise RuntimeError('새 코드 검사 실패: '+compile_result.stderr[-400:])
         write('done','업데이트가 완료되었습니다.',backup_dir=str(folder))

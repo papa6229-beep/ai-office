@@ -5,6 +5,8 @@ import workspace_insights
 import content_analysis
 import local_content_review
 import local_image_review
+import desktop_workspace
+import desktop_preferences
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, shutil, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -70,6 +72,7 @@ def plan_files(folder):
         items.append({'source':str(f),'target':str(dest),'category':category})
     return {'folder':str(p),'items':items,'count':len(items)}
 PLANS={}; LOCK=threading.Lock()
+DESK_TOKEN=uuid.uuid4().hex
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def reply(self,data,code=200):
@@ -80,6 +83,23 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
+        if path in {'/api/desk','/api/desk/thumbnail'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+            return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
+        if path in {'/desk.css','/desk.js'}:
+            b=(ROOT/path.lstrip('/')).read_bytes()
+            self.send_response(200);self.send_header('Content-Type','text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.end_headers();self.wfile.write(b);return
+        if path=='/api/desk':
+            try:
+                data=desktop_workspace.inventory();data['pinned_ids']=desktop_preferences.load()['pinned_ids'];data['action_token']=DESK_TOKEN
+                return self.reply(data)
+            except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
+        if path=='/api/desk/thumbnail':
+            from urllib.parse import parse_qs
+            try:
+                item_id=parse_qs(urlparse(self.path).query).get('id',[''])[0]
+                b=desktop_workspace.thumbnail(item_id)
+                self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(b);return
+            except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
         if path=='/':
             b=(ROOT/'index.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
         if path=='/api/desktop-path':
@@ -133,6 +153,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             p=urlparse(self.path).path;d=self.body()
+            if p in {'/api/desk/open','/api/desk/reveal','/api/desk/pin'}:
+                origin=self.headers.get('Origin')
+                allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
+                if d.get('token')!=DESK_TOKEN or (origin and origin not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+                    return self.reply({'error':'작업 데스크를 새로고침한 뒤 다시 선택하세요.'},403)
+                item_id=d.get('id')
+                if p.endswith('/open'):return self.reply(desktop_workspace.open_item(item_id))
+                if p.endswith('/reveal'):return self.reply(desktop_workspace.reveal_item(item_id))
+                enabled=d.get('enabled')
+                if not isinstance(enabled,bool):raise ValueError('즐겨찾기 선택을 확인하세요.')
+                if enabled and not any(x['id']==item_id for x in desktop_workspace.inventory()['items']):raise ValueError('바탕화면 목록을 새로고침하세요.')
+                return self.reply(desktop_preferences.pin(item_id,enabled))
             if p=='/api/analyze-workspace-content':
                 paths=d.get('paths')
                 if not isinstance(paths,list) or not 1<=len(paths)<=local_content_review.MAX_FILES:raise ValueError('분석할 파일을 1~8개 선택하세요.')
