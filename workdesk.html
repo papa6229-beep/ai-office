@@ -43,11 +43,22 @@
   <dialog id="workLauncherDialog" class="work-dialog work-launcher-dialog" aria-labelledby="workLauncherDialogTitle">
     <div class="work-dialog-heading"><h3 id="workLauncherDialogTitle">바로가기 추가</h3><button type="button" class="work-quiet" data-launcher-action="close" aria-label="바로가기 등록 닫기">닫기 ×</button></div>
     <form id="workLauncherForm">
-      <div id="workLauncherSuggestionsWrap"><label for="workLauncherSuggestions">발견한 프로그램으로 빠르게 추가</label><div class="work-resource-entry"><select id="workLauncherSuggestions"><option value="">프로그램 선택</option></select><button type="button" class="work-secondary" data-launcher-action="suggestion">불러오기</button></div></div>
-      <label for="workLauncherName">이름</label><input id="workLauncherName" maxlength="100" required placeholder="예: 디자인 작업">
       <label for="workLauncherKind">종류</label><select id="workLauncherKind"><option value="app">프로그램</option><option value="web">웹사이트</option><option value="folder">폴더</option></select>
+      <div id="workLauncherSuggestionsWrap" class="work-source-picker">
+        <label for="workLauncherAppSearch">Windows 시작 메뉴에서 선택</label><input id="workLauncherAppSearch" type="search" placeholder="프로그램 이름 검색 · 예: ChatGPT" autocomplete="off">
+        <p id="workLauncherAppCount" class="work-muted" role="status"></p><div id="workLauncherSuggestions" class="work-source-results" role="group" aria-label="프로그램 검색 결과"></div>
+      </div>
+      <div id="workLauncherBookmarksWrap" class="work-source-picker" hidden>
+        <button type="button" class="work-secondary" data-launcher-action="bookmarks">Chrome·Edge 북마크에서 선택</button><p class="work-muted">이 PC의 북마크를 읽어옵니다. 브라우저의 북마크는 바뀌지 않습니다.</p>
+        <div id="workLauncherBookmarkPicker" hidden><label for="workLauncherBookmarkProfile">브라우저 · 프로필</label><select id="workLauncherBookmarkProfile"><option value="">모든 프로필</option></select><label for="workLauncherBookmarkSearch">북마크 검색</label><input id="workLauncherBookmarkSearch" type="search" placeholder="이름 또는 주소 검색" autocomplete="off"><p id="workLauncherBookmarkCount" class="work-muted" role="status"></p><div id="workLauncherBookmarks" class="work-source-results" role="group" aria-label="북마크 검색 결과"></div></div>
+        <p id="workLauncherBookmarkNotice" class="work-muted" role="status"></p>
+      </div>
+      <label for="workLauncherName">이름</label><input id="workLauncherName" maxlength="100" required placeholder="예: 디자인 작업">
+      <div id="workLauncherSelectedApp" class="work-selected-source" hidden><span id="workLauncherSelectedAppName"></span><button type="button" class="work-text-button" data-launcher-action="manual-target">경로 직접 입력</button></div>
+      <div id="workLauncherTargetWrap">
       <label id="workLauncherTargetLabel" for="workLauncherTarget">프로그램 전체 경로 (.exe / .lnk)</label><div class="work-resource-entry"><input id="workLauncherTarget" maxlength="4096" required><button type="button" class="work-secondary" id="workLauncherPick" data-launcher-action="pick">찾기</button></div>
       <p id="workLauncherTargetHelp" class="work-muted">발견한 프로그램을 선택하거나 전체 경로를 입력하세요.</p>
+      </div>
       <label for="workLauncherIcon">아이콘</label><div class="work-icon-editor"><span id="workLauncherIconPreview" class="work-icon-preview" aria-hidden="true">✦</span><input id="workLauncherIcon" maxlength="12" placeholder="이모지 또는 글자" value="✦"></div>
       <div id="workLauncherPalette" class="work-icon-palette" aria-label="아이콘 선택"></div>
       <label for="workLauncherImage">이미지 아이콘 업로드</label><input id="workLauncherImage" type="file" accept="image/png,image/jpeg,image/webp,image/x-icon,image/vnd.microsoft.icon,.ico"><p class="work-muted">PNG · JPG · WebP · ICO, 최대 512KB</p>

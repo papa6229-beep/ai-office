@@ -14,6 +14,7 @@ import desktop_judgment
 import desktop_recovery
 import work_assistant
 import quick_launcher
+import browser_bookmarks
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -249,6 +250,13 @@ class Handler(BaseHTTPRequestHandler):
                 allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
+                if p=='/api/launcher/bookmarks':
+                    if set(d)-{'token'}:raise ValueError('북마크 선택 요청을 확인하세요.')
+                    return self.reply(browser_bookmarks.catalog())
+                if p=='/api/launcher/refresh':
+                    if set(d)-{'token'}:raise ValueError('목록 새로고침 요청을 확인하세요.')
+                    quick_launcher.windows_app_catalog.catalog(refresh=True)
+                    return self.reply(launcher_view())
                 if p=='/api/launcher/pick-program':
                     if set(d)-{'token','request_id'}:raise ValueError('프로그램 선택 요청을 확인하세요.')
                     if os.name!='nt':raise ValueError('프로그램 선택은 Windows에서 지원합니다.')

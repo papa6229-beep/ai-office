@@ -25,6 +25,7 @@ class QuickLauncherTests(unittest.TestCase):
             c.execute('INSERT INTO tasks VALUES (?,?)', ('old', '기존 업무'))
         self.addCleanup(patch.stopall)
         patch('quick_launcher._suggestion_roots', return_value=[]).start()
+        patch('quick_launcher.windows_app_catalog.catalog', return_value={'available': False, 'items': [], 'warnings': [], 'total': 0}).start()
         self.service = QuickLauncher(self.db)
 
     def do(self, action, **payload):
@@ -68,7 +69,7 @@ class QuickLauncherTests(unittest.TestCase):
 
     def test_rejects_untrusted_urls_and_malformed_payloads(self):
         for target in ['javascript:alert(1)', 'data:text/plain,test', 'file:///C:/x', 'chrome://settings',
-                       'https://user:pass@example.com', 'https://', 'https://bad host/', 'https://example.com\n/']:
+                       'https://user:pass@example.com', 'https://', 'https://bad host/', 'https://example.com\n/', 'https://example.com/\x7f']:
             with self.subTest(target=target), self.assertRaises(ValueError):
                 self.do('save', title='bad', kind='web', target=target)
         for payload in [{'title': '', 'kind': 'web', 'target': 'https://example.com'},
@@ -196,6 +197,27 @@ class QuickLauncherTests(unittest.TestCase):
         self.assertEqual(len(overview['suggestions']), 50)
         self.assertTrue(all(i['kind'] == 'app' and i['target'].endswith('.lnk') for i in overview['suggestions']))
         self.assertEqual(self.service.overview()['items'], [])
+
+    def test_registered_start_app_references_are_validated_and_launched(self):
+        target = 'startapp:' + 'a' * 64
+        with patch('quick_launcher.windows_app_catalog.resolve', return_value='Trusted.App'), \
+                patch('quick_launcher.windows_app_catalog.launch') as launch:
+            item_id = self.do('save', title='ChatGPT', kind='app', target=target)['result']['id']
+            self.do('launch', id=item_id)
+            launch.assert_called_once_with(target)
+        with patch('quick_launcher.windows_app_catalog.resolve', side_effect=ValueError('missing')):
+            self.assertFalse(self.service.overview()['items'][0]['available'])
+            with self.assertRaises(ValueError):
+                self.do('save', title='Unknown', kind='app', target=target)
+
+    def test_start_catalog_replaces_fallback_and_reports_source(self):
+        entries = [{'title': f'App {i}', 'kind': 'app', 'target': 'startapp:' + str(i).zfill(64), 'icon': '🚀'} for i in range(100)]
+        with patch('quick_launcher.windows_app_catalog.catalog', return_value={'available': True, 'items': entries, 'warnings': [], 'total': 100}), \
+                patch('quick_launcher._suggestion_roots') as fallback:
+            result = self.service.overview()
+        self.assertEqual(len(result['suggestions']), 100)
+        self.assertEqual(result['suggestion_source'], 'windows-start-menu')
+        fallback.assert_not_called()
 
 
 if __name__ == '__main__':

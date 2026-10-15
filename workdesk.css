@@ -62,6 +62,17 @@
 #work #workLauncherImage{font-size:11px;padding:9px}
 #work .work-form-notice{font-size:12px;line-height:1.7;color:#925230;overflow-wrap:anywhere;margin-top:14px}
 #work .work-launcher-dialog .work-text-button{margin-top:8px;font-size:11px}
+#work .work-source-picker{margin:14px 0;padding:12px;background:#edf3f9;border:1px solid #d4e0ec;border-radius:7px}
+#work .work-source-picker>label{margin-top:0}
+#work .work-source-picker>.work-muted{margin-top:7px}
+#work .work-source-results{max-height:190px;overflow:auto;overscroll-behavior:contain;margin-top:7px;scrollbar-width:thin}
+#work .work-source-result{display:block;width:100%;background:#fff;color:#203448;text-align:left;border:1px solid #d8e3ed;border-radius:4px;padding:9px 11px;margin:0 0 5px;font-weight:400;overflow-wrap:anywhere}
+#work .work-source-result:hover:not(:disabled){border-color:#5b87b4;background:#f4f9ff}
+#work .work-source-result strong{display:block;font-size:12px}
+#work .work-source-result small{display:block;color:#627c93;font-size:10px;line-height:1.6;margin-top:2px}
+#work .work-source-empty{padding:10px 2px;font-size:12px;color:#627c93;line-height:1.8}
+#work .work-selected-source{display:flex;gap:12px;justify-content:space-between;align-items:center;margin-top:15px;padding:12px;background:#e5eef8;border-left:3px solid #477caf;font-size:12px;overflow-wrap:anywhere}
+#work .work-selected-source .work-text-button{flex-shrink:0;margin:0}
 @media(max-width:1150px){#work .work-layout{grid-template-columns:minmax(0,1.2fr) minmax(300px,1fr);gap:20px}#work .work-launcher{padding:19px}#work .work-launcher-grid{gap:8px}}
 @media(max-width:850px){#work .work-layout{grid-template-columns:1fr}#work .work-rail{position:static;display:block}#work .work-launcher-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:600px){#work .work-launcher-grid{grid-template-columns:repeat(3,minmax(0,1fr))}#work .work-launcher{padding:18px 14px}#work .work-dialog{padding:18px 16px}#work .work-resource-entry{flex-wrap:wrap}#work .work-dialog .work-resource-entry input,#work .work-dialog .work-resource-entry select{flex-basis:65%}#work .work-launcher-tile{min-height:117px}#work .work-launcher-name{font-size:11px}#work .work-launcher .work-panel-heading{align-items:center}#work .work-heading h2{font-size:24px}}

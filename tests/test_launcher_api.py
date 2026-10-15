@@ -20,6 +20,9 @@ class LauncherApiTests(unittest.TestCase):
         self.root = pathlib.Path(self.temp.name)
         self.addCleanup(patch.stopall)
         patch.object(app, 'DB', self.root/'office.db').start()
+        patch('quick_launcher.windows_app_catalog.catalog', return_value={
+            'available': False, 'items': [], 'warnings': [], 'total': 0}).start()
+        patch('quick_launcher._suggestion_roots', return_value=[]).start()
         self.program = self.root/'시험 프로그램.exe'; self.program.write_bytes(b'MZ-fixture-only')
         self.server = app.ThreadingHTTPServer(('127.0.0.1',0),app.Handler)
         self.thread = threading.Thread(target=self.server.serve_forever,daemon=True); self.thread.start()
@@ -39,7 +42,7 @@ class LauncherApiTests(unittest.TestCase):
 
     def test_auth_and_foreign_host_are_rejected(self):
         self.assertEqual(self.request()['action_token'],app.DESK_TOKEN)
-        for action in ('save','remove','reorder','launch','pick-program'):
+        for action in ('save','remove','reorder','launch','pick-program','bookmarks','refresh'):
             with self.subTest(action=action), self.assertRaises(urllib.error.HTTPError) as error:
                 self.request('/api/launcher/'+action,{})
             self.assertEqual(error.exception.code,403)
@@ -95,6 +98,33 @@ class LauncherApiTests(unittest.TestCase):
         with patch.object(app.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=str(self.program),stderr='')) as run:
             self.assertEqual(self.request('/api/launcher/pick-program',{'token':app.DESK_TOKEN})['path'],str(self.program))
             run.assert_called_once()
+
+    def test_bookmarks_are_read_only_and_require_explicit_local_request(self):
+        expected = {'items': [{'title': '업무 사이트', 'kind': 'web',
+                              'target': 'https://example.com/work', 'browser': 'Chrome',
+                              'profile': 'Default', 'folder': '북마크바'}],
+                    'warnings': [], 'total': 1, 'truncated': False}
+        with patch.object(app.browser_bookmarks, 'catalog', return_value=expected) as read:
+            self.assertNotIn('bookmarks', self.request())
+            read.assert_not_called()
+            for headers in ({'Origin': 'https://outside.example'}, {'Host': 'outside.example'}):
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    self.request('/api/launcher/bookmarks', {'token': app.DESK_TOKEN}, headers)
+                self.assertEqual(error.exception.code, 403)
+            read.assert_not_called()
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                self.request('/api/launcher/bookmarks', {'token': app.DESK_TOKEN, 'path': 'C:/private'})
+            self.assertEqual(error.exception.code, 400)
+            read.assert_not_called()
+            self.assertEqual(self.request('/api/launcher/bookmarks', {'token': app.DESK_TOKEN}), expected)
+            read.assert_called_once_with()
+
+    def test_catalog_refresh_is_explicit_and_authenticated(self):
+        with patch.object(app.quick_launcher.windows_app_catalog, 'catalog', return_value={
+                'available': True, 'items': [], 'warnings': [], 'total': 0}) as catalog:
+            self.request('/api/launcher/refresh', {'token': app.DESK_TOKEN})
+            self.assertIn(unittest.mock.call(refresh=True), catalog.call_args_list)
+            self.assertEqual(self.request()['suggestion_source'], 'windows-start-menu')
 
 
 if __name__=='__main__': unittest.main()

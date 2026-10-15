@@ -168,7 +168,7 @@ def apply():
         changed=git('diff','--name-only',before,'HEAD')
         if changed.returncode:raise RuntimeError('변경 파일 목록을 확인하지 못했습니다.')
         changed_files=changed.stdout.splitlines()
-        files=['app.py','scanner.py','project_intelligence.py','workspace_insights.py','content_analysis.py','local_content_review.py','local_image_review.py','adobe_preview.py','desktop_workspace.py','desktop_preferences.py','desktop_collections.py','file_executor.py','organizer_lab.py','organizer_policy.py','desktop_judgment.py','desktop_recovery.py','work_assistant.py','quick_launcher.py','updater.py']
+        files=['app.py','scanner.py','project_intelligence.py','workspace_insights.py','content_analysis.py','local_content_review.py','local_image_review.py','adobe_preview.py','desktop_workspace.py','desktop_preferences.py','desktop_collections.py','file_executor.py','organizer_lab.py','organizer_policy.py','desktop_judgment.py','desktop_recovery.py','work_assistant.py','quick_launcher.py','windows_app_catalog.py','browser_bookmarks.py','updater.py']
         compile_result=subprocess.run([sys.executable,'-c', 'import ast,pathlib,sys; [ast.parse(pathlib.Path(p).read_text(encoding="utf-8")) for p in sys.argv[1:] if pathlib.Path(p).exists()]',*files],cwd=ROOT,capture_output=True,text=True,timeout=20)
         if compile_result.returncode:raise RuntimeError('새 코드 검사 실패: '+compile_result.stderr[-400:])
         write('done','업데이트가 완료되었습니다.',backup_dir=str(folder))

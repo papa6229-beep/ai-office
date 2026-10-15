@@ -179,6 +179,7 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const kinds = {app:'프로그램',web:'웹사이트',folder:'폴더'};
   let state = null, busy = false, loading = false, pending = null, editing = null, managing = false, imageData, imageReading = false, imageVersion = 0, imageURL = '';
+  let selectedApp = null, bookmarks = null, bookmarkLoading = false, dialogVersion = 0;
   const id = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2,'0')).join('');
   function message(text = '', error = false) {
     $('workLauncherNotice').textContent = text;
@@ -188,7 +189,7 @@
   function locks() {
     document.querySelectorAll('#workLauncher button,#workLauncherDialog button,#workLauncherDialog input,#workLauncherDialog select').forEach(el => {
       const action = el.dataset.launcherAction;
-      el.disabled = action === 'close' ? false : action === 'retry' ? busy : action === 'reload' ? busy || loading || !!pending : busy || loading || !!pending || !state?.action_token || imageReading;
+      el.disabled = action === 'close' ? false : action === 'retry' ? busy : action === 'reload' ? busy || loading || !!pending : busy || loading || !!pending || !state?.action_token || imageReading || bookmarkLoading;
     });
     $('workLauncherRetry').hidden = !pending;
     $('workLauncherDialogRetry').hidden = !pending;
@@ -205,11 +206,14 @@
     manage.textContent = managing ? '편집 완료' : '편집'; manage.setAttribute('aria-pressed',String(managing));
     locks();
   }
-  async function load() {
+  async function load(refresh = false) {
     if (busy || loading || pending) return;
     loading = true; locks();
     try {
-      const response = await fetch('/api/launcher',{cache:'no-store'}), data = await response.json();
+      const response = refresh && state?.action_token
+        ? await fetch('/api/launcher/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:state.action_token})})
+        : await fetch('/api/launcher',{cache:'no-store'});
+      const data = await response.json();
       if (!response.ok || data.error) throw Error(data.error || '바로가기를 불러오지 못했습니다.');
       state = data; message(); render();
     } catch (e) { message(e.message,true); if (!state) $('workLauncherGrid').innerHTML = '<p class="work-launcher-empty">연결 후 바로가기를 확인할 수 있습니다.</p>'; }
@@ -240,6 +244,36 @@
     const kind = $('workLauncherKind').value;
     const config = {app:['프로그램 전체 경로 (.exe / .lnk)','발견한 프로그램을 선택하거나 전체 경로를 입력하세요.','C:\\Program Files\\...\\app.exe'],web:['웹사이트 주소','http:// 또는 https://로 시작하는 웹사이트 주소를 입력하세요.','https://example.com'],folder:['폴더 전체 경로','작업 폴더를 선택하거나 전체 경로를 입력하세요.','C:\\Users\\...\\Documents']}[kind];
     $('workLauncherTargetLabel').textContent = config[0]; $('workLauncherTargetHelp').textContent = config[1]; $('workLauncherTarget').placeholder = config[2]; $('workLauncherPick').hidden = kind === 'web';
+    $('workLauncherSuggestionsWrap').hidden = kind !== 'app';
+    $('workLauncherBookmarksWrap').hidden = kind !== 'web';
+    const registered = kind === 'app' && !!selectedApp;
+    $('workLauncherSelectedApp').hidden = !registered;
+    $('workLauncherTargetWrap').hidden = registered;
+    $('workLauncherTarget').required = !registered;
+    $('workLauncherSelectedAppName').textContent = registered ? 'Windows 시작 메뉴 · '+selectedApp.title : '';
+  }
+  function appResults() {
+    const query=$('workLauncherAppSearch').value.trim().toLocaleLowerCase(), all=state?.suggestions || [];
+    const results=all.map((item,index)=>({item,index})).filter(({item})=>item.title.toLocaleLowerCase().includes(query));
+    $('workLauncherAppCount').textContent=`${results.length}개 / 전체 ${all.length}개`+(state?.suggestion_source && state.suggestion_source !== 'windows-start-menu' ? ' · 바로가기에서 찾음' : '')+((state?.suggestion_warnings || []).length ? ' · '+state.suggestion_warnings.join(' ') : '');
+    $('workLauncherSuggestions').innerHTML=results.length ? results.map(({item,index})=>`<button type="button" class="work-source-result" data-launcher-action="suggestion" data-source-index="${index}"><strong>${esc(item.title)}</strong><small>${esc(item.detail || item.source || (String(item.target).startsWith('startapp:') ? 'Windows 시작 메뉴' : item.target))}</small></button>`).join('') : '<p class="work-source-empty">일치하는 프로그램이 없습니다. 아래에서 실행 파일을 직접 선택할 수 있습니다.</p>';
+    locks();
+  }
+  function bookmarkResults() {
+    const query=$('workLauncherBookmarkSearch').value.trim().toLocaleLowerCase(), all=bookmarks?.items || [];
+    const profile=$('workLauncherBookmarkProfile').value;
+    const results=all.map((item,index)=>({item,index})).filter(({item})=>(!profile || JSON.stringify([item.browser,item.profile]) === profile) && [item.title,item.target,item.folder,item.browser,item.profile].join(' ').toLocaleLowerCase().includes(query));
+    $('workLauncherBookmarkCount').textContent=`${results.length}개 / 불러온 북마크 ${all.length}개`+(bookmarks?.truncated ? ' · 일부만 불러옴' : '');
+    $('workLauncherBookmarks').innerHTML=results.length ? results.map(({item,index})=>`<button type="button" class="work-source-result" data-launcher-action="bookmark" data-source-index="${index}"><strong>${esc(item.title)}</strong><small>${esc([item.browser,item.profile,item.folder].filter(Boolean).join(' · '))}</small><small>${esc(item.target)}</small></button>`).join('') : '<p class="work-source-empty">일치하는 북마크가 없습니다. 주소를 직접 입력할 수 있습니다.</p>';
+    locks();
+  }
+  function chooseSource(suggestion) {
+    if (!suggestion) return;
+    selectedApp=String(suggestion.target).startsWith('startapp:') ? suggestion : null;
+    $('workLauncherName').value=suggestion.title; $('workLauncherKind').value=suggestion.kind; $('workLauncherTarget').value=selectedApp ? '' : suggestion.target; $('workLauncherIcon').value=suggestion.icon || '✦';
+    imageData=''; imageURL=''; imageVersion++; $('workLauncherImage').value='';
+    $('workLauncherFormNotice').textContent=`${suggestion.title} 선택됨 · 아래에서 바로가기를 저장하세요.`;
+    kindFields(); preview();
   }
   function preview() {
     $('workLauncherIconPreview').replaceChildren();
@@ -248,18 +282,19 @@
     else $('workLauncherIconPreview').textContent = $('workLauncherIcon').value || '✦';
   }
   function open(item) {
+    dialogVersion++; selectedApp=item?.kind === 'app' && String(item.target).startsWith('startapp:') ? item : null;
     editing = item?.id || null; imageData = undefined; imageURL = item?.icon_image ? '/api/launcher/icon?id='+encodeURIComponent(item.id) : ''; imageVersion++; imageReading=false;
     $('workLauncherForm').reset(); $('workLauncherDialogTitle').textContent = editing ? '바로가기 수정' : '바로가기 추가';
-    $('workLauncherName').value = item?.title || ''; $('workLauncherKind').value = item?.kind || 'app'; $('workLauncherTarget').value = item?.target || ''; $('workLauncherIcon').value = item?.icon || '✦'; $('workLauncherFormNotice').textContent='';
-    $('workLauncherSuggestionsWrap').hidden = !!editing;
-    $('workLauncherSuggestions').innerHTML = '<option value="">프로그램 선택</option>' + (state?.suggestions || []).map((x,i)=>`<option value="${i}">${esc(x.title)}</option>`).join('');
+    $('workLauncherName').value = item?.title || ''; $('workLauncherKind').value = item?.kind || 'app'; $('workLauncherTarget').value = selectedApp ? '' : item?.target || ''; $('workLauncherIcon').value = item?.icon || '✦'; $('workLauncherFormNotice').textContent='';
+    $('workLauncherBookmarkPicker').hidden=!bookmarks; $('workLauncherBookmarkNotice').textContent=(bookmarks?.warnings || []).join(' ');
+    appResults(); if (bookmarks) bookmarkResults();
     kindFields(); preview(); locks(); $('workLauncherDialog').showModal(); $('workLauncherName').focus();
   }
   async function click(event) {
     const button = event.target.closest('[data-launcher-action]'); if (!button || button.disabled) return;
     const action=button.dataset.launcherAction, item=(state?.items || []).find(x=>x.id===button.dataset.launcherId);
-    if (action === 'close') { $('workLauncherDialog').close(); return; }
-    if (action === 'reload') { await load(); return; }
+    if (action === 'close') { dialogVersion++; $('workLauncherDialog').close(); return; }
+    if (action === 'reload') { await load(true); return; }
     if (action === 'retry') { if (pending) await write(null,null,null,pending); return; }
     if (action === 'add') { open(); return; }
     if (action === 'manage') { managing=!managing; render(); return; }
@@ -270,9 +305,21 @@
       if (to < 0 || to >= ids.length) return; [ids[from],ids[to]]=[ids[to],ids[from]]; await write('reorder',{ids}); return;
     }
     if (action === 'suggestion') {
-      const index=$('workLauncherSuggestions').value, suggestion=index === '' ? null : state.suggestions?.[Number(index)];
-      if (!suggestion) { $('workLauncherFormNotice').textContent='먼저 프로그램을 선택하세요.'; return; }
-      $('workLauncherName').value=suggestion.title; $('workLauncherKind').value=suggestion.kind; $('workLauncherTarget').value=suggestion.target; $('workLauncherIcon').value=suggestion.icon || '✦'; imageData=''; imageURL=''; imageVersion++; kindFields(); preview(); return;
+      chooseSource(state?.suggestions?.[Number(button.dataset.sourceIndex)]); return;
+    }
+    if (action === 'bookmark') { chooseSource(bookmarks?.items?.[Number(button.dataset.sourceIndex)]); return; }
+    if (action === 'manual-target') { selectedApp=null; kindFields(); $('workLauncherTarget').focus(); return; }
+    if (action === 'bookmarks') {
+      const version=dialogVersion; bookmarkLoading=true; locks(); $('workLauncherBookmarkNotice').textContent='북마크를 읽는 중…';
+      try {
+        const response=await fetch('/api/launcher/bookmarks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:state.action_token})}), data=await response.json();
+        if (!response.ok || data.error) throw Error(data.error || '북마크를 읽지 못했습니다.');
+        bookmarks=data;
+        const profiles=[...new Set((data.items || []).map(x=>JSON.stringify([x.browser,x.profile])))];
+        $('workLauncherBookmarkProfile').innerHTML='<option value="">모든 프로필</option>'+profiles.map(key=>`<option value="${esc(key)}">${esc(JSON.parse(key).filter(Boolean).join(' · '))}</option>`).join('');
+        if (version === dialogVersion) { $('workLauncherBookmarkPicker').hidden=false; bookmarkResults(); $('workLauncherBookmarkNotice').textContent=(data.warnings || []).join(' '); }
+      } catch(e) { if (version === dialogVersion) $('workLauncherBookmarkNotice').textContent=e.message; }
+      finally {bookmarkLoading=false;locks();if (version === dialogVersion && bookmarks) $('workLauncherBookmarkSearch').focus();} return;
     }
     if (action === 'clear-image' || action === 'palette') {
       imageData=''; imageURL=''; imageVersion++; $('workLauncherImage').value='';
@@ -285,7 +332,7 @@
       try {
         const response=await fetch('/api/launcher/pick-program',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:state.action_token})}), data=await response.json();
         if (!response.ok || data.error) throw Error(data.error || '프로그램 선택창을 열지 못했습니다.');
-        if (data.path) $('workLauncherTarget').value=data.path;
+        if (data.path) { selectedApp=null; $('workLauncherTarget').value=data.path; kindFields(); }
       } catch(e) { $('workLauncherFormNotice').textContent=e.message; }
       finally {busy=false;locks();}
     }
@@ -293,7 +340,7 @@
   async function submit(event) {
     if (event.target.id !== 'workLauncherForm') return;
     event.preventDefault(); if (busy || pending || imageReading) return;
-    const title=$('workLauncherName').value.trim(), target=$('workLauncherTarget').value.trim(), kind=$('workLauncherKind').value;
+    const title=$('workLauncherName').value.trim(), kind=$('workLauncherKind').value, target=kind === 'app' && selectedApp ? selectedApp.target : $('workLauncherTarget').value.trim();
     if (!title || !target) return;
     if (kind === 'web') { try { const url=new URL(target); if (!['http:','https:'].includes(url.protocol)) throw Error(); } catch(_) { $('workLauncherFormNotice').textContent='http:// 또는 https://로 시작하는 올바른 주소를 입력하세요.'; return; } }
     const payload={title,target,kind,icon:$('workLauncherIcon').value.trim(),...(editing ? {id:editing} : {}),...(imageData !== undefined ? {icon_data:imageData} : {})};
@@ -303,7 +350,11 @@
     if (!$('workLauncher')) return;
     $('workLauncherPalette').innerHTML=['✦','🎨','🖥️','🌐','📁','📊','✉️','📝','🎬','⚙️'].map(x=>`<button type="button" data-launcher-action="palette" data-icon="${esc(x)}" aria-label="${esc(x)} 아이콘">${esc(x)}</button>`).join('');
     $('work').addEventListener('click',click); $('work').addEventListener('submit',submit);
-    $('workLauncherKind').addEventListener('change',kindFields);
+    $('workLauncherKind').addEventListener('change',()=>{selectedApp=null;$('workLauncherTarget').value='';$('workLauncherFormNotice').textContent='';kindFields();});
+    $('workLauncherAppSearch').addEventListener('input',appResults);
+    $('workLauncherBookmarkSearch').addEventListener('input',bookmarkResults);
+    $('workLauncherBookmarkProfile').addEventListener('change',bookmarkResults);
+    $('workLauncherDialog').addEventListener('cancel',()=>{dialogVersion++;});
     $('workLauncherIcon').addEventListener('input',()=>{imageData='';imageURL='';imageVersion++;preview();});
     $('workLauncherImage').addEventListener('change',()=>{
       const file=$('workLauncherImage').files[0]; if (!file) return;

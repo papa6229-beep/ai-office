@@ -15,6 +15,7 @@ import webbrowser
 from urllib.parse import urlsplit
 
 from desktop_workspace import _desktop_roots, _safe_route
+import windows_app_catalog
 
 _LOCKS = {}
 _LOCKS_GUARD = threading.Lock()
@@ -32,7 +33,7 @@ def _identifier(value):
 
 
 def _text(value, maximum, label):
-    if not isinstance(value, str) or not value.strip() or len(value) > maximum or any(ord(c) < 32 for c in value):
+    if not isinstance(value, str) or not value.strip() or len(value) > maximum or any(ord(c) < 32 or ord(c) == 127 for c in value):
         raise ValueError(label + ' 값을 확인하세요.')
     return value.strip()
 
@@ -58,6 +59,9 @@ def _target(kind, value):
                     raise ValueError()
         except (ValueError, UnicodeError):
             raise ValueError('HTTP 또는 HTTPS 웹 주소를 입력하세요.') from None
+        return value
+    if kind == 'app' and value.startswith('startapp:'):
+        windows_app_catalog.resolve(value)
         return value
     if value.startswith(('\\\\', '//')) or ':' in value[2:]:
         raise ValueError('로컬 절대 경로를 입력하세요.')
@@ -190,7 +194,14 @@ class QuickLauncher:
             except ValueError:
                 item['available'] = False
             items.append(item)
-        return {'items': items, 'suggestions': _suggestions()}
+        catalog = windows_app_catalog.catalog()
+        primary = catalog['available']
+        suggestions = catalog['items'] if primary else _suggestions()
+        return {'items': items, 'suggestions': suggestions,
+                'suggestion_source': 'windows-start-menu' if primary else 'local-shortcuts',
+                'suggestion_warnings': catalog.get('warnings', []),
+                'suggestion_total': len(suggestions),
+                'suggestion_truncated': catalog.get('truncated', False) if primary else len(suggestions) >= 50}
 
     def overview(self):
         with self._connect() as c:
@@ -252,6 +263,8 @@ class QuickLauncher:
                 if kind == 'web':
                     if not webbrowser.open(target):
                         raise OSError()
+                elif kind == 'app' and target.startswith('startapp:'):
+                    windows_app_catalog.launch(target)
                 else:
                     os.startfile(target)
             except (OSError, ValueError, AttributeError, webbrowser.Error):
