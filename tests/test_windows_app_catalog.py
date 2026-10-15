@@ -12,13 +12,18 @@ class WindowsCatalogTests(unittest.TestCase):
     def setUp(self):
         apps.clear_cache()
 
-    def test_codex_package_has_correct_name_and_preserves_windows_label(self):
+    def test_package_namespace_does_not_override_registered_display_name(self):
         with patch.object(apps, '_read_apps', return_value=[{'Name': 'ChatGPT', 'AppID': 'OpenAI.Codex_123!App'}]):
             item = apps.catalog()['items'][0]
-            self.assertEqual(item['title'], 'Codex')
-            self.assertNotIn('ChatGPT', item['aliases'])
-            self.assertIn('ChatGPT', item['detail'])
+            self.assertEqual(item['title'], 'ChatGPT')
+            self.assertNotIn('Codex', item.get('aliases', []))
             self.assertEqual(apps.resolve(item['target']), 'OpenAI.Codex_123!App')
+
+    def test_distinct_registered_products_keep_their_display_names(self):
+        rows = [{'Name': 'ChatGPT', 'AppID': 'OpenAI.Codex_123!App'},
+                {'Name': 'Codex', 'AppID': 'Other.RegisteredApp!App'}]
+        with patch.object(apps, '_read_apps', return_value=rows):
+            self.assertEqual([i['title'] for i in apps.catalog()['items']], ['ChatGPT', 'Codex'])
 
     def test_full_start_catalog_deduplicates_identity_not_title(self):
         rows = [{'Name': f'App {i}', 'AppID': f'App.{i}'} for i in range(80)]

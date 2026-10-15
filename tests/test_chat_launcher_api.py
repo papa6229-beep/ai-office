@@ -26,7 +26,7 @@ class ChatLauncherApiTests(unittest.TestCase):
         # Preserve compatibility coverage for the earlier deterministic service.
         patch.object(app, 'work_service', side_effect=lambda: app.work_assistant.WorkAssistant(
             app.DB, app.config, app.call_gemma)).start()
-        rows = [{'Name': 'ChatGPT', 'AppID': 'OpenAI.Codex_abc!App'},
+        rows = [{'Name': 'Codex', 'AppID': 'OpenAI.Codex_abc!App'},
                 {'Name': 'Adobe Photoshop 2026', 'AppID': 'Adobe.Photoshop'},
                 {'Name': 'Adobe Illustrator 2026', 'AppID': 'Adobe.Illustrator'},
                 {'Name': 'Editor', 'AppID': 'Editor.2025'},

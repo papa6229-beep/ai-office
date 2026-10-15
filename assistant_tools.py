@@ -33,8 +33,8 @@ def _refs(description='Server-issued references'):
 # name: (effect, description, properties, required)
 _SPECS = {
     'apps_list': ('read', '설치된 Windows 시작 메뉴 앱의 실제 제품 이름과 참조를 조회합니다.', {}, []),
-    'apps_find': ('read', '자연어로 요청한 앱을 찾습니다. query가 한글/별칭이고 문자 일치가 없으면 설치된 canonical 제품 목록을 반환하므로 의미를 이해해 선택하세요. Codex와 ChatGPT는 별개입니다. 없으면 미설치라고 답하세요.', {'query':_string()}, ['query']),
-    'apps_choose': ('read', '여러 앱/버전 중 사용자 선택이 필요한 경우 선택 버튼을 표시합니다.', {'refs':_refs(), 'purpose':_string(enum=['add','launch'])}, ['refs','purpose']),
+    'apps_find': ('read', '자연어로 요청한 앱을 찾습니다. query가 한글/별칭이고 문자 일치가 없으면 Windows 등록 표시 이름 목록을 반환하므로 의미를 이해해 선택하세요. 패키지 식별자로 제품 이름을 추측하거나 다른 앱으로 대체하지 마세요. 없으면 현재 목록에서 찾지 못했다고 답하세요.', {'query':_string()}, ['query']),
+    'apps_choose': ('read', '약칭·종류·버전이 모호하면 관련된 실제 설치 앱만 골라 선택 버튼을 표시합니다. 추가 목적에는 전부 추가와 취소 버튼도 제공됩니다. 실행 목적에는 개별 선택과 취소만 가능합니다.', {'refs':dict(_refs(),maxItems=98), 'purpose':_string(enum=['add','launch']), 'question':_string(maxLengthOverride=500)}, ['refs','purpose']),
     'apps_launch': ('external', 'apps_find/list가 발급한 앱 ref를 실제 실행합니다. 바로가기를 새로 만들지 않습니다.', {'ref':_string()}, ['ref']),
     'launcher_list': ('read', '등록된 바로가기 목록과 ref를 조회합니다.', {}, []),
     'launcher_add': ('write', '설치 앱 또는 북마크/바탕화면 폴더 ref로 바로가기를 등록합니다. 같은 대상은 중복 등록하지 않습니다.', {'ref':_string(),'title':_string(maxLengthOverride=120)}, ['ref']),
@@ -127,10 +127,18 @@ class ToolRegistry:
         return WorkAssistant(self.db_path,lambda:{},None)
 
     def _ref(self,context,kind,value):
-        encoded=json.dumps({'kind':kind,'value':value},ensure_ascii=False,sort_keys=True)
-        # Server values are kept in private run state, never returned as launch targets.
-        key=hashlib.sha256(encoded.encode()).hexdigest()[:32]
-        context.setdefault('refs',{})[key]={'kind':kind,'value':copy.deepcopy(value)}
+        row={'kind':kind,'value':copy.deepcopy(value)}
+        refs=context.setdefault('refs',{})
+        # Short handles are easier for the model to copy. Only the server-owned
+        # run map grants meaning; saved legacy handles remain valid unchanged.
+        for key,existing in refs.items():
+            if existing==row: return key
+        number=len(refs)+1
+        key=kind+'_'+str(number)
+        while key in refs:
+            number+=1
+            key=kind+'_'+str(number)
+        refs[key]=row
         return key
 
     def _get(self,context,ref,kind):
@@ -180,12 +188,12 @@ class ToolRegistry:
         query=query.casefold().strip()
         matched=[r for r in rows if query and query in r['title'].casefold()]
         # Native model interprets Korean/colloquial product names against the actual inventory.
-        # Do not add brittle aliases or allow the stale Windows display name to change identity.
+        # Registered display names remain authoritative; package IDs do not name products.
         chosen=matched if matched else rows
         cards=[{'ref':self._ref(context,'app',{'target':r['target'],'title':r['title']}),'title':r['title']} for r in chosen]
         return _ok('설치된 앱 '+str(len(cards))+'개를 확인했습니다.'+(' '+', '.join(r['title'] for r in cards[:5]) if matched else ''),
                    {'items':cards,'lexical_match':bool(matched),'available':catalog.get('available',False),'truncated':catalog.get('total',len(rows))>500,
-                    'hint':'문자 일치가 없으면 실제 제품 이름 목록에서 의미로 판단하세요. 없는 제품을 다른 앱으로 대체하지 마세요. Codex는 ChatGPT가 아닙니다.'})
+                    'hint':'문자 일치가 없으면 Windows 등록 표시 이름 목록에서 의미로 판단하세요. 패키지 식별자로 제품 이름을 추측하거나 없는 제품을 다른 앱으로 대체하지 마세요. 없으면 현재 목록에서 찾지 못했다고 답하세요.'})
 
     def _launcher_cards(self,context):
         return [{'ref':self._ref(context,'launcher',r['id']),'title':r['title'],'kind':r['kind'],'available':r.get('available',True)} for r in self.launcher.overview()['items']]
@@ -193,9 +201,9 @@ class ToolRegistry:
     def _save(self,item,context):
         for old in self.launcher.overview()['items']:
             if old['kind']==item['kind'] and old['target']==item['target']:
-                return _ok('이미 등록된 바로가기를 유지했습니다: '+old['title'],refresh=['launcher'])
+                return _ok('이미 등록된 바로가기를 유지했습니다: '+old['title'],{'added':False},refresh=['launcher'])
         result=self.launcher.perform('save',dict(item,request_id=context['step_id']))
-        return _ok(item['title']+' 바로가기를 저장했습니다.',refresh=['launcher'])
+        return _ok(item['title']+' 바로가기를 저장했습니다.',{'added':True},refresh=['launcher'])
 
     def _execute(self,name,a,c):
         if name in {'apps_list','apps_find'}: return self._apps(c,a.get('query',''))
@@ -204,7 +212,12 @@ class ToolRegistry:
             for ref in a['refs']:
                 app=self._get(c,ref,'app')
                 options.append({'id':ref,'label':app['title']})
-            return {'status':'pending','message':'사용할 프로그램을 선택하세요.','pending':{'kind':'choice','title':'프로그램 선택','description':'실제 설치된 프로그램 중 선택합니다.','options':options,'operation':'app_choice','args':{'purpose':a['purpose'],'refs':a['refs']}}}
+            names='\n'.join(o['label'] for o in options)
+            if a['purpose']=='add': options.append({'id':'all','label':'전부 추가'})
+            options.append({'id':'cancel','label':'취소'})
+            question=a.get('question') or '어떤 프로그램을 말씀하셨나요?'
+            description=question+'\n실제 설치된 후보:\n'+names
+            return {'status':'pending','message':description,'pending':{'kind':'choice','title':'프로그램 선택','description':description,'options':options,'operation':'app_choice','args':{'purpose':a['purpose'],'refs':a['refs']}}}
         if name=='apps_launch':
             app=self._get(c,a['ref'],'app')
             windows_app_catalog.launch(app['target'])
@@ -369,11 +382,37 @@ class ToolRegistry:
     def resolve_pending(self,pending,option_id,context):
         if not isinstance(pending,dict) or option_id not in {o['id'] for o in pending.get('options',[])}:
             raise ValueError('유효한 선택 항목이 필요합니다.')
-        if option_id=='cancel': return _ok('취소했습니다. 파일은 변경하지 않았습니다.')
+        if option_id=='cancel': return _ok('취소했습니다. 실행하거나 변경한 항목은 없습니다.')
         operation=pending.get('operation')
         args=pending.get('args',{})
         if operation=='app_choice':
+            if args.get('purpose') not in {'add','launch'}: raise ValueError('프로그램을 다시 선택하세요.')
+            refs=args.get('refs',[])
+            if not isinstance(refs,list) or not 1 <= len(refs) <= 98 or len(set(refs))!=len(refs):
+                raise ValueError('프로그램을 다시 선택하세요.')
+            apps=[self._get(context,ref,'app') for ref in refs]
+            if option_id=='all':
+                if args['purpose']!='add': raise ValueError('전체 실행은 지원하지 않습니다.')
+                def add_all():
+                    windows_app_catalog.catalog(refresh=True)
+                    results=[]
+                    seen=set()
+                    for ref,app in zip(refs,apps):
+                        if app['target'] in seen: continue
+                        seen.add(app['target'])
+                        child=dict(context,step_id=hashlib.sha256((context['step_id']+':app:'+ref).encode()).hexdigest()[:32])
+                        try:
+                            windows_app_catalog.resolve(app['target'])
+                            result=self.execute('launcher_add',{'ref':ref},child)
+                            results.append({'title':app['title'],'status':'added' if result.get('data',{}).get('added') else 'existing','message':result['message']})
+                        except (ValueError,OSError):
+                            results.append({'title':app['title'],'status':'error','message':'현재 등록 상태를 확인할 수 없어 추가하지 못했습니다. 목록을 다시 확인하세요.'})
+                    counts={s:sum(r['status']==s for r in results) for s in ('added','existing','error')}
+                    message='바로가기 처리 결과: '+str(counts['added'])+'개 추가, '+str(counts['existing'])+'개 기존 유지, '+str(counts['error'])+'개 실패.'
+                    return _ok(message,{'items':results,'counts':counts},refresh=['launcher'])
+                return self._once('app_choice_all',args,context,add_all)
             if option_id not in args.get('refs',[]): raise ValueError('프로그램을 다시 선택하세요.')
+            windows_app_catalog.resolve(self._get(context,option_id,'app')['target'],refresh=True)
             name='launcher_add' if args['purpose']=='add' else 'apps_launch'
             return self.execute(name,{'ref':option_id},context)
         if operation not in {'hold','restore'} or option_id!='approve': raise ValueError('승인 항목을 다시 확인하세요.')

@@ -20,7 +20,7 @@ class ChatLauncherTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.db = pathlib.Path(self.tmp.name) / 'office.db'
         apps.clear_cache()
-        self.rows = [{'Name': 'ChatGPT', 'AppID': 'OpenAI.Codex_123!App'},
+        self.rows = [{'Name': 'Codex', 'AppID': 'OpenAI.Codex_123!App'},
                      {'Name': 'Adobe Photoshop 2026', 'AppID': 'Photoshop.2026'},
                      {'Name': 'Adobe Illustrator 2026', 'AppID': 'Illustrator.2026'}]
         self.mock = patch.object(apps, '_read_apps', side_effect=lambda: self.rows)

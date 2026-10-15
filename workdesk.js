@@ -178,6 +178,19 @@
     $('workDate').textContent=new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric',weekday:'long'}).format(new Date());
     $('workTaskDialog').addEventListener('close',()=>{historySequence++; if (selected) $('workTaskList').querySelector(`[data-work-task="${CSS.escape(selected)}"]`)?.focus();});
     $('work').addEventListener('submit',submit); $('work').addEventListener('click',click);
+    const command = $('workCommand');
+    let composing = false;
+    command.addEventListener('compositionstart',()=>{composing = true;});
+    command.addEventListener('compositionend',()=>{composing = false;});
+    command.addEventListener('blur',()=>{composing = false;});
+    command.addEventListener('keydown',event=>{
+      if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+      // IME confirmation can report keyCode 229 even when isComposing is false.
+      if (composing || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      if (event.repeat || command.disabled || busy || uncertain || !overview?.action_token || !command.value.trim()) return;
+      $('workCommandForm').requestSubmit($('workSend'));
+    });
     locks(); window.workLoad();
   });
 })();
