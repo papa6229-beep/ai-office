@@ -3,8 +3,8 @@ let deskOrganizerJob = null;
 let deskOrganizerBusy = false;
 const organizerLabels = {planned:'정리 준비', moving:'진행 중', moved:'정리됨', skipped:'보류',
     undoing:'되돌리는 중', undone:'되돌림', exception:'확인 필요'};
-const organizerJobLabels = {planned:'정리 준비', completed:'정리 완료', partial:'일부 확인 필요',
-    undone:'되돌리기 완료', undo_partial:'일부 되돌리기 확인 필요'};
+const organizerJobLabels = {planned:'정리 준비', completed:'샘플 이동 완료', partial:'일부 확인 필요',
+    undone:'샘플 원위치 복원 완료', undo_partial:'일부 되돌리기 확인 필요'};
 
 function deskOrganizerRender() {
     const job = deskOrganizerJob;
@@ -15,7 +15,7 @@ function deskOrganizerRender() {
     document.getElementById('deskOrganizerResume').textContent = undoDirection?'중단된 되돌리기 이어가기':'중단된 정리 이어가기';
     document.getElementById('deskOrganizerResume').disabled = deskOrganizerBusy;
     document.getElementById('deskOrganizerStart').disabled = deskOrganizerBusy;
-    document.getElementById('deskOrganizerStart').textContent = job?'새 샘플 자동 정리':'샘플 자동 정리';
+    document.getElementById('deskOrganizerStart').textContent = job?'새 시험 파일 이동':'시험 파일 이동';
     const body = document.getElementById('deskOrganizerBody');
     if (!job) {
         body.innerHTML='<div class="desk-proposal-empty">샘플 5개를 만들고 자동 정리합니다. 디자인 연결 자료 1개는 확인 대상으로 남깁니다.</div>';
@@ -23,7 +23,7 @@ function deskOrganizerRender() {
     }
     const count = statuses=>items.filter(x=>statuses.includes(x.status)).length;
     const attention=items.filter(x=>['exception','skipped'].includes(x.status)||(['moving','undoing'].includes(x.status)&&x.reason)).length;
-    body.innerHTML=`<div class="organizer-summary"><div><span>정리됨</span><b>${count(['moved'])}</b></div><div><span>되돌림</span><b>${count(['undone'])}</b></div><div><span>확인 필요·보류</span><b>${attention}</b></div></div><h4>${esc(organizerJobLabels[job.status]||job.status)}</h4><div class="organizer-results">${items.map(x=>`<article class="organizer-result ${x.status==='exception'?'organizer-exception':''}"><div><strong>${esc(x.name)}</strong><span class="organizer-state">${esc(['moving','undoing'].includes(x.status)&&x.reason?'확인 필요':(organizerLabels[x.status]||x.status))}</span></div><p>${x.status==='undone'?'원래 위치로 복원':x.destination?esc(x.destination.split(/[\\/]/).slice(-2).join(' / ')):'시험 폴더에 유지'}</p>${x.reason?`<p>${esc(x.reason)}</p>`:''}</article>`).join('')}</div><details class="desk-group-filelist"><summary>시험 폴더 위치·기록 확인</summary><p class="organizer-path">원래 위치: ${esc(job.source_dir)}<br>정리 위치: ${esc(job.destination_dir)}<br>기록 번호: ${esc(job.id)}</p></details>`;
+    body.innerHTML=`<div class="organizer-summary"><div><span>샘플 이동</span><b>${count(['moved'])}</b></div><div><span>샘플 복원</span><b>${count(['undone'])}</b></div><div><span>시험 보류</span><b>${attention}</b></div></div><h4>${esc(organizerJobLabels[job.status]||job.status)}</h4><div class="organizer-results">${items.map(x=>`<article class="organizer-result ${x.status==='exception'?'organizer-exception':''}"><div><strong>${esc(x.name)}</strong><span class="organizer-state">${esc(['moving','undoing'].includes(x.status)&&x.reason?'확인 필요':(organizerLabels[x.status]||x.status))}</span></div><p>${x.status==='undone'?'원래 위치로 복원':x.destination?esc(x.destination.split(/[\\/]/).slice(-2).join(' / ')):'시험 폴더에 유지'}</p>${x.reason?`<p>${esc(x.reason)}</p>`:''}</article>`).join('')}</div><details class="desk-group-filelist"><summary>시험 폴더 위치·기록 확인</summary><p class="organizer-path">원래 위치: ${esc(job.source_dir)}<br>정리 위치: ${esc(job.destination_dir)}<br>기록 번호: ${esc(job.id)}</p></details>`;
 }
 
 async function deskOrganizerLoad() {
