@@ -62,7 +62,11 @@
     $('workTaskList').innerHTML = tasks.length ? tasks.map(t=>`<button type="button" class="work-task-row" data-work-task="${escape(t.id)}" aria-pressed="${t.id === selected}"><span class="work-state ${escape(t.status)}">${escape(statusNames[t.status] || t.status)}</span><span class="work-task-copy"><span class="work-task-name">${escape(t.title)}</span><small>${t.due_date ? '마감 '+escape(t.due_date) : '마감일 없음'}${t.resources?.length ? ' · 연결 자료 '+t.resources.length+'개' : ''}</small></span><span aria-hidden="true">›</span></button>`).join('') : '<p class="work-empty">아직 등록한 업무가 없습니다.<br>비서에게 요청하거나 ‘업무 추가’로 첫 업무를 남겨보세요.</p>';
     const messages = overview.messages || [];
     const log = $('workMessages'), nearBottom = log.scrollHeight-log.scrollTop-log.clientHeight < 50;
-    log.innerHTML = messages.length ? messages.map(m=>`<div class="work-message ${m.role === 'user' ? 'work-user' : ''}"><strong>${m.role === 'user' ? '나' : '업무 비서'}</strong>${escape(m.content)}</div>`).join('') : '<p class="work-empty">무슨 일을 해야 하나요?<br>업무를 등록하거나 진행 내용을 알려주세요.</p>';
+    const choices = overview.launcher_choices || [];
+    log.innerHTML = messages.length ? messages.map(m=>{
+      const options = m.role === 'assistant' ? choices.filter(c=>c.message_id === m.id).map(c=>`<div class="work-launcher-choice" role="group" aria-label="${escape(c.name)} 프로그램 선택"><span>${escape(c.name)} · 사용할 프로그램을 골라주세요.</span>${(c.options || []).map(option=>`<button type="button" class="work-secondary" data-work-launcher-choice="${escape(c.id)}" data-work-launcher-target="${escape(option.target)}"><strong>${escape(option.title)}</strong>${option.detail ? `<small>${escape(option.detail)}</small>` : ''}</button>`).join('')}</div>`).join('') : '';
+      return `<div class="work-message ${m.role === 'user' ? 'work-user' : ''}"><strong>${m.role === 'user' ? '나' : '업무 비서'}</strong>${escape(m.content)}${options}</div>`;
+    }).join('') : '<p class="work-empty">무슨 일을 해야 하나요?<br>업무를 등록하거나 바로가기에 추가할 프로그램을 알려주세요.</p>';
     if (nearBottom) log.scrollTop = log.scrollHeight;
     renderDetail();
     locks();
@@ -119,6 +123,7 @@
       taskHistory.delete(selected); request.cleanup?.(); render();
       if ($('workTaskDialog').open && selected) loadHistory(selected);
       notice(data.result?.message || '업무 기록을 저장했습니다.');
+      if (data.result?.launcher_changed) document.dispatchEvent(new CustomEvent('work-launcher-changed'));
     } catch (e) {
       if (!confirmedResponse) uncertain = request;
       else uncertain = null;
@@ -146,6 +151,7 @@
   }
   async function click(event) {
     const button = event.target.closest('button'); if (!button || button.disabled) return;
+    if (button.dataset.workLauncherChoice) { write('choose-launcher',{choice_id:button.dataset.workLauncherChoice,target:button.dataset.workLauncherTarget}); return; }
     if (button.dataset.workTask) { selected = button.dataset.workTask; renderDetail(false); render(); $('workTaskDialog').showModal(); loadHistory(selected); return; }
     if (button.dataset.workExample) { $('workCommand').value=button.dataset.workExample; $('workCommand').focus(); return; }
     if (button.dataset.workStatus) { write('status',{task_id:selected,status:button.dataset.workStatus}); return; }
@@ -180,6 +186,12 @@
   const kinds = {app:'프로그램',web:'웹사이트',folder:'폴더'};
   let state = null, busy = false, loading = false, pending = null, editing = null, managing = false, imageData, imageReading = false, imageVersion = 0, imageURL = '';
   let selectedApp = null, bookmarks = null, bookmarkLoading = false, dialogVersion = 0;
+  let launcherRefreshQueued = false;
+  function drainChatRefresh() {
+    if (!launcherRefreshQueued || busy || loading || pending || $('workLauncherDialog').open) return;
+    launcherRefreshQueued = false;
+    load();
+  }
   const id = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2,'0')).join('');
   function message(text = '', error = false) {
     $('workLauncherNotice').textContent = text;
@@ -217,7 +229,7 @@
       if (!response.ok || data.error) throw Error(data.error || '바로가기를 불러오지 못했습니다.');
       state = data; message(); render();
     } catch (e) { message(e.message,true); if (!state) $('workLauncherGrid').innerHTML = '<p class="work-launcher-empty">연결 후 바로가기를 확인할 수 있습니다.</p>'; }
-    finally { loading = false; locks(); }
+    finally { loading = false; locks(); drainChatRefresh(); }
   }
   async function write(endpoint, payload, cleanup, previous) {
     if (busy || (!previous && pending) || !state?.action_token) return;
@@ -238,7 +250,7 @@
     } catch (e) {
       if (!confirmed) pending = request; else pending = null;
       message(`${confirmed ? '요청 실패' : '처리 결과 확인 실패'}: ${e.message}`,true);
-    } finally { busy = false; locks(); }
+    } finally { busy = false; locks(); drainChatRefresh(); }
   }
   function kindFields() {
     const kind = $('workLauncherKind').value;
@@ -254,7 +266,7 @@
   }
   function appResults() {
     const query=$('workLauncherAppSearch').value.trim().toLocaleLowerCase(), all=state?.suggestions || [];
-    const results=all.map((item,index)=>({item,index})).filter(({item})=>item.title.toLocaleLowerCase().includes(query));
+    const results=all.map((item,index)=>({item,index})).filter(({item})=>[item.title,item.detail,...(item.aliases || [])].filter(Boolean).join(' ').toLocaleLowerCase().includes(query));
     $('workLauncherAppCount').textContent=`${results.length}개 / 전체 ${all.length}개`+(state?.suggestion_source && state.suggestion_source !== 'windows-start-menu' ? ' · 바로가기에서 찾음' : '')+((state?.suggestion_warnings || []).length ? ' · '+state.suggestion_warnings.join(' ') : '');
     $('workLauncherSuggestions').innerHTML=results.length ? results.map(({item,index})=>`<button type="button" class="work-source-result" data-launcher-action="suggestion" data-source-index="${index}"><strong>${esc(item.title)}</strong><small>${esc(item.detail || item.source || (String(item.target).startsWith('startapp:') ? 'Windows 시작 메뉴' : item.target))}</small></button>`).join('') : '<p class="work-source-empty">일치하는 프로그램이 없습니다. 아래에서 실행 파일을 직접 선택할 수 있습니다.</p>';
     locks();
@@ -334,7 +346,7 @@
         if (!response.ok || data.error) throw Error(data.error || '프로그램 선택창을 열지 못했습니다.');
         if (data.path) { selectedApp=null; $('workLauncherTarget').value=data.path; kindFields(); }
       } catch(e) { $('workLauncherFormNotice').textContent=e.message; }
-      finally {busy=false;locks();}
+      finally {busy=false;locks();drainChatRefresh();}
     }
   }
   async function submit(event) {
@@ -355,6 +367,8 @@
     $('workLauncherBookmarkSearch').addEventListener('input',bookmarkResults);
     $('workLauncherBookmarkProfile').addEventListener('change',bookmarkResults);
     $('workLauncherDialog').addEventListener('cancel',()=>{dialogVersion++;});
+    $('workLauncherDialog').addEventListener('close',drainChatRefresh);
+    document.addEventListener('work-launcher-changed',()=>{launcherRefreshQueued=true;drainChatRefresh();});
     $('workLauncherIcon').addEventListener('input',()=>{imageData='';imageURL='';imageVersion++;preview();});
     $('workLauncherImage').addEventListener('change',()=>{
       const file=$('workLauncherImage').files[0]; if (!file) return;

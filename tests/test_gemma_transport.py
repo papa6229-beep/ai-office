@@ -97,8 +97,10 @@ class GemmaTransportTests(unittest.TestCase):
         requests = []
         class Redirect(BaseHTTPRequestHandler):
             def do_POST(self):
+                # Consume the request before closing; unread POST data can reset Windows sockets.
+                self.rfile.read(int(self.headers.get('Content-Length', '0')))
                 requests.append((self.path, self.headers.get('Authorization')))
-                self.send_response(307); self.send_header('Location', '/collect'); self.end_headers()
+                self.send_response(307); self.send_header('Location', '/collect'); self.send_header('Content-Length', '0'); self.end_headers()
             def log_message(self, *args):pass
         server = ThreadingHTTPServer(('127.0.0.1', 0), Redirect)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()

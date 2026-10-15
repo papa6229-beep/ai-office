@@ -91,7 +91,14 @@ def catalog(refresh=False):
                 if target in identifiers:
                     continue
                 identifiers[target] = app_id
-                result['items'].append({'title': name.strip()[:120], 'kind': 'app', 'target': target, 'icon': '🚀'})
+                item = {'title': name.strip()[:120], 'kind': 'app', 'target': target, 'icon': '🚀'}
+                # Some Codex Windows packages retain the display name ChatGPT.
+                # The registered package identity, not a guessed executable, proves this alias.
+                if re.match(r'^OpenAI\.Codex(?:_|!)', app_id, re.IGNORECASE):
+                    item['aliases'] = list(dict.fromkeys(['Codex', '코덱스', name.strip()[:120]]))
+                    item['title'] = 'Codex'
+                    item['detail'] = 'Windows 표시 이름: ' + name.strip()[:120]
+                result['items'].append(item)
             result['items'].sort(key=lambda i: (i['title'].casefold(), i['target']))
             result['available'] = True
             result['total'] = len(result['items'])

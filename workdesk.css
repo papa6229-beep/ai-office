@@ -73,6 +73,11 @@
 #work .work-source-empty{padding:10px 2px;font-size:12px;color:#627c93;line-height:1.8}
 #work .work-selected-source{display:flex;gap:12px;justify-content:space-between;align-items:center;margin-top:15px;padding:12px;background:#e5eef8;border-left:3px solid #477caf;font-size:12px;overflow-wrap:anywhere}
 #work .work-selected-source .work-text-button{flex-shrink:0;margin:0}
+#work .work-launcher-choice{display:flex;flex-direction:column;gap:6px;margin-top:10px;white-space:normal}
+#work .work-launcher-choice>span{font-size:11px;color:#526e87}
+#work .work-launcher-choice button{text-align:left;padding:8px 10px}
+#work .work-launcher-choice button strong{font-size:12px;color:#2d63a8;margin:0}
+#work .work-launcher-choice button small{display:block;font-size:10px;color:#627c93;overflow-wrap:anywhere}
 @media(max-width:1150px){#work .work-layout{grid-template-columns:minmax(0,1.2fr) minmax(300px,1fr);gap:20px}#work .work-launcher{padding:19px}#work .work-launcher-grid{gap:8px}}
 @media(max-width:850px){#work .work-layout{grid-template-columns:1fr}#work .work-rail{position:static;display:block}}
 @media(max-width:600px){#work .work-launcher-grid{grid-template-columns:repeat(4,minmax(0,1fr))}#work .work-launcher{padding:18px 14px}#work .work-dialog{padding:18px 16px}#work .work-resource-entry{flex-wrap:wrap}#work .work-dialog .work-resource-entry input,#work .work-dialog .work-resource-entry select{flex-basis:65%}#work .work-launcher .work-panel-heading{align-items:center}#work .work-heading h2{font-size:24px}}

@@ -33,7 +33,8 @@ class LocalReviewTests(unittest.TestCase):
   requests=[]
   class Redirect(BaseHTTPRequestHandler):
    def do_POST(self):
-    requests.append(self.path);self.send_response(307);self.send_header('Location','http://example.invalid/collect');self.end_headers()
+    self.rfile.read(int(self.headers.get('Content-Length','0')))
+    requests.append(self.path);self.send_response(307);self.send_header('Location','http://example.invalid/collect');self.send_header('Content-Length','0');self.end_headers()
    def log_message(self,*args):pass
   server=ThreadingHTTPServer(('127.0.0.1',0),Redirect);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
   old=app.config;app.config=lambda:{'gemma_url':f'http://127.0.0.1:{server.server_port}','timeout':3,'gemma_model':'test','api_type':'openai','api_key':''}

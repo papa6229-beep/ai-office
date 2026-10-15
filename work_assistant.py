@@ -11,16 +11,20 @@ import threading
 import uuid
 
 from desktop_workspace import BLOCKED_EXTENSIONS, _safe_route
+import quick_launcher
+import chat_launcher
+import windows_app_catalog
 
-_LOCKS = {}
-_LOCKS_GUARD = threading.Lock()
+_LOCKS = quick_launcher._LOCKS
+_LOCKS_GUARD = quick_launcher._LOCKS_GUARD
 _SAFE_DOCUMENTS = {'.txt', '.md', '.pdf', '.docx', '.xlsx', '.pptx', '.csv',
                    '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp',
                    '.ai', '.psd', '.psb', '.eps', '.indd', '.hwp', '.hwpx',
                    '.doc', '.xls', '.ppt', '.zip', '.7z', '.rar'}
 _FIELDS = {'task': {'title', 'detail', 'due_date'}, 'status': {'task_id', 'status'},
            'note': {'task_id', 'text'}, 'resource': {'task_id', 'path'},
-           'command': {'message', 'task_id'}, 'report': {'day'}}
+           'command': {'message', 'task_id'}, 'report': {'day'},
+           'choose-launcher': {'choice_id', 'target'}}
 
 
 def _now():
@@ -68,6 +72,7 @@ class WorkAssistant:
         self.db_path = str(db_path)
         self.settings_supplier = settings_supplier
         self.text_model = text_model
+        self.launcher = quick_launcher.QuickLauncher(db_path)
         with _LOCKS_GUARD:
             self._lock = _LOCKS.setdefault(os.path.normcase(os.path.abspath(self.db_path)), threading.RLock())
         with self._lock, self._connect() as c:
@@ -80,6 +85,7 @@ class WorkAssistant:
                 CREATE TABLE IF NOT EXISTS work_messages (id TEXT PRIMARY KEY,role TEXT,content TEXT,created TEXT);
                 CREATE TABLE IF NOT EXISTS work_reports (id TEXT PRIMARY KEY,day TEXT,body TEXT,created TEXT,source_ids TEXT);
                 CREATE TABLE IF NOT EXISTS work_requests (id TEXT PRIMARY KEY,payload TEXT,response TEXT);
+                CREATE TABLE IF NOT EXISTS work_launcher_choices (id TEXT PRIMARY KEY,message_id TEXT,name TEXT,options TEXT,created TEXT,resolved INTEGER DEFAULT 0);
             ''')
 
     @contextlib.contextmanager
@@ -115,7 +121,8 @@ class WorkAssistant:
         for count in c.execute('SELECT status,count(*) n FROM tasks GROUP BY status'):
             if count['status'] in counts: counts[count['status']] = count['n']
         return {'tasks': tasks, 'events': events, 'messages': messages,
-                'report': dict(row) if row else None, 'counts': counts}
+                'report': dict(row) if row else None, 'counts': counts,
+                'launcher_choices': chat_launcher.pending(c)}
 
     def resource_path(self, resource_id):
         with self._connect() as c:
@@ -144,6 +151,7 @@ class WorkAssistant:
                     if prior['response'] is not None: return json.loads(prior['response'])
             # No SQLite transaction is held while contacting the configured model.
             proposed = self._command(payload) if action == 'command' else None
+            catalog = windows_app_catalog.catalog(refresh=True) if action == 'choose-launcher' or (proposed and proposed[0] == 'launcher') else None
             with self._connect() as c:
                 c.execute('BEGIN IMMEDIATE')
                 # Another process may have completed the same request during model I/O.
@@ -153,9 +161,17 @@ class WorkAssistant:
                     if prior['response'] is not None: return json.loads(prior['response'])
                 if action == 'command':
                     self._message(c, 'user', _text(payload.get('message'), '메시지'))
-                    result = self._apply(c, proposed[0], proposed[1])
-                    self._message(c, 'assistant', result['message'])
+                    message_id = uuid.uuid4().hex
+                    if proposed[0] == 'launcher':
+                        result = chat_launcher.register(c, self.launcher, proposed[1]['names'], catalog, message_id)
+                    else:
+                        result = self._apply(c, proposed[0], proposed[1])
+                    self._message(c, 'assistant', result['message'], message_id)
                     result['action'] = 'command'
+                elif action == 'choose-launcher':
+                    result = chat_launcher.choose(c, self.launcher, payload, catalog)
+                    result['action'] = action
+                    self._message(c, 'assistant', result['message'])
                 else:
                     result = self._apply(c, action, payload)
                 response = self._overview_in_transaction(c, payload.get('day') if action == 'report' else None)
@@ -166,8 +182,8 @@ class WorkAssistant:
     def _overview_in_transaction(self, c, day):
         return self._overview(c, _day(day))
 
-    def _message(self, c, role, content):
-        c.execute('INSERT INTO work_messages VALUES (?,?,?,?)', (uuid.uuid4().hex, role, content, _now()))
+    def _message(self, c, role, content, message_id=None):
+        c.execute('INSERT INTO work_messages VALUES (?,?,?,?)', (message_id or uuid.uuid4().hex, role, content, _now()))
 
     def _task(self, c, task_id):
         if not isinstance(task_id, str): raise ValueError('업무를 선택하세요.')
@@ -240,6 +256,9 @@ class WorkAssistant:
 
     def _command(self, payload):
         message = _text(payload.get('message'), '메시지')
+        requested = chat_launcher.names(message)
+        if requested is not None:
+            return 'launcher', {'names': requested}
         readonly = bool(re.search(r'하지\s*마|하지\s*말|하지\s*않|안\s*(?:됐|했|되|하)|미완료|말아|금지|취소|뭐야|뭔가|어떤|알려|목록|조회|보여|[?？]|\b(?:don.t|do not|what|which|list|show)\b', message, re.IGNORECASE))
         with self._connect() as c:
             tasks = [dict(row) for row in c.execute('SELECT id,title,status FROM tasks ORDER BY created DESC LIMIT 500')]
