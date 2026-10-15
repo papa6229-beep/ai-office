@@ -9,6 +9,8 @@ import uuid
 
 
 SYSTEM = '''당신은 AI OFFICE 업무 비서입니다. 사용자의 자연어 의도를 이해해 제공된 도구를 직접 호출하세요.
+사용자가 원하는 결과를 파악하고 현재 상태 관찰 → 적절한 실행 도구 선택 → 실제 실행 → 결과 재관찰 순서로 처리하세요. 이미 요청한 실행을 수동 사용법으로 돌리지 마세요. 현재 실행 환경 정보와 도구 결과를 과거 대화나 일반적인 제품 지식보다 우선하세요. 기능 미연결·모듈 미설치·대상 앱 미지원·실제 OS 접근 거부를 구별하고 확인 없이 권한 부족이라고 말하지 마세요.
+일반 Windows 앱은 windows_list → windows_inspect → windows_action을 사용하세요. 관찰한 요소 ref와 지원 동작만 사용하고 새 화면의 근거를 확인하세요. action_dispatched는 업무 전체 완료가 아닙니다. 알 수 없는 변경 동작의 승인 카드를 우회하거나 같은 동작을 재시도하지 마세요. Windows UIA 텍스트만 읽었으면 실제 이미지까지 보았다고 말하지 마세요.
 한국어 별명, 발음, 오타는 설치된 앱 목록을 보고 의미로 판단하세요. 앱 이름을 엄격하게 일치시키도록 사용자에게 요구하지 마세요.
 앱/자료/업무 조회 도구로 현재 대상을 먼저 확인하고 조회가 반환한 ref만 후속 도구에 사용하세요. 대상을 만들거나 경로를 추측하지 마세요.
 명확한 추가·실행 지시는 직접 처리하고 실제로 여러 후보가 있을 때만 선택 도구를 사용하세요. 부정/취소 지시를 실행 지시로 오해하지 마세요.
@@ -181,7 +183,7 @@ class AssistantRuntime:
                 c.execute('INSERT INTO work_messages VALUES (?,?,?,?)',
                           (user_message_id, 'user', payload['message'].strip(), _now()))
         context = {'request_id': request_id, 'task_id': payload.get('task_id'), 'refs': {},
-                   'user_message_id': user_message_id}
+                   'user_message_id': user_message_id,'user_goal':payload.get('message','')}
         receipts = []
         pending_results = []
         final_answer = ''
@@ -193,6 +195,16 @@ class AssistantRuntime:
                                     lambda: registry.resolve_pending(pending, payload['option_id'], context), 'approval')
                 result['_effect'] = 'approval'
                 receipts.append(result)
+                if pending.get('operation')=='windows_action' and result.get('status')=='ok' and result.get('continue_assistant') and result.get('evidence') and isinstance(pending.get('continuation'),dict):
+                    origin=pending.get('origin_user_message_id')
+                    with _connect(self.db_path) as c:
+                        original=c.execute("SELECT id,content FROM work_messages WHERE id=? AND role='user'",(origin,)).fetchone()
+                    if original is not None:
+                        context['user_message_id']=original['id']
+                        context['user_goal']=original['content']
+                        context['continuation']=pending['continuation']
+                        context['resume_receipt']={'name':'windows_action','arguments':pending.get('args',{}).get('call',{}),'result':result}
+                        final_answer=self._conversation(registry,context,receipts)
             else:
                 final_answer = self._conversation(registry, context, receipts)
         except Exception:
@@ -210,7 +222,7 @@ class AssistantRuntime:
         message = '\n'.join(str(r.get('message', '결과를 확인하세요.'))[:3000] for r in visible_receipts)[:16000]
         explanation = ''
         grounded=any(r.get('evidence') and r.get('status')=='ok' for r in receipts)
-        if (not active or grounded) and not (receipts and all(r.get('answer_complete') for r in receipts)) and (not receipts or any(r.get('status') == 'ok' and r.get('_effect') == 'read' for r in receipts)):
+        if (not active or grounded) and not (receipts and all(r.get('answer_complete') for r in receipts)) and (not receipts or grounded or any(r.get('status') == 'ok' and r.get('_effect') == 'read' for r in receipts)):
             explanation = _read_explanation(final_answer)
         if explanation:
             message = message + '\n\n설명\n' + explanation if message else explanation
@@ -281,12 +293,32 @@ class AssistantRuntime:
                 'ORDER BY seq', (current[0],))]
         today = datetime.datetime.now().astimezone().date().isoformat()
         messages = [{'role': 'system', 'content': SYSTEM + '\n사용자 PC의 오늘 날짜: ' + today + '. 오늘·내일·다음 주는 이 날짜를 기준으로 해석하세요.'}]
+        if callable(getattr(registry,'runtime_context',None)):
+            facts=registry.runtime_context()
+            messages.append({'role':'system','content':'서버가 확인한 현재 실행 환경입니다. 과거 대화의 기능 설명보다 우선합니다.\n'+_json(facts)})
         if context.get('task_id'):
             messages.append({'role': 'system', 'content': '사용자가 현재 선택한 업무 ID: ' + context['task_id']})
         messages.extend({'role': m['role'], 'content': m['content'][:4000]} for m in recent)
-        count = 0
-        effects = {}
-        for _ in range(self.MAX_ROUNDS):
+        resumed=context.pop('resume_receipt',None)
+        saved=context.pop('continuation',None)
+        count, effects, rounds_used = 0, {}, 0
+        if resumed:
+            if not isinstance(saved,dict) or not isinstance(saved.get('messages'),list):
+                raise ValueError('이전 실행 기록을 복원하지 못했습니다. 완료된 작업을 확인하세요.')
+            fresh_system=messages[0]
+            messages=json.loads(_json(saved['messages']))
+            if not messages or messages[-1].get('role')!='tool' or messages[-1].get('tool_name')!=resumed['name']:
+                raise ValueError('승인한 실행 기록이 변경되었습니다.')
+            messages[0]=fresh_system
+            result={k:v for k,v in resumed['result'].items() if k in ('status','message','data','refresh')}
+            messages[-1]['content']=_json(result)
+            count=saved.get('count',0)
+            rounds_used=saved.get('rounds',0)
+            effects=dict(saved.get('effects',{}))
+            effects[_json({'name':resumed['name'],'arguments':resumed['arguments']})]=resumed['result']
+            if type(count) is not int or type(rounds_used) is not int or not 0<=count<=self.MAX_CALLS or not 0<=rounds_used<=self.MAX_ROUNDS:
+                raise ValueError('실행 한도 기록을 확인하지 못했습니다.')
+        for round_index in range(rounds_used,self.MAX_ROUNDS):
             output = self.model_call(messages, definitions)
             if not isinstance(output, dict):
                 raise ValueError('모델 응답을 확인할 수 없습니다.')
@@ -303,8 +335,9 @@ class AssistantRuntime:
                     raise ValueError('도구 입력이 너무 큽니다.')
                 normalized.append({'id': str(call.get('id') or uuid.uuid4().hex)[:100], 'type': 'function',
                                    'function': {'name': call['name'], 'arguments': call['arguments']}})
-            messages.append({'role': 'assistant', 'content': str(output.get('content') or '')[:3000], 'tool_calls': normalized})
-            for call, native in zip(calls, normalized):
+            assistant_turn={'role': 'assistant', 'content': str(output.get('content') or '')[:3000], 'tool_calls': normalized}
+            messages.append(assistant_turn)
+            for call_index,(call, native) in enumerate(zip(calls, normalized)):
                 if count >= self.MAX_CALLS:
                     receipts.append({'status': 'error', 'message': '한 번의 작업 한도에 도달했습니다. 완료된 결과를 확인하세요.'})
                     return
@@ -338,5 +371,16 @@ class AssistantRuntime:
                                       'data': '결과가 너무 큽니다. 검색 범위를 좁혀 다시 조회하세요.'})
                 messages.append({'role': 'tool', 'tool_call_id': native['id'], 'tool_name': name, 'content': rendered})
                 if result.get('pending'):
+                    # A provider requires one result for every tool_call. Calls
+                    # after this approval were not executed and must be replanned.
+                    assistant_turn['tool_calls']=normalized[:call_index+1]
+                    # Save the logical run, not just its original user text.
+                    # Completed effects must remain visible and deduplicated
+                    # across every approval in this same request chain.
+                    state={'messages':messages,'count':count,'rounds':round_index+1,
+                           'effects':{signature:row for signature,row in effects.items() if not row.get('pending')}}
+                    frozen=_json(state)
+                    if len(frozen)<=4_000_000:
+                        result['pending']['continuation']=json.loads(frozen)
                     return
         receipts.append({'status': 'error', 'message': '한 번의 작업 한도에 도달했습니다. 완료된 결과를 확인하세요.'})

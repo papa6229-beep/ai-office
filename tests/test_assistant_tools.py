@@ -61,6 +61,16 @@ class RegistryTests(unittest.TestCase):
             self.assertIs(tool['function']['parameters']['additionalProperties'], False)
             self.assertIn(self.registry.effect(tool['function']['name']), {'read', 'write', 'external', 'approval'})
 
+    def test_runtime_facts_describe_actual_browser_and_native_bridge(self):
+        with patch('windows_workspace.capabilities',return_value={'available':True,'screenshots':False}):
+            facts=self.registry.runtime_context()
+        self.assertTrue(facts['windows']['available'])
+        self.assertFalse(facts['windows']['screenshots'])
+        self.assertIn('windows_action',facts['tools'])
+        self.assertTrue(facts['permissions']['uses_current_windows_user'])
+        self.assertEqual(facts['browser']['engine'],'Google Chrome')
+        self.assertEqual(facts['browser']['web_shortcuts_engine'],'Windows default browser')
+
     def test_hold_preview_never_moves_without_approval(self):
         candidate = {'id':'a'*64, 'name':'empty.txt', 'reason':'empty'}
         with patch('desktop_judgment.status', return_value={'revision':'b'*32, 'candidates':[candidate], 'items':[candidate]}), patch('desktop_recovery.holdability', return_value={'a'*64:{'allowed':True}}), patch('desktop_recovery.hold', return_value={'held_count':1,'exceptions':[]}) as hold:

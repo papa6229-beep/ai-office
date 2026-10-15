@@ -11,6 +11,7 @@ import pathlib
 import re
 import sqlite3
 import uuid
+import importlib.util
 
 import browser_bookmarks
 import browser_workspace
@@ -24,6 +25,8 @@ import organizer_policy
 import quick_launcher
 import streamdock_import
 import windows_app_catalog
+import windows_workspace
+import windows_actions
 
 
 def _string(description='', **kwargs):
@@ -46,7 +49,7 @@ _SPECS = {
     'launcher_edit': ('write', '등록된 바로가기 표시 이름/문자 아이콘을 수정합니다.', {'ref':_string(),'title':_string(),'icon':_string()}, ['ref']),
     'launcher_remove': ('write', '바로가기 타일만 제거합니다. 프로그램이나 원본 파일은 삭제하지 않습니다.', {'ref':_string()}, ['ref']),
     'launcher_reorder': ('write', '모든 등록 바로가기 ref를 원하는 순서로 나열합니다.', {'refs':_refs()}, ['refs']),
-    'launcher_launch': ('external', '이미 등록된 앱/웹/폴더 바로가기를 엽니다.', {'ref':_string()}, ['ref']),
+    'launcher_launch': ('external', '이미 등록된 앱/웹/폴더 바로가기를 직접 엽니다. 웹은 서버 실행 환경에 표시된 브라우저를 사용합니다. Chrome 연결이 있으면 Windows 기본 브라우저 변경이 필요하지 않습니다.', {'ref':_string()}, ['ref']),
     'bookmarks_list': ('read', '사용자가 북마크/웹사이트 사용을 요청한 경우 Chrome/Edge 북마크 이름과 URL을 읽기 전용으로 찾습니다.', {'query':_string()}, []),
     'bookmark_add': ('write', '조회한 북마크 ref로 바로가기를 추가합니다.', {'ref':_string()}, ['ref']),
     'bookmark_open': ('external', '조회한 북마크 ref의 HTTP/HTTPS 웹사이트를 엽니다.', {'ref':_string()}, ['ref']),
@@ -89,6 +92,7 @@ _SPECS = {
     'organizer_policy_status': ('read', '기존 실제 폴더 자동정리 정책의 설정/진행 상태를 조회합니다.', {}, []),
     'organizer_policy_preview': ('write', '정책의 실제 이동 후보를 읽기 전용으로 미리 봅니다. 채팅에서 정책 실행은 아직 지원하지 않습니다.', {}, []),
 }
+_SPECS.update(windows_actions.SPECS)
 # Avoid a second source of truth for string length limits.
 for _spec in _SPECS.values():
     for _field in _spec[2].values():
@@ -122,7 +126,7 @@ def _ok(message, data=None, refresh=None):
 
 
 class ToolRegistry:
-    def __init__(self, db_path, work_factory=None, configure_ai=None, browser_service=None, vision_model=None, workspace=None, web_opener=None):
+    def __init__(self, db_path, work_factory=None, configure_ai=None, browser_service=None, vision_model=None, workspace=None, web_opener=None, windows_service=None):
         self.db_path=str(db_path)
         self.browser_service=browser_service
         self.vision_model=vision_model
@@ -131,11 +135,24 @@ class ToolRegistry:
         self.launcher=quick_launcher.QuickLauncher(db_path,web_opener=self.web_opener)
         self.work_factory=work_factory
         self.configure_ai=configure_ai
+        self.windows=windows_actions.WindowsActions(self,windows_service)
         with contextlib.closing(sqlite3.connect(self.db_path)) as c, c:
             c.execute('CREATE TABLE IF NOT EXISTS assistant_tool_effects (id TEXT PRIMARY KEY,signature TEXT NOT NULL,response TEXT)')
 
     def definitions(self):
         return [{'type':'function','function':{'name':name,'description':spec[1], 'parameters':{'type':'object','properties':copy.deepcopy(spec[2]),'required':spec[3][:],'additionalProperties':False}}} for name,spec in _SPECS.items()]
+
+    def runtime_context(self):
+        managed=bool(self.web_opener) and importlib.util.find_spec('playwright') is not None
+        return {'tools':list(_SPECS),'execution':'observe -> act -> inspect result',
+                'browser':{'engine':'Google Chrome','module_available':importlib.util.find_spec('playwright') is not None,
+                           'web_shortcuts_engine':'Google Chrome' if managed else 'Windows default browser',
+                           'uses_windows_default':not managed,'default_browser_change_required_for_managed_chrome':False,
+                           'scope':'AI OFFICE 전용 Chrome 창; 기존 다른 Chrome 탭은 별개'},
+                'windows':windows_workspace.capabilities(),
+                'permissions':{'uses_current_windows_user':True,'arbitrary_shell':False,
+                               'unknown_native_changes':'exact_action_approval','protected_os_prompts':False},
+                'reporting':'모듈 미설치·기능 미연결·요소 미지원·실제 OS 접근 거부를 구별하고 실행 결과로 확인하세요.'}
 
     def effect(self,name):
         if name not in _SPECS: raise ValueError('지원하지 않는 도구입니다.')
@@ -333,6 +350,7 @@ class ToolRegistry:
         return dict(_ok(message,data),evidence=True)
 
     def _execute(self,name,a,c):
+        if name in windows_actions.SPECS: return self.windows.execute(name,a,c)
         if name=='browser_open':
             row=self._browser().open(a['url'])
             return _ok('AI OFFICE Chrome에서 사이트를 열었습니다: '+row.get('title',''),{'tab':self._browser_card(c,row)})
@@ -545,6 +563,7 @@ class ToolRegistry:
             raise ValueError('유효한 선택 항목이 필요합니다.')
         if option_id=='cancel': return _ok('취소했습니다. 실행하거나 변경한 항목은 없습니다.')
         operation=pending.get('operation')
+        if operation=='windows_action': return self.windows.resolve(pending,option_id,context)
         args=pending.get('args',{})
         if operation=='app_choice':
             if args.get('purpose') not in {'add','launch'}: raise ValueError('프로그램을 다시 선택하세요.')

@@ -17,6 +17,7 @@ import quick_launcher
 import browser_bookmarks
 import assistant_model
 import browser_workspace
+import windows_workspace
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -130,7 +131,7 @@ def work_service():
             work_factory=lambda:work_assistant.WorkAssistant(DB,config,call_gemma),
             configure_ai=configure_ai,browser_service=browser_workspace.manager(),
             vision_model=lambda prompt,image:call_gemma_vision(prompt,image,settings),
-            workspace=settings.get('workspace'),web_opener=open_managed_web))
+            workspace=settings.get('workspace'),web_opener=open_managed_web,windows_service=windows_workspace.manager()))
 
 def open_managed_web(url):
     import importlib.util,webbrowser

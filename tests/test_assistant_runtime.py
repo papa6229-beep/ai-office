@@ -107,6 +107,48 @@ class RuntimeTests(unittest.TestCase):
     def test_relative_due_dates_have_current_local_date_context(self):
         self.command(self.runtime([{'content': '어떤 업무인지 알려주세요.'}]), message='내일까지 할 일 추가해줘')
         self.assertIn(datetime.datetime.now().astimezone().date().isoformat(), self.model_inputs[0][0]['content'])
+
+    def test_current_runtime_capabilities_are_system_facts_before_history(self):
+        self.registry.runtime_context=lambda:{'browser':{'engine':'Google Chrome','uses_windows_default':False},
+                                               'windows':{'available':True,'native_screenshots':False}}
+        self.command(self.runtime([{'content':'열 대상을 확인하겠습니다.'}]),message='이 사이트는 크롬으로 열어줘')
+        facts=[m for m in self.model_inputs[0] if m['role']=='system']
+        combined=' '.join(m['content'] for m in facts)
+        self.assertIn('uses_windows_default',combined)
+        self.assertIn('Google Chrome',combined)
+        self.assertIn('native_screenshots',combined)
+
+    def test_native_approval_resumes_original_goal_from_fresh_observation(self):
+        original_definitions=self.registry.definitions
+        self.registry.definitions=lambda:original_definitions()+[{'type':'function','function':{
+            'name':'windows_action','parameters':{'type':'object'}}}]
+        original_effect=self.registry.effect
+        self.registry.effect=lambda name:'external' if name=='windows_action' else original_effect(name)
+        def execute(name,args,context):
+            context['refs']['control_1']={'kind':'native_control','value':'private-target'}
+            return {'status':'pending','message':'이 입력란을 변경합니다.','pending':{
+                'kind':'approval','title':'화면 조작 확인','description':'시험 앱 입력란',
+                'operation':'windows_action','origin_user_message_id':context['user_message_id'],
+                'args':{'call':dict(args)},'options':[{'id':'approve','label':'실행'},{'id':'cancel','label':'취소'}]}}
+        def resolve(pending,option,context):
+            context['refs']['control_2']={'kind':'native_control','value':'fresh-target'}
+            return {'status':'ok','message':'입력 후 새 화면을 읽었습니다.', 'evidence':True,
+                    'continue_assistant':True,'data':{'observation':{'text':'확인할 내용','ref':'control_2'},
+                                                     'verification':{'goal_verified':False}}}
+        self.registry.execute=execute
+        self.registry.resolve_pending=resolve
+        runtime=self.runtime([{'tool_calls':[call('windows_action',{'ref':'control_1','operation':'set_value','value':'확인할 내용'})]},
+                              {'content':'새 화면에서 입력한 내용이 보입니다.'}])
+        first=self.command(runtime,message='시험 앱 입력란에 확인할 내용이라고 입력해줘')
+        pending=first['assistant_actions'][0]
+        result=runtime.perform('assistant-action',{'request_id':uuid.uuid4().hex,'pending_id':pending['id'],'option_id':'approve'})
+        self.assertEqual(len(self.model_inputs),2)
+        messages=self.model_inputs[1]
+        self.assertEqual(messages[-1]['role'],'tool')
+        self.assertEqual(messages[-1]['tool_name'],'windows_action')
+        self.assertIn('control_2',messages[-1]['content'])
+        self.assertTrue(any(m['role']=='user' and '시험 앱 입력란' in m['content'] for m in messages))
+        self.assertIn('입력한 내용이 보입니다',result['result']['answer'])
     def test_no_tool_help_answer_is_retained_without_claiming_execution(self):
         response = self.command(self.runtime([{'content': '앱 실행, 바로가기 등록, 업무 기록을 도와드릴 수 있습니다. 무엇을 해드릴까요?'}]), message='무슨 기능이 있어?')
         self.assertIn('무엇을 해드릴까요', response['result']['answer'])
