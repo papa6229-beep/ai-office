@@ -12,6 +12,7 @@ import organizer_lab
 import organizer_policy
 import desktop_judgment
 import desktop_recovery
+import work_assistant
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -116,6 +117,14 @@ def judgment_view():
     data['recovery']=desktop_recovery.status()
     return data
 
+def work_service():
+    return work_assistant.WorkAssistant(DB,config,call_gemma)
+
+def work_view():
+    data=work_service().overview()
+    data['action_token']=DESK_TOKEN
+    return data
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def reply(self,data,code=200):
@@ -126,13 +135,16 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/work','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
-        if path in {'/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js'}:
+        if path in {'/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js'}:
             b=(ROOT/path.lstrip('/')).read_bytes()
             self.send_response(200);self.send_header('Content-Type','text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.end_headers();self.wfile.write(b);return
         if path=='/first-release.html':
             b=(ROOT/'first-release.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
+        if path=='/api/work':
+            try:return self.reply(work_view())
+            except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'업무 기록을 읽지 못했습니다. 기존 자료를 보존했습니다.'},400)
         if path=='/api/desk/judgment':
             try:return self.reply(judgment_view())
             except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
@@ -159,7 +171,8 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/':
             organizer_policy.ensure_worker()
             start_ai_supervisor()
-            b=(ROOT/'index.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
+            page=(ROOT/'index.html').read_text(encoding='utf-8').replace('<!-- WORK_DESK -->',(ROOT/'workdesk.html').read_text(encoding='utf-8'))
+            b=page.encode('utf-8');self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
         if path=='/api/desktop-path':
             home=pathlib.Path.home()
             options=[home/'OneDrive - BNN'/'Desktop', home/'OneDrive'/'Desktop', home/'Desktop']
@@ -206,11 +219,30 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:return self.reply({'error':'파일을 읽을 수 없습니다.'},400)
         if path=='/api/state':
             with db() as c:tasks=[dict(r) for r in c.execute('SELECT * FROM tasks ORDER BY created DESC')];runs=[dict(r) for r in c.execute('SELECT * FROM runs ORDER BY created DESC LIMIT 30')]
-            s=config();s['api_key']='' if not s.get('api_key') else '(설정됨)';return self.reply({'tasks':tasks,'runs':runs,'settings':s})
+            s=config();s['api_key']='' if not s.get('api_key') else '(설정됨)';return self.reply({'tasks':tasks,'runs':runs,'settings':s,'action_token':DESK_TOKEN})
         self.reply({'error':'not found'},404)
     def do_POST(self):
         try:
             p=urlparse(self.path).path;d=self.body()
+            if p.startswith('/api/work/') or p in {'/api/task','/api/task/status'}:
+                allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
+                if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+                    return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
+                payload={k:v for k,v in d.items() if k!='token'}
+                service=work_service()
+                if p=='/api/work/open-resource':
+                    if set(payload)-{'resource_id','request_id'}:raise ValueError('등록한 업무 자료만 열 수 있습니다.')
+                    resource=service.resource_path(payload.get('resource_id'))
+                    try:os.startfile(str(resource))
+                    except OSError:raise ValueError('자료를 열지 못했습니다. 파일 위치와 기본 앱을 확인하세요.') from None
+                    result=service.overview();result['result']={'action':'open-resource','message':'등록한 자료 열기를 요청했습니다.'}
+                else:
+                    action='task' if p=='/api/task' else 'status' if p=='/api/task/status' else p.rsplit('/',1)[-1]
+                    if p=='/api/task/status' and 'id' in payload:payload['task_id']=payload.pop('id')
+                    result=service.perform(action,payload)
+                result['action_token']=DESK_TOKEN
+                if p in {'/api/task','/api/task/status'}:result['ok']=True
+                return self.reply(result)
             if p in DESK_ACTIONS:
                 origin=self.headers.get('Origin')
                 allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
@@ -307,15 +339,6 @@ class Handler(BaseHTTPRequestHandler):
                 result=scanner.start(d.get('roots',[]));runlog('PC 조사','시작','읽기 전용 파일 목록 조사',json.dumps(result,ensure_ascii=False));return self.reply(result)
             if p=='/api/scan-duplicates':
                 result=scanner.duplicate_report();runlog('중복 조사','완료',str(result['total_groups'])+'개 동일 내용 그룹 확인');return self.reply(result)
-            if p=='/api/task':
-                title=str(d.get('title','')).strip()[:200];detail=str(d.get('detail',''))[:5000]
-                if not title:raise ValueError('업무명을 입력해 주세요.')
-                with db() as c:c.execute('INSERT INTO tasks VALUES (?,?,?,?,?)',(uuid.uuid4().hex,title,detail,'todo',now()))
-                return self.reply({'ok':True})
-            if p=='/api/task/status':
-                status=d.get('status'); assert status in ['todo','doing','done']
-                with db() as c:c.execute('UPDATE tasks SET status=? WHERE id=?',(status,d.get('id')))
-                return self.reply({'ok':True})
             if p=='/api/settings':
                 new={k:d[k] for k in ('gemma_url','gemma_model','api_type','workspace','timeout') if k in d}
                 if 'api_key' in d and d['api_key']!='(설정됨)':new['api_key']=d['api_key']
