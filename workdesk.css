@@ -14,15 +14,15 @@
 #work .work-launcher-notice{font-size:11px;color:#c6def7;line-height:1.7;overflow-wrap:anywhere}
 #work .work-launcher-notice:not(:empty){padding:10px 0}
 #work .work-launcher-notice.is-error{color:#ffd2b4}
-#work .work-launcher-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin-top:10px}
+#work .work-launcher-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:10px}
 #work .work-launcher-cell{min-width:0}
-#work .work-launcher-tile{width:100%;min-width:0;min-height:125px;padding:16px 7px 12px;display:flex;align-items:center;flex-direction:column;gap:7px;background:#243e5b;border:1px solid #385571;border-bottom:3px solid #0f2135;border-radius:11px;color:#edf5ff;box-shadow:inset 0 1px #ffffff0b;transition:background .12s,transform .12s}
+#work .work-launcher-tile{width:100%;min-width:0;min-height:96px;padding:10px 5px 8px;display:flex;align-items:center;flex-direction:column;gap:4px;background:#243e5b;border:1px solid #385571;border-bottom:3px solid #0f2135;border-radius:8px;color:#edf5ff;box-shadow:inset 0 1px #ffffff0b;transition:background .12s,transform .12s}
 #work .work-launcher-tile:hover:not(:disabled){background:#315372;border-color:#729bc3;transform:translateY(-2px)}
 #work .work-launcher-tile:active:not(:disabled){transform:translateY(1px)}
-#work .work-launcher-icon{display:flex;align-items:center;justify-content:center;width:46px;height:46px;font-size:30px;line-height:1;overflow:hidden}
-#work .work-launcher-icon img{width:42px;height:42px;object-fit:contain}
+#work .work-launcher-icon{display:flex;align-items:center;justify-content:center;width:32px;height:32px;font-size:25px;line-height:1;overflow:hidden}
+#work .work-launcher-icon img{width:30px;height:30px;object-fit:contain}
 #work .work-launcher-icon>span{max-width:100%;font-weight:600;overflow:hidden}
-#work .work-launcher-name{font-size:12px;line-height:1.45;font-weight:600;max-width:100%;overflow-wrap:anywhere;text-align:center}
+#work .work-launcher-name{font-size:11px;line-height:1.4;min-height:2.8em;font-weight:600;max-width:100%;overflow-wrap:anywhere;text-align:center;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 #work .work-launcher-kind{font-size:9px;font-weight:400;color:#9fb8d1}
 #work .work-launcher-tile.is-unavailable{border-color:#937d65}
 #work .work-launcher-tile.is-unavailable .work-launcher-kind{color:#ebcaa0}
@@ -74,5 +74,6 @@
 #work .work-selected-source{display:flex;gap:12px;justify-content:space-between;align-items:center;margin-top:15px;padding:12px;background:#e5eef8;border-left:3px solid #477caf;font-size:12px;overflow-wrap:anywhere}
 #work .work-selected-source .work-text-button{flex-shrink:0;margin:0}
 @media(max-width:1150px){#work .work-layout{grid-template-columns:minmax(0,1.2fr) minmax(300px,1fr);gap:20px}#work .work-launcher{padding:19px}#work .work-launcher-grid{gap:8px}}
-@media(max-width:850px){#work .work-layout{grid-template-columns:1fr}#work .work-rail{position:static;display:block}#work .work-launcher-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
-@media(max-width:600px){#work .work-launcher-grid{grid-template-columns:repeat(3,minmax(0,1fr))}#work .work-launcher{padding:18px 14px}#work .work-dialog{padding:18px 16px}#work .work-resource-entry{flex-wrap:wrap}#work .work-dialog .work-resource-entry input,#work .work-dialog .work-resource-entry select{flex-basis:65%}#work .work-launcher-tile{min-height:117px}#work .work-launcher-name{font-size:11px}#work .work-launcher .work-panel-heading{align-items:center}#work .work-heading h2{font-size:24px}}
+@media(max-width:850px){#work .work-layout{grid-template-columns:1fr}#work .work-rail{position:static;display:block}}
+@media(max-width:600px){#work .work-launcher-grid{grid-template-columns:repeat(4,minmax(0,1fr))}#work .work-launcher{padding:18px 14px}#work .work-dialog{padding:18px 16px}#work .work-resource-entry{flex-wrap:wrap}#work .work-dialog .work-resource-entry input,#work .work-dialog .work-resource-entry select{flex-basis:65%}#work .work-launcher .work-panel-heading{align-items:center}#work .work-heading h2{font-size:24px}}
+@media(max-width:380px){#work .work-launcher-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
