@@ -2,25 +2,19 @@
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI OFFICE · 1차 기능 보고서</title><link rel="icon" href="data:,"><style>
 *{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#233f56;font-family:"Segoe UI","Malgun Gothic",sans-serif;line-height:1.75}main{max-width:960px;margin:auto;padding:42px 24px 70px}header{border-top:5px solid #4a789b;padding-top:23px;margin-bottom:32px}h1{font-size:32px;letter-spacing:-1px;line-height:1.4;margin:0 0 13px}h2{font-size:21px;margin:32px 0 14px}p{margin:10px 0;color:#60788d;font-size:14px}a{color:#2c658e}header a{display:inline-block;background:#294f71;color:white;padding:10px 17px;border-radius:6px;text-decoration:none;font-size:13px;margin-top:10px}.summary{background:#e6eef6;padding:22px;border-left:4px solid #577fa4;border-radius:6px;font-size:15px;color:#385e7f}.features{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.feature{background:white;border:1px solid #dae4ee;padding:19px;border-radius:8px}.feature h3{margin:0 0 8px;font-size:16px}.feature p{font-size:13px;margin:0}.steps{counter-reset:step;list-style:none;padding:0;display:grid;gap:10px}.steps li{counter-increment:step;position:relative;background:white;border:1px solid #dce5ee;padding:17px 20px 17px 65px;border-radius:7px;font-size:14px}.steps li:before{content:counter(step);position:absolute;left:19px;top:17px;width:29px;height:29px;border-radius:50%;text-align:center;background:#e9f0f6;color:#3d6686;font-weight:700}.steps strong{display:block}.steps small{display:block;color:#70869a;font-size:12px;margin-top:4px}table{width:100%;border-collapse:collapse;font-size:13px;background:white}td,th{border-bottom:1px solid #dee6ef;text-align:left;padding:13px;vertical-align:top}th{color:#547690;background:#e9eff6}.table-wrap{overflow:auto;border:1px solid #dce5ee;border-radius:7px}.checklist{background:white;border:1px solid #dce5ee;border-radius:8px;padding:20px 24px}.checklist li{font-size:14px;margin:9px 0}.scope{border-top:1px solid #d4e1ec;margin-top:28px;padding-top:18px}.feedback{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px}.feedback div{background:#e9eff6;padding:17px;border-radius:6px;font-size:13px}.feedback b{display:block;margin-bottom:5px}.feedback span{color:#6c8295;font-size:12px}.verification{padding:16px;background:#e8f2ed;color:#46765e;border-radius:6px;font-size:13px}.footer{font-size:12px;color:#8295a5;margin-top:40px}@media(max-width:650px){main{padding:26px 16px}h1{font-size:26px}.features,.feedback{grid-template-columns:1fr}td,th{padding:10px;font-size:12px}}@media print{body{background:white}main{max-width:none;padding:15px}header a{display:none}.feature,.steps li{break-inside:avoid}}
 </style></head><body><main>
-<header><h1>AI OFFICE<br>업무 비서 첫 사용 안내</h1><p>업무를 등록하고 자료와 진행 기록을 연결해 하루 보고서를 만드는 개인 업무 비서 시험판입니다.</p><a href="/">실제 AI OFFICE 열기</a></header>
-<div class="summary"><strong>오늘의 업무</strong>가 새 기본 화면입니다. 채팅으로 업무를 남기거나 직접 등록하고, 선택한 업무에서 진행 메모와 관련 자료를 이어서 관리합니다.</div>
-<h2>지금 사용할 수 있는 기능</h2>
-<div class="features">
-<article class="feature"><h3>채팅 업무 지시</h3><p>업무 등록, 선택한 업무의 메모와 상태 변경, 오늘 보고서 작성을 요청할 수 있습니다. 대화와 실제 처리 결과는 다시 열어도 유지됩니다.</p></article>
-<article class="feature"><h3>업무와 자료 연결</h3><p>업무명·설명·마감일과 파일·폴더 위치를 연결합니다. 한글 문서와 디자인 원본도 연결할 수 있으며 원본 위치와 내용은 유지됩니다.</p></article>
-<article class="feature"><h3>진행 기록</h3><p>예정·진행 중·완료 상태를 표시하고 메모를 남깁니다. 기존 업무 리스트에서 바꾼 기록도 같은 업무 이력에 남습니다.</p></article>
-<article class="feature"><h3>일일 보고서</h3><p>오늘의 등록·메모·자료 연결·상태 변경과 진행 중인 업무로 초안을 만듭니다. 저장한 초안을 다시 보거나 복사·텍스트 저장할 수 있습니다.</p></article>
-</div>
-<h2>간단한 시험 순서</h2>
-<ol class="steps">
-<li><strong>채팅으로 실제 할 일을 등록하세요.</strong><small>예: “내일까지 거래처 시안 검토를 업무로 등록해줘.” 응답 후 업무와 마감일이 생기는지 확인합니다. 직접 입력하려면 ‘업무 추가’를 사용하세요.</small></li>
-<li><strong>업무를 눌러 관련 자료와 진행 메모를 붙이세요.</strong><small>폴더 선택 또는 파일 경로 입력 → ‘자료 연결’. 진행한 일을 메모하고 ‘진행 중으로 표시’를 누르세요. 원본 파일은 이동하지 않습니다.</small></li>
-<li><strong>‘보고서 작성’을 누르세요.</strong><small>방금 남긴 기록과 진행 업무가 포함되는지 봅니다. 새로고침 후에도 업무·대화·자료·보고서가 남는지 확인하세요.</small></li>
+<header><h1>AI OFFICE<br>기본 운영 화면 안내</h1><p>왼쪽은 업무와 채팅, 오른쪽은 자주 쓰는 프로그램·웹사이트·폴더 실행판입니다.</p><a href="/">실제 AI OFFICE 열기</a></header>
+<div class="summary">오른쪽 <strong>‘+ 추가’</strong>로 도구를 등록하고 버튼 한 번으로 엽니다. 업무 목록을 누르면 <strong>진행 과정 팝업</strong>이 열립니다. 이 화면에는 오늘의 보고서 영역을 두지 않습니다.</div>
+<h2>사용 순서</h2><ol class="steps">
+<li><strong>자주 쓰는 도구부터 등록하세요.</strong><small>오른쪽 ‘+ 추가’ → 프로그램·웹사이트·폴더 선택 → 이름과 대상 지정 → 저장. 발견한 프로그램 목록이나 ‘찾기’를 이용할 수 있습니다.</small></li>
+<li><strong>버튼을 누르면 바로 열립니다.</strong><small>‘편집’에서 이름·대상·이모지·이미지 아이콘을 바꾸고 순서를 조정하거나 등록을 삭제할 수 있습니다. 삭제해도 원본 프로그램과 파일은 유지됩니다.</small></li>
+<li><strong>업무를 추가하고 목록을 눌러보세요.</strong><small>왼쪽 채팅 또는 ‘업무 추가’로 등록합니다. 목록을 누른 팝업에서 상태·메모·관련 자료·시간순 진행 기록을 봅니다.</small></li>
 </ol>
-<h2>기존 자료 도구</h2>
-<div class="checklist"><ul><li>‘내 자료 열기’에서 바탕화면 앱·파일·폴더와 업무 작업함을 엽니다.</li><li>문서·이미지 내용 분석과 후보 일괄 복구 보관·복원은 기존 화면에서 계속 사용할 수 있습니다.</li><li>PC 자료 조사·중복 비교·저장한 독립 폴더 자동 정리·업데이트도 유지됩니다.</li></ul></div>
-<h2>현재 실행 범위</h2>
-<div class="summary">이 버전의 채팅 실행은 <strong>업무 등록·메모·상태·오늘 보고서</strong>까지입니다. 메신저 파일 자동 수신·전송, 앱·브라우저 업무 대행, 실제 스트림덱 기기 연동은 아직 연결하지 않았습니다. ‘완료 표시’는 사용자가 업무 상태를 바꾼 기록입니다.</div>
-<h2>확인한 내용</h2><div id="verification" class="verification">Windows 자동 테스트 239개 통과. 실제 앱 실행 환경은 238개 통과·선택 PDF 구성요소 미설치 1개 제외. 생성한 시험 DB와 파일로 업무 등록 → 자료 연결 → 메모 → 진행 상태 → 보고서 저장과 재조회를 화면에서 확인했습니다. 설정된 실제 Gemma에서도 시험 업무와 내일 마감일이 등록됐습니다. 기존 사용자 업무·실행 기록·설정은 보존했습니다.</div>
+<h2>현재 사용할 수 있는 기능</h2><div class="features">
+<article class="feature"><h3>원클릭 실행판</h3><p>로컬 프로그램과 바로가기(EXE/LNK), HTTP/HTTPS 웹사이트, 작업 폴더를 엽니다. 등록과 아이콘·순서는 다시 열어도 유지됩니다.</p></article>
+<article class="feature"><h3>내 아이콘</h3><p>이모지·짧은 글자 또는 PNG/JPEG/WebP/ICO 이미지를 사용합니다. 이미지 최대 512KB·1024px, 검증 후 PNG로 저장합니다.</p></article>
+<article class="feature"><h3>업무 진행 팝업</h3><p>업무 목록에서 선택해 진행 상태·메모·자료 연결과 시간순 이력을 확인합니다. 팝업에서 기록을 저장해도 창을 유지합니다.</p></article>
+<article class="feature"><h3>기존 자료 도구</h3><p>‘내 자료 열기’에서 바탕화면·앱·파일, 이미지 판단, 복구 보관함과 기존 조사 도구를 사용합니다.</p></article></div>
+<h2>채팅과 실행 버튼</h2><div class="summary">채팅은 업무 등록·메모·상태·기존 보고서 생성 요청을 처리합니다. 오른쪽 실행 버튼은 등록한 프로그램·웹·폴더를 직접 엽니다. 메신저 파일 수신·전송과 앱·브라우저 자율 업무는 아직 연결하지 않았습니다.</div>
+<h2>확인한 내용</h2><div id="verification" class="verification">Windows 자동 테스트 259개 통과. 실제 앱 실행 환경은 258개 통과·선택 PDF 1개 제외. 별도 시험 DB로 등록·아이콘 업로드·편집·순서·업무 팝업·모바일 화면을 확인했고 실제 Chrome 프로그램과 웹 열기 요청을 확인했습니다. 기존 사용자 업무·기록·설정과 원본 파일은 보존했습니다.</div>
 <p class="footer">AI OFFICE · 개인 업무 비서 시험판 · 2026년 10월 15일</p>
 </main></body></html>

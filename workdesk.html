@@ -1,6 +1,6 @@
 <section id="work">
   <header class="work-heading">
-    <div><p id="workDate" class="work-muted"></p><h2>오늘, 어떤 일을 도와드릴까요?</h2><p class="work-muted">업무를 남기고, 진행을 이어가고, 하루를 정리하세요.</p></div>
+    <div><p id="workDate" class="work-muted"></p><h2>오늘, 어떤 일을 도와드릴까요?</h2><p class="work-muted">업무를 기록하고, 자주 쓰는 도구를 바로 여세요.</p></div>
     <div class="work-links"><button type="button" class="work-quiet" data-work-action="reload">새로고침</button><button type="button" class="work-quiet" data-work-action="desk">내 자료 열기</button><button type="button" class="work-quiet" data-work-action="tasks">기존 업무 리스트</button></div>
   </header>
   <div id="workNotice" class="work-notice" role="status" aria-live="polite" hidden></div>
@@ -13,9 +13,9 @@
         <form id="workCommandForm">
           <div class="work-context"><span id="workContext">새 업무 또는 오늘 전체 업무에 대해 이야기합니다.</span><button type="button" id="workClearContext" class="work-text-button" data-work-action="clear-context" hidden>선택 해제</button></div>
           <label class="work-sr-only" for="workCommand">업무 요청</label><textarea id="workCommand" rows="3" maxlength="6000" placeholder="해야 할 일이나 업무 진행 내용을 알려주세요." required></textarea>
-          <div class="work-compose-footer"><span>업무 등록 · 진행 기록 · 오늘 보고서</span><button type="submit" id="workSend">요청 보내기</button></div>
+          <div class="work-compose-footer"><span>업무 등록 · 진행 기록</span><button type="submit" id="workSend">요청 보내기</button></div>
         </form>
-        <div class="work-examples" aria-label="요청 예시"><span>이렇게 요청해 보세요</span><button type="button" data-work-example="내일까지 행사 시안 준비를 업무로 등록해줘">내일까지 행사 시안 준비를 업무로 등록해줘</button><button type="button" data-work-example="오늘 업무 보고서 작성해줘">오늘 업무 보고서 작성해줘</button></div>
+        <div class="work-examples" aria-label="요청 예시"><span>이렇게 요청해 보세요</span><button type="button" data-work-example="내일까지 행사 시안 준비를 업무로 등록해줘">내일까지 행사 시안 준비를 업무로 등록해줘</button></div>
       </article>
       <article class="work-tasks" aria-labelledby="workTasksTitle">
         <div class="work-panel-heading"><div><h3 id="workTasksTitle">오늘의 업무</h3><p id="workCounts" class="work-muted"></p></div><button type="button" data-work-action="add-task" class="work-secondary">+ 업무 추가</button></div>
@@ -28,9 +28,32 @@
         <div id="workTaskList" class="work-task-list"><p class="work-empty">업무를 불러오고 있습니다.</p></div>
       </article>
     </div>
-    <aside class="work-rail">
-      <article class="work-detail" aria-labelledby="workDetailTitle"><h3 id="workDetailTitle">선택한 업무</h3><div id="workTaskDetailPanel"><p class="work-empty">업무를 선택하면 진행 상태, 메모, 연결 자료를 볼 수 있습니다.</p></div></article>
-      <article class="work-report" aria-labelledby="workReportTitle"><div class="work-panel-heading"><h3 id="workReportTitle">오늘의 보고서</h3><button type="button" class="work-secondary" data-work-action="report">보고서 작성</button></div><p id="workReportMeta" class="work-muted">저장된 보고서를 불러오고 있습니다.</p><pre id="workReportBody" hidden></pre><div id="workReportActions" class="work-report-actions" hidden><button type="button" class="work-quiet" data-work-action="copy-report">복사</button><button type="button" class="work-quiet" data-work-action="download-report">텍스트 저장</button></div></article>
+    <aside class="work-rail" aria-label="바로가기 런처">
+      <article id="workLauncher" class="work-launcher" aria-labelledby="workLauncherTitle">
+        <div class="work-panel-heading"><div><p class="work-launcher-eyebrow">나의 실행 공간</p><h3 id="workLauncherTitle">바로가기</h3></div><div class="work-launcher-tools"><button type="button" class="work-launcher-quiet" data-launcher-action="manage" aria-pressed="false">편집</button><button type="button" class="work-launcher-add" data-launcher-action="add">+ 추가</button></div></div>
+        <p class="work-launcher-intro">프로그램 · 웹사이트 · 폴더를 한 번에</p>
+        <div id="workLauncherNotice" class="work-launcher-notice" role="status" aria-live="polite"></div>
+        <div id="workLauncherRetry" class="work-launcher-retry" hidden><span>처리 결과를 확인하지 못했습니다.</span><button type="button" data-launcher-action="retry">같은 요청 다시 확인</button></div>
+        <div id="workLauncherGrid" class="work-launcher-grid"><p class="work-launcher-empty">바로가기를 불러오는 중…</p></div>
+        <button type="button" class="work-launcher-refresh" data-launcher-action="reload">목록 새로고침</button>
+      </article>
     </aside>
   </div>
+  <dialog id="workTaskDialog" class="work-dialog" aria-labelledby="workDetailTitle"><div class="work-dialog-heading"><h3 id="workDetailTitle">업무 상세</h3><button type="button" class="work-quiet" data-work-action="close-detail" aria-label="업무 상세 닫기">닫기 ×</button></div><article class="work-detail"><div id="workTaskDetailPanel"></div></article></dialog>
+  <dialog id="workLauncherDialog" class="work-dialog work-launcher-dialog" aria-labelledby="workLauncherDialogTitle">
+    <div class="work-dialog-heading"><h3 id="workLauncherDialogTitle">바로가기 추가</h3><button type="button" class="work-quiet" data-launcher-action="close" aria-label="바로가기 등록 닫기">닫기 ×</button></div>
+    <form id="workLauncherForm">
+      <div id="workLauncherSuggestionsWrap"><label for="workLauncherSuggestions">발견한 프로그램으로 빠르게 추가</label><div class="work-resource-entry"><select id="workLauncherSuggestions"><option value="">프로그램 선택</option></select><button type="button" class="work-secondary" data-launcher-action="suggestion">불러오기</button></div></div>
+      <label for="workLauncherName">이름</label><input id="workLauncherName" maxlength="100" required placeholder="예: 디자인 작업">
+      <label for="workLauncherKind">종류</label><select id="workLauncherKind"><option value="app">프로그램</option><option value="web">웹사이트</option><option value="folder">폴더</option></select>
+      <label id="workLauncherTargetLabel" for="workLauncherTarget">프로그램 전체 경로 (.exe / .lnk)</label><div class="work-resource-entry"><input id="workLauncherTarget" maxlength="4096" required><button type="button" class="work-secondary" id="workLauncherPick" data-launcher-action="pick">찾기</button></div>
+      <p id="workLauncherTargetHelp" class="work-muted">발견한 프로그램을 선택하거나 전체 경로를 입력하세요.</p>
+      <label for="workLauncherIcon">아이콘</label><div class="work-icon-editor"><span id="workLauncherIconPreview" class="work-icon-preview" aria-hidden="true">✦</span><input id="workLauncherIcon" maxlength="12" placeholder="이모지 또는 글자" value="✦"></div>
+      <div id="workLauncherPalette" class="work-icon-palette" aria-label="아이콘 선택"></div>
+      <label for="workLauncherImage">이미지 아이콘 업로드</label><input id="workLauncherImage" type="file" accept="image/png,image/jpeg,image/webp,image/x-icon,image/vnd.microsoft.icon,.ico"><p class="work-muted">PNG · JPG · WebP · ICO, 최대 512KB</p>
+      <button type="button" class="work-text-button" data-launcher-action="clear-image">이미지 해제 · 글자 아이콘 사용</button>
+      <p id="workLauncherFormNotice" class="work-form-notice" role="status" aria-live="polite"></p><button type="button" class="work-secondary" id="workLauncherDialogRetry" data-launcher-action="retry" hidden>같은 요청 다시 확인</button>
+      <div class="work-form-actions"><button type="button" class="work-quiet" data-launcher-action="close">취소</button><button type="submit" id="workLauncherSave">바로가기 저장</button></div>
+    </form>
+  </dialog>
 </section>

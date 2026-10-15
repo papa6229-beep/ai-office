@@ -13,6 +13,7 @@ import organizer_policy
 import desktop_judgment
 import desktop_recovery
 import work_assistant
+import quick_launcher
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -125,17 +126,23 @@ def work_view():
     data['action_token']=DESK_TOKEN
     return data
 
+def launcher_view():
+    data=quick_launcher.QuickLauncher(DB).overview()
+    data['action_token']=DESK_TOKEN
+    return data
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def reply(self,data,code=200):
         out=json.dumps(data,ensure_ascii=False).encode('utf-8');self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',str(len(out)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(out)
     def body(self):
         n=int(self.headers.get('Content-Length','0'))
-        if n>200000:self.reply({'error':'요청 크기 초과'},413);raise ValueError('too large')
+        limit=800000 if urlparse(self.path).path=='/api/launcher/save' else 200000
+        if n<0 or n>limit:raise ValueError('요청 크기 초과')
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/work','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/launcher','/api/launcher/icon','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
         if path in {'/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js'}:
             b=(ROOT/path.lstrip('/')).read_bytes()
@@ -145,6 +152,20 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/work':
             try:return self.reply(work_view())
             except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'업무 기록을 읽지 못했습니다. 기존 자료를 보존했습니다.'},400)
+        if path=='/api/work/task-history':
+            from urllib.parse import parse_qs
+            try:return self.reply(work_service().task_history(parse_qs(urlparse(self.path).query).get('id',[''])[0]))
+            except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'선택한 업무의 기록을 읽지 못했습니다.'},400)
+        if path=='/api/launcher':
+            try:return self.reply(launcher_view())
+            except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'빠른 실행 목록을 읽지 못했습니다.'},400)
+        if path=='/api/launcher/icon':
+            from urllib.parse import parse_qs
+            try:
+                item_id=parse_qs(urlparse(self.path).query).get('id',[''])[0]
+                data,mime=quick_launcher.QuickLauncher(DB).icon_bytes(item_id)
+                self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(data);return
+            except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'등록한 아이콘을 찾을 수 없습니다.'},404)
         if path=='/api/desk/judgment':
             try:return self.reply(judgment_view())
             except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
@@ -224,6 +245,25 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             p=urlparse(self.path).path;d=self.body()
+            if p.startswith('/api/launcher/'):
+                allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
+                if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+                    return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
+                if p=='/api/launcher/pick-program':
+                    if set(d)-{'token','request_id'}:raise ValueError('프로그램 선택 요청을 확인하세요.')
+                    if os.name!='nt':raise ValueError('프로그램 선택은 Windows에서 지원합니다.')
+                    script=("import tkinter as tk;from tkinter import filedialog;root=tk.Tk();root.withdraw();root.attributes('-topmost',True);"
+                            "path=filedialog.askopenfilename(parent=root,title='AI OFFICE · 실행할 프로그램 선택',filetypes=[('프로그램·바로가기','*.exe *.lnk')]);print(path);root.destroy()")
+                    try:
+                        result=subprocess.run([sys.executable,'-c',script],capture_output=True,text=True,encoding='utf-8',timeout=180,env=dict(os.environ,PYTHONIOENCODING='utf-8'),creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                        if result.returncode:raise ValueError('프로그램 선택창을 열지 못했습니다.')
+                        selected=result.stdout.strip()
+                        return self.reply({'path':selected,'cancelled':not bool(selected)})
+                    except (OSError,subprocess.TimeoutExpired):raise ValueError('프로그램 선택창을 열지 못했습니다. 경로를 직접 입력할 수 있습니다.') from None
+                payload={k:v for k,v in d.items() if k!='token'}
+                result=quick_launcher.QuickLauncher(DB).perform(p.rsplit('/',1)[-1],payload)
+                result['action_token']=DESK_TOKEN
+                return self.reply(result)
             if p.startswith('/api/work/') or p in {'/api/task','/api/task/status'}:
                 allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:

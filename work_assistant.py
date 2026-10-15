@@ -123,6 +123,12 @@ class WorkAssistant:
         if row is None: raise ValueError('등록된 자료를 선택하세요.')
         return _resource(row['path'])[0]
 
+    def task_history(self, task_id):
+        with self._connect() as c:
+            self._task(c,task_id)
+            rows=[dict(row) for row in c.execute('SELECT * FROM work_events WHERE task_id=? ORDER BY created DESC,rowid DESC LIMIT 1001',(task_id,))]
+        return {'task_id':task_id,'events':list(reversed(rows[:1000])),'truncated':len(rows)>1000}
+
     def perform(self, action, payload):
         if action not in _FIELDS or not isinstance(payload, dict) or set(payload) - (_FIELDS[action] | {'request_id'}):
             raise ValueError('지원하지 않는 요청 항목입니다.')
