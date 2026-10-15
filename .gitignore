@@ -9,6 +9,7 @@ desktop_state.json.tmp
 startup.log
 update_status.json
 local_backups/
+organizer_lab/
 
 # Python runtime artifacts
 __pycache__/

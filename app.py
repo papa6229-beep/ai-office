@@ -8,6 +8,7 @@ import local_image_review
 import desktop_workspace
 import desktop_preferences
 import desktop_collections
+import organizer_lab
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, shutil, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -74,7 +75,7 @@ def plan_files(folder):
     return {'folder':str(p),'items':items,'count':len(items)}
 PLANS={}; LOCK=threading.Lock()
 DESK_TOKEN=uuid.uuid4().hex
-DESK_ACTIONS={'/api/desk/'+name for name in ('open','reveal','pin','create-collection','rename-collection','remove-member','dissolve-collection','dismiss-suggestion','restore-dismissed','duplicates','auto-organize','undo-auto')}
+DESK_ACTIONS={'/api/desk/'+name for name in ('open','reveal','pin','create-collection','rename-collection','remove-member','dissolve-collection','dismiss-suggestion','restore-dismissed','duplicates','auto-organize','undo-auto','organizer-create','organizer-execute','organizer-undo')}
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def reply(self,data,code=200):
@@ -85,11 +86,14 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/desk','/api/desk/thumbnail'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/desk','/api/desk/thumbnail','/api/desk/organizer'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
-        if path in {'/desk.css','/desk.js','/desk-collections.js'}:
+        if path in {'/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js'}:
             b=(ROOT/path.lstrip('/')).read_bytes()
             self.send_response(200);self.send_header('Content-Type','text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.end_headers();self.wfile.write(b);return
+        if path=='/api/desk/organizer':
+            try:return self.reply({'job':organizer_lab.latest()})
+            except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
         if path=='/api/desk':
             try:
                 data=desktop_workspace.inventory();data.update(desktop_collections.overview(data));data['pinned_ids']=desktop_preferences.load()['pinned_ids'];data['action_token']=DESK_TOKEN
@@ -161,6 +165,12 @@ class Handler(BaseHTTPRequestHandler):
                 if d.get('token')!=DESK_TOKEN or (origin and origin not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'작업 데스크를 새로고침한 뒤 다시 선택하세요.'},403)
                 item_id=d.get('id')
+                if p.endswith(('/organizer-create','/organizer-execute','/organizer-undo')):
+                    if set(d)-{'id','token'}:raise ValueError('시험 정리는 앱이 만든 샘플 폴더에서만 실행할 수 있습니다.')
+                    if p.endswith('/organizer-create'):job=organizer_lab.create()
+                    elif p.endswith('/organizer-execute'):job=organizer_lab.execute(item_id)
+                    else:job=organizer_lab.undo(item_id)
+                    return self.reply({'job':job})
                 if p.endswith('/create-collection'):return self.reply(desktop_collections.create(d.get('label'),d.get('item_ids')))
                 if p.endswith('/rename-collection'):return self.reply(desktop_collections.rename(item_id,d.get('label')))
                 if p.endswith('/remove-member'):return self.reply(desktop_collections.remove_item(d.get('collection_id'),d.get('item_id')))
