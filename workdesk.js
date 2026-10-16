@@ -82,7 +82,7 @@
   }
   function locks() {
     const blocked = busy || !!uncertain || !overview?.action_token;
-    $('work').querySelectorAll('button,input,textarea').forEach(el => {
+    $('work').querySelectorAll('button,input,textarea,select').forEach(el => {
       if (el.closest('#workLauncher,#workLauncherDialog,#workCalendar,#workFileDialog,#workStage,#workStageDialog') || el.matches('[data-work-preview]') || el.matches('[data-work-action="close-detail"],[data-files-action]')) return;
       if (el.matches('[data-work-action="desk"],[data-work-action="tasks"]')) return;
       if (el.matches('[data-work-action="reload"]')) { el.disabled = busy || !!uncertain || loading; return; }
@@ -167,7 +167,7 @@
     $('workContext').textContent = task ? `선택한 업무: ${task.title}` : '새 업무 또는 오늘 전체 업무에 대해 이야기합니다.';
     if (!task) { selected = null; $('workTaskDetailPanel').innerHTML = '<p class="work-empty">업무를 선택하면 진행 상태, 메모, 연결 자료를 볼 수 있습니다.</p>'; return; }
     const events = (taskHistory.get(task.id) || overview.events || []).filter(e => e.task_id === task.id).slice().sort((a,b) => String(a.created).localeCompare(String(b.created)));
-    const eventNames = {created:'업무 등록', status:'상태 변경', note:'진행 메모', resource:'자료 연결'};
+    const eventNames = {created:'업무 등록',edited:'업무 수정', status:'상태 변경', note:'진행 메모', resource:'자료 연결'};
     const timeline = events.map(e => `<li><time>${escape(stamp(e.created))}</time><strong>${escape(eventNames[e.kind] || e.kind || '진행 기록')}</strong><p>${escape(e.kind === 'status' ? (statusNames[e.text] || e.text) : e.text)}</p></li>`).join('');
     $('workTaskDetailPanel').innerHTML = `<h4>${escape(task.title)}</h4><span class="work-state ${escape(task.status)}">${escape(statusNames[task.status] || task.status)}</span> <span class="work-muted">${task.due_date ? '마감 '+escape(task.due_date) : '마감일 없음'}</span>${task.detail ? `<div class="work-task-description">${escape(task.detail)}</div>` : ''}
       <div class="work-status-actions">${[['todo','예정으로 표시'],['review','검토중으로 표시'],['doing','진행중으로 표시'],['done','완료로 표시']].filter(([s])=>s!==task.status).map(([s,label])=>`<button type="button" class="work-secondary" data-work-status="${s}">${label}</button>`).join('')}</div>
@@ -179,7 +179,7 @@
   function render() {
     const tasks = overview.tasks || [], counts = overview.counts || {};
     $('workCounts').textContent = `예정 ${counts.todo ?? 0} · 검토중 ${counts.review ?? 0} · 진행중 ${counts.doing ?? 0} · 완료 ${counts.done ?? 0}`;
-    $('workTaskList').innerHTML = tasks.length ? tasks.map(t=>`<button type="button" class="work-task-row" data-work-task="${escape(t.id)}" aria-pressed="${t.id === selected}"><span class="work-state ${escape(t.status)}">${escape(statusNames[t.status] || t.status)}</span><span class="work-task-copy"><span class="work-task-name">${escape(t.title)}</span><small>${t.due_date ? '마감 '+escape(t.due_date) : '마감일 없음'}</small><span class="work-task-badges">${t.notes?.length ? `<span class="work-task-badge">메모 ${t.notes.length}</span>` : ''}${t.resources?.length ? `<span class="work-task-badge">자료 ${t.resources.length}</span>` : ''}${(overview.events || []).some(e=>e.task_id === t.id) ? `<span class="work-task-badge">기록 ${(overview.events || []).filter(e=>e.task_id === t.id).length}</span>` : ''}</span></span><span aria-hidden="true">›</span></button>`).join('') : '<div class="work-empty work-task-empty"><span class="work-empty-mark" aria-hidden="true">＋</span><div><strong>오늘 할 일을 여기에 모아보세요</strong><p>비서에게 말하거나 ‘업무 추가’로 등록하세요.</p></div></div>';
+    $('workTaskList').innerHTML = tasks.length ? tasks.map(t=>`<button type="button" class="work-task-row" data-work-task="${escape(t.id)}" aria-pressed="${t.id === selected}"><span class="work-task-copy"><span class="work-task-name">${escape(t.title)}</span></span><span class="work-state ${escape(t.status)}">${escape(statusNames[t.status] || t.status)}</span></button>`).join('') : '<div class="work-empty work-task-empty"><span class="work-empty-mark" aria-hidden="true">＋</span><div><strong>오늘 할 일을 여기에 모아보세요</strong><p>비서에게 말하거나 ‘업무 추가’로 등록하세요.</p></div></div>';
     const messages = overview.messages || [];
     const log = $('workMessages');
     const choices = overview.launcher_choices || [], actions = overview.assistant_actions || [];
@@ -309,7 +309,7 @@
       if (unresolved) throw new Error(data.error || '요청을 처리 중입니다. 잠시 후 같은 요청으로 다시 확인하세요.');
       if (!response.ok || data.error) throw new Error(data.error || '요청을 처리하지 못했습니다.');
       uncertain = null; overview = data; stageEvent('done',data.result);
-      companionOutcome=request.endpoint === 'command' ? {state:'answer',label:'답변이 도착했어요'} : {state:'agree',label:['task','note','status','resource'].includes(request.endpoint) ? '기록을 저장했어요' : '응답을 확인했어요'};
+      companionOutcome=request.endpoint === 'command' ? {state:'answer',label:'답변이 도착했어요'} : {state:'agree',label:['task','task-edit','note','status','resource'].includes(request.endpoint) ? '기록을 저장했어요' : '응답을 확인했어요'};
       if (data.result?.task_id && data.result.task_id !== selected) {
         selected = data.result.task_id; renderDetail(false);
       }
@@ -330,7 +330,17 @@
       else uncertain = null;
       companionOutcome=null;companionError=confirmedResponse ? '요청을 확인해 주세요' : '결과 확인이 필요해요';
       notice(`${confirmedResponse ? '요청 실패' : '처리 결과 확인 실패'}: ${e.message}`, true);
+      if(['task','task-edit'].includes(request.endpoint)&&$('workTaskCreateDialog').open){$('workTaskFormNotice').textContent=e.message;$('workTaskFormNotice').hidden=false;}
     } finally { stopLive();busy = false; locks(); }
+  }
+  function openTaskEditor(task=null){
+    const form=$('workTaskForm');form.reset();form.dataset.taskId=task?.id||'';
+    $('workTaskFormNotice').hidden=true;$('workTaskFormNotice').textContent='';
+    $('workTaskCreateTitle').textContent=task?'업무 수정':'업무 추가';
+    $('workTaskTitle').value=task?.title||'';$('workTaskDetail').value=task?.detail||'';
+    $('workTaskStatus').value=task?.status==='todo'?'review':task?.status||'review';
+    form.querySelector('[type="submit"]').textContent=task?'변경 저장':'업무 저장';
+    $('workTaskCreateDialog').showModal();$('workTaskTitle').focus();
   }
   function submit(event) {
     const form = event.target;
@@ -343,7 +353,8 @@
       write('command',{message,request_id:attachmentDraft || requestID(),attachment_ids:attachments.map(item=>item.id),...(selected ? {task_id:selected} : {})},()=>{$('workCommand').value='';attachments=[];attachmentDraft='';renderAttachments();});
     } else if (form.id === 'workTaskForm') {
       const title = $('workTaskTitle').value.trim(); if (!title) return;
-      write('task',{title,detail:$('workTaskDetail').value.trim(),due_date:$('workTaskDue').value},()=>{form.reset(); form.hidden=true;});
+      const taskID=form.dataset.taskId;
+      write(taskID?'task-edit':'task',{title,detail:$('workTaskDetail').value.trim(),status:$('workTaskStatus').value,...(taskID?{task_id:taskID}:{})},()=>{form.reset();form.dataset.taskId='';$('workTaskCreateDialog').close();});
     } else if (form.id === 'workNoteForm') {
       const text = $('workNoteText').value.trim(); if (!text || !selected) return;
       write('note',{task_id:selected,text},()=>{if ($('workNoteText')) $('workNoteText').value='';});
@@ -356,7 +367,7 @@
     const button = event.target.closest('button'); if (!button || button.disabled) return;
     if (button.dataset.workAssistantAction) { write('assistant-action',{pending_id:button.dataset.workAssistantAction,option_id:button.dataset.workAssistantOption}); return; }
     if (button.dataset.workLauncherChoice) { write('choose-launcher',{choice_id:button.dataset.workLauncherChoice,target:button.dataset.workLauncherTarget}); return; }
-    if (button.dataset.workTask) { selected = button.dataset.workTask; renderDetail(false); render(); $('workTaskDialog').showModal(); loadHistory(selected); return; }
+    if (button.dataset.workTask) {const task=overview?.tasks?.find(t=>t.id===button.dataset.workTask);if(!task)return;selected=task.id;render();openTaskEditor(task);return;}
     if (button.dataset.workExample) { $('workCommand').value=button.dataset.workExample; companionOutcome=null;companionUpdate(); $('workCommand').focus(); return; }
     if (button.dataset.workStatus) { write('status',{task_id:selected,status:button.dataset.workStatus}); return; }
     if (button.dataset.workPreview) {
@@ -369,8 +380,8 @@
       case 'desk': show('desk'); break;
       case 'tasks': show('tasks'); break;
       case 'clear-context': selected=null; render(); break;
-      case 'add-task': $('workTaskForm').hidden=false; $('workTaskTitle').focus(); break;
-      case 'cancel-task': $('workTaskForm').hidden=true; break;
+      case 'add-task': openTaskEditor(); break;
+      case 'cancel-task': $('workTaskCreateDialog').close(); break;
       case 'pick-resource': await pickFolder('workResourcePath'); break;
       case 'retry': if (uncertain) await write(null,null,null,uncertain); break;
 

@@ -32,12 +32,16 @@
       </article>
       <article class="work-tasks" aria-labelledby="workTasksTitle">
         <div class="work-panel-heading"><div><h3 id="workTasksTitle">오늘의 업무</h3><p id="workCounts" class="work-muted"></p></div><button type="button" data-work-action="add-task" class="work-secondary">+ 업무 추가</button></div>
-        <form id="workTaskForm" class="work-task-form" hidden>
-          <label for="workTaskTitle">업무 이름</label><input id="workTaskTitle" maxlength="300" required placeholder="해야 할 일">
-          <label for="workTaskDetail">내용 <span class="work-muted">선택</span></label><textarea id="workTaskDetail" rows="2" maxlength="6000"></textarea>
-          <label for="workTaskDue">마감일 <span class="work-muted">선택</span></label><input id="workTaskDue" type="date">
-          <div class="work-form-actions"><button type="button" class="work-quiet" data-work-action="cancel-task">취소</button><button type="submit">업무 저장</button></div>
-        </form>
+        <dialog id="workTaskCreateDialog" class="work-dialog work-task-create-dialog" aria-labelledby="workTaskCreateTitle">
+          <div class="work-dialog-heading"><h3 id="workTaskCreateTitle">업무 추가</h3><button type="button" class="work-quiet" data-work-action="cancel-task" aria-label="업무 입력창 닫기">닫기 ×</button></div>
+          <form id="workTaskForm" class="work-task-form">
+            <p id="workTaskFormNotice" class="work-muted" role="alert" hidden></p>
+            <label for="workTaskTitle">업무명</label><input id="workTaskTitle" maxlength="300" required placeholder="해야 할 일">
+            <label for="workTaskDetail">업무내용 <span class="work-muted">선택</span></label><textarea id="workTaskDetail" rows="5" maxlength="8000"></textarea>
+            <label for="workTaskStatus">상태</label><select id="workTaskStatus"><option value="review">검토중</option><option value="doing">진행중</option><option value="done">완료</option></select>
+            <div class="work-form-actions"><button type="button" class="work-quiet" data-work-action="cancel-task">취소</button><button type="submit">업무 저장</button></div>
+          </form>
+        </dialog>
         <div id="workTaskList" class="work-task-list"><p class="work-empty">업무를 불러오고 있습니다.</p></div>
       </article>
     </div>

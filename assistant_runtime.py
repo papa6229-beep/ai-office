@@ -165,32 +165,9 @@ def pending_actions(c):
 
 
 def _validate(value, schema):
-    """Validate the small JSON-schema subset used by our server-owned tools."""
-    kind = schema.get('type')
-    valid = {'object': isinstance(value, dict), 'array': isinstance(value, list),
-             'string': isinstance(value, str), 'boolean': isinstance(value, bool),
-             'integer': isinstance(value, int) and not isinstance(value, bool),
-             'number': isinstance(value, (int, float)) and not isinstance(value, bool),
-             'null': value is None}
-    if kind and not valid.get(kind, False):
-        raise ValueError('도구 입력 형식을 확인할 수 없습니다.')
-    if 'enum' in schema and value not in schema['enum']:
-        raise ValueError('지원하지 않는 도구 선택입니다.')
-    if isinstance(value, dict):
-        props = schema.get('properties', {})
-        if any(k not in value for k in schema.get('required', [])):
-            raise ValueError('필수 도구 입력이 없습니다.')
-        if schema.get('additionalProperties') is False and set(value) - set(props):
-            raise ValueError('지원하지 않는 도구 입력입니다.')
-        for key in set(value) & set(props):
-            _validate(value[key], props[key])
-    if isinstance(value, list):
-        if len(value) > schema.get('maxItems', 500):
-            raise ValueError('도구 입력이 너무 많습니다.')
-        for item in value:
-            _validate(item, schema.get('items', {}))
-    if isinstance(value, str) and not schema.get('minLength', 0) <= len(value) <= schema.get('maxLength', 16000):
-        raise ValueError('도구 입력 길이를 확인하세요.')
+    # Dispatch and execution must accept exactly the same declared schema.
+    from assistant_tools import _check
+    return _check(value,schema)
 
 
 class AssistantRuntime:

@@ -23,7 +23,8 @@ _SAFE_DOCUMENTS = {'.txt', '.md', '.pdf', '.docx', '.xlsx', '.pptx', '.csv',
                    '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp',
                    '.ai', '.psd', '.psb', '.eps', '.indd', '.hwp', '.hwpx',
                    '.doc', '.xls', '.ppt', '.zip', '.7z', '.rar', '.mp4', '.webm'}
-_FIELDS = {'task': {'title', 'detail', 'due_date'}, 'status': {'task_id', 'status'},
+_FIELDS = {'task': {'title', 'detail', 'due_date', 'status'},
+           'task-edit': {'task_id','title','detail','status'}, 'status': {'task_id', 'status'},
            'note': {'task_id', 'text'}, 'resource': {'task_id', 'path'},
            'command': {'message', 'task_id'}, 'report': {'day'},
            'choose-launcher': {'choice_id', 'target'}}
@@ -289,10 +290,23 @@ class WorkAssistant:
             detail = p.get('detail', '')
             if not isinstance(detail, str) or len(detail) > 8000: raise ValueError('상세 내용을 확인하세요.')
             due = _day(p['due_date']) if p.get('due_date') else None
+            status = p.get('status', 'review')
+            if status not in ('review', 'doing', 'done'): raise ValueError('업무 상태를 확인하세요.')
             task_id = uuid.uuid4().hex
-            c.execute('INSERT INTO tasks VALUES (?,?,?,?,?)', (task_id, title, detail, 'todo', _now()))
+            c.execute('INSERT INTO tasks VALUES (?,?,?,?,?)', (task_id, title, detail, status, _now()))
             c.execute('INSERT INTO work_task_meta VALUES (?,?)', (task_id, due))
             kind, text, message = 'created', title, '업무를 추가했습니다: ' + title
+        elif action=='task-edit':
+            row=self._task(c,p.get('task_id'));task_id=row['id']
+            title=_text(p.get('title',row['title']),'업무명',300)
+            detail=p.get('detail',row['detail']);status=p.get('status',row['status'])
+            if not isinstance(detail,str) or len(detail)>8000:raise ValueError('업무내용을 확인하세요.')
+            if status not in ('review','doing','done') and not ('status' not in p and status==row['status']=='todo'):
+                raise ValueError('검토중, 진행중, 완료 중에서 선택하세요.')
+            c.execute('UPDATE tasks SET title=?,detail=?,status=? WHERE id=?',(title,detail,status,task_id))
+            if status!=row['status']:
+                c.execute('INSERT INTO work_events VALUES (?,?,?,?,?)',(uuid.uuid4().hex,task_id,'status',status,_now()))
+            kind,text,message='edited',title,'업무를 수정했습니다: '+title
         elif action in ('status', 'note', 'resource'):
             row = self._task(c, p.get('task_id'))
             task_id = row['id']
@@ -318,7 +332,7 @@ class WorkAssistant:
             tasks = [dict(row) for row in c.execute('SELECT t.*,m.due_date FROM tasks t LEFT JOIN work_task_meta m ON t.id=m.task_id WHERE substr(t.created,1,10)<=? ORDER BY t.created LIMIT 1000', (day,))]
             by_id = {t['id']: t for t in tasks}
             lines = ['# ' + day + ' 업무 보고', '', '업무 기록을 기준으로 작성한 초안입니다.', '', '## 오늘 기록']
-            labels = {'created': '업무 등록', 'status': '사용자 상태 변경', 'note': '메모', 'resource': '자료 경로 등록'}
+            labels = {'created': '업무 등록','edited':'업무 수정', 'status': '사용자 상태 변경', 'note': '메모', 'resource': '자료 경로 등록'}
             for event in events:
                 text = event['text'][:400]
                 if event['kind'] == 'status': text = {'todo': '대기', 'doing': '진행 중', 'review': '검토 중', 'done': '완료'}.get(text, text)

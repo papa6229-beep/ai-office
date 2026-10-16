@@ -22,6 +22,7 @@ VIDEO_TYPES = {'.mp4':'video/mp4','.webm':'video/webm'}
 STEP_LABELS={'files_find':'파일 찾기','files_preview':'자료 미리보기','files_reveal':'탐색기 열기','documents_read':'문서 읽기','documents_find':'문서 찾기','stage_publish':'초안 표시','browser_open':'웹사이트 열기','browser_read':'웹페이지 읽기','browser_scroll':'웹페이지 살펴보기','apps_launch':'프로그램 실행','work_create':'업무 등록','work_status':'업무 상태 변경','work_report':'보고서 정리'}
 STEP_LABELS.update({'attachments_list':'첨부 자료 확인','attachment_read':'첨부 자료 읽기·분석',
                     'attachment_preview':'첨부 미리보기','companion_assets':'캐릭터 목록 확인','companion_apply':'캐릭터 적용'})
+STEP_LABELS['work_edit']='업무 내용·상태 수정'
 STEP_LABELS.update({'office_source_list':'앱 원본 찾기','office_source_read':'앱 원본 읽기',
                     'office_source_apply':'앱 변경 저장','office_source_history':'앱 변경 이력',
                     'office_source_rollback':'앱 변경 되돌리기'})

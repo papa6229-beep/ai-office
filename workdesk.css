@@ -66,6 +66,9 @@
 #work .work-detail .work-muted{font-size:11px}
 #work .work-empty{font-size:13px;line-height:1.9;color:#b6b7ad;padding:20px 0}
 #work .work-task-form{padding:4px 18px 18px;background:#252629;border:1px solid #50514e;border-radius:7px;margin-bottom:16px}
+#work .work-task-create-dialog{width:min(520px,calc(100vw - 32px))}
+#work .work-task-create-dialog .work-task-form{padding:16px 0 0;background:transparent;border:0;border-radius:0;margin:0}
+#work .work-task-create-dialog .work-form-actions{margin-top:18px}
 #work #workTaskDue{max-width:190px}
 #work .work-notice,#work .work-retry{background:var(--ao-accent-muted,#29351f);color:#bce4e7;padding:12px 15px;border-radius:6px;font-size:12px;line-height:1.7;margin-bottom:15px}
 #work .work-notice.work-error{background:#382622;color:#ffb5a5}
