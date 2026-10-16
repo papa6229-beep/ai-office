@@ -152,9 +152,9 @@ test('failed reorder retains old UI and rejects further drag until same-id retry
   const d=drag(s);assert.equal(d.start.prevented,true);await d.drop();assert.equal(s.posts.length,1);
   await s.click('retry');assert.equal(s.posts[1].body.request_id,request);assert.equal(s.posts[1].url,'/api/launcher/reorder');
 });
-test('markup exposes a unified editor without an edit mode and labels assistant JARVIS',()=>{
+test('markup exposes a unified editor without an edit mode and labels assistant Aemeath',()=>{
   const html=fs.readFileSync(require('node:path').join(__dirname,'..','workdesk.html'),'utf8');
-  assert.doesNotMatch(html,/data-launcher-action="manage"/);assert.match(html,/id="workAssistantTitle">JARVIS/);assert.match(html,/id="workLauncherItemActions"/);
+  assert.doesNotMatch(html,/data-launcher-action="manage"/);assert.match(html,/id="workAssistantTitle">Aemeath/);assert.match(html,/id="workLauncherItemActions"/);
 });
 
 test('reorder preserves interleaved other-page positions rather than flattening all pages',async()=>{
