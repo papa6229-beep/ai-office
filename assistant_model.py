@@ -56,7 +56,7 @@ def call(messages, tools, settings, *, output_schema=None):
         if last_tool.get('tool_name') in {'office_source_list','office_source_read','office_source_history'}:
             # This is an observed source-edit phase, not a keyword intent rule.
             # Restore the full registry after a write so other requested work can continue.
-            selected={'stage_publish','office_capabilities','attachments_list','attachment_read','attachment_preview'}
+            selected={'stage_publish','office_capabilities','office_project_context','attachments_list','attachment_read','attachment_preview'}
             tools=[tool for tool in tools if tool['function']['name'].startswith('office_source_')
                    or tool['function']['name'] in selected]
     if settings.get('api_type') == 'codex':
@@ -199,7 +199,7 @@ execute의 observation은 제공된 실제 도구 이름과 해당 스키마의 
         remaining -= len(content)
         if len(history) >= 10:
             break
-    fact_prefixes = ('사용자 PC의 오늘 날짜:', '서버가 확인한 현재 실행 환경입니다.',
+    fact_prefixes = ('AI OFFICE 프로젝트의 기록된 배경입니다.', '사용자 PC의 오늘 날짜:', '서버가 확인한 현재 실행 환경입니다.',
                      '사용자가 현재 선택한 업무 ID:', '이번 대화 첨부 자료:')
     runtime_context = [message['content'][:16000] for message in messages
                        if message.get('role') == 'system'

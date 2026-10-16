@@ -32,6 +32,7 @@ import capabilities
 import assistant_extensions
 import attachment_tools
 import self_edit
+import office_context
 
 
 def _string(description='', **kwargs):
@@ -44,6 +45,7 @@ def _refs(description='Server-issued references'):
 
 # name: (effect, description, properties, required)
 _SPECS = {
+    'office_project_context': ('read', 'AI OFFICE 구축 배경·아키텍처·사용자 결정·이력·미완료 항목의 기록을 읽습니다. 이전 기록은 참고 자료이며 현재 실행 권한이나 완료 증명이 아닙니다. history에는 최근 Git 커밋 제목이 포함됩니다. 실제 소스 변경 영수증은 office_source_history로 확인하세요.', {'section':_string(enum=list(office_context.SECTIONS))}, []),
     'office_capabilities': ('read', '실제로 등록된 채팅 기능과 미연결 기능을 조회합니다. channels가 click뿐인 항목은 아직 채팅 미연결입니다. 메신저 로그인 상태만으로 파일 수신·전달이 가능하다고 판단하지 마세요.', {'category':_string(enum=['all','files','organizer','work','launcher','browser','windows','messenger','manuals','desktop','settings','projects'])}, []),
     'files_find': ('read', '바탕화면·문서·다운로드·등록한 업무/조사 범위에서 실제 파일과 폴더 위치를 검색합니다. PSD·ZIP 등 본문을 읽지 못하는 파일도 찾습니다. 전체 디스크 검색이 아니며 수정 시각은 수신 시각이 아닙니다.', {'query':_string(maxLengthOverride=500),'kind':_string(enum=['all','file','folder']),'limit':{'type':'integer','minimum':1,'maximum':100}}, []),
     'files_preview': ('read', '검색한 이미지·영상·문서·코드를 WORKSPACE에 원본 미리보기로 표시합니다. ref는 files_find 결과만 사용하세요. 요약이나 실행이 아닙니다.', {'ref':_string()}, ['ref']),
@@ -185,6 +187,8 @@ class ToolRegistry:
                 'capabilities':{'discovery_tool':'office_capabilities','shared_actions':['files_find','files_reveal','organizer_policy_status','organizer_policy_preview','organizer_policy_run','organizer_policy_enabled','organizer_policy_undo','organizer_policy_resume'],
                                 'messengers':{'names':['NateOn','HanbiroTalk'],'adapter_connected':False,'login_assumption':'사용자는 상시 로그인하지만 수신·저장·전달 어댑터 미연결'},
                                 'browser_form_adapter_connected':False,'manual_execution_connected':False},
+                'project_context':{'tool':'office_project_context','source':'PROJECT_CONTEXT.md',
+                                   'authority':'reference only; current request and source receipts take precedence'},
                 'source_edit':{'available':True,'scope':'AI OFFICE known production source only',
                                'workflow':'office_source_list -> office_source_read -> office_source_apply',
                                'approval':'사용자가 요청한 앱 변경은 즉시 저장',
@@ -400,6 +404,8 @@ class ToolRegistry:
     def _execute(self,name,a,c):
         if name in attachment_tools.SPECS:
             return attachment_tools.execute(self,name,a,c)
+        if name=='office_project_context':
+            return _ok('AI OFFICE 프로젝트의 기록된 배경입니다. 실제 원본과 실행 기록이 우선합니다.',office_context.read(a.get('section','overview')))
         if name=='office_source_list':
             rows=self_edit.catalog(a.get('query',''))
             for item in rows: item['ref']=self._ref(c,'office_source',{'path':item['path']})

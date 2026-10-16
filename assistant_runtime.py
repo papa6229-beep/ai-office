@@ -10,6 +10,7 @@ import assistant_voice
 import work_attachments
 import attachment_tools
 import model_requests
+import office_context
 
 
 SYSTEM = assistant_voice.INSTRUCTION + '\n' + '''당신은 AI OFFICE 업무 비서입니다. 사용자의 자연어 의도를 이해해 제공된 도구를 직접 호출하세요.
@@ -335,11 +336,14 @@ class AssistantRuntime:
                 '(SELECT rowid seq,id,role,content FROM work_messages WHERE rowid<=? ORDER BY rowid DESC LIMIT 12) '
                 'ORDER BY seq', (current[0],))]
         today = datetime.datetime.now().astimezone().date().isoformat()
+        project_context = office_context.brief()
         messages = [{'role': 'system', 'content': SYSTEM},
                     {'role': 'system', 'content': '사용자 PC의 오늘 날짜: ' + today + '. 오늘·내일·다음 주는 이 날짜를 기준으로 해석하세요.'}]
         if callable(getattr(registry,'runtime_context',None)):
             facts=registry.runtime_context()
             messages.append({'role':'system','content':'서버가 확인한 현재 실행 환경입니다. 과거 대화의 기능 설명보다 우선합니다.\n'+_json(facts)})
+        if project_context:
+            messages.append({'role':'system','content':project_context})
         if context.get('task_id'):
             messages.append({'role': 'system', 'content': '사용자가 현재 선택한 업무 ID: ' + context['task_id']})
         attachments=attachment_tools.context_files(registry,context,[row['id'] for row in recent if row['role']=='user'])
@@ -364,6 +368,10 @@ class AssistantRuntime:
             if not messages or messages[-1].get('role')!='tool' or messages[-1].get('tool_name')!=resumed['name']:
                 raise ValueError('승인한 실행 기록이 변경되었습니다.')
             messages[0]=fresh_system
+            messages=[message for message in messages if not (message.get('role')=='system'
+                      and str(message.get('content','')).startswith(office_context.PREFIX))]
+            if project_context:
+                messages.insert(1,{'role':'system','content':project_context})
             for message in messages[1:]:
                 if message.get('role') == 'system' and str(message.get('content', '')).startswith('사용자 PC의 오늘 날짜:'):
                     message['content'] = '사용자 PC의 오늘 날짜: ' + today + '. 오늘·내일·다음 주는 이 날짜를 기준으로 해석하세요.'
