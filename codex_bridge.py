@@ -1094,6 +1094,9 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
                   'serviceTier': 'default', 'runtimeWorkspaceRoots': [str(folder)]}
         if resume:
             params['threadId'] = previous_id
+            # Keep model-side history, but do not retransmit the entire rollout
+            # through the bounded transport just to recover the live session.
+            params['excludeTurns'] = True
         else:
             params.update(ephemeral=False, dynamicTools=dynamic, selectedCapabilityRoots=[])
         started = client.rpc('thread/resume' if resume else 'thread/start', params)
