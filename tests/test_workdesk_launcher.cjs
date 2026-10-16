@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '..', 'workdesk.js'), 'utf8');
-async function surface({date, savePage, fullPage = false} = {}) {
+async function surface({date, savePage, fullPage = false, imageIcon = false} = {}) {
   const elements = new Map(), ready = [], posts = [];
-  const state = {action_token:'fixture', page_size:12, pages:[{id:1,title:'1페이지'},{id:2,title:'2페이지'}], items:Array.from({length:12},(_,i)=>({id:'item'+i,title:'앱'+i,kind:'app',target:'missing.exe',available:false,page:(fullPage || i<9)?1:2}))};
+  const state = {action_token:'fixture', page_size:12, pages:[{id:1,title:'1페이지'},{id:2,title:'2페이지'}], items:Array.from({length:12},(_,i)=>({id:'item'+i,title:'앱'+i,kind:'app',target:'missing.exe',available:false,icon_image:imageIcon && i===0,page:(fullPage || i<9)?1:2}))};
   const element = id => {
     if (!elements.has(id)) {
       const handlers = new Map();
@@ -82,6 +82,14 @@ test('twelve-item page is fully reachable without an extra add tile', async()=>{
   const s=await surface({fullPage:true}); const html=s.element('workLauncherGrid').innerHTML;
   assert.equal((html.match(/data-launcher-action="launch"/g)||[]).length,12);
   assert.doesNotMatch(html,/work-launcher-add-tile|work-launcher-slot/);
+});
+
+test('launcher omits type captions and uses image badges while retaining unavailable warnings',async()=>{
+  const s=await surface({imageIcon:true}), html=s.element('workLauncherGrid').innerHTML;
+  assert.doesNotMatch(html,/work-launcher-kind|>프로그램<|>웹사이트<|>폴더</);
+  assert.match(html,/class="work-launcher-icon is-image" aria-hidden="true"><img src="\/api\/launcher\/icon\?id=item0"/);
+  assert.match(html,/aria-label="앱0 열기 · 경로 확인 필요"/);
+  assert.equal((html.match(/work-launcher-icon is-image/g)||[]).length,1);
 });
 test('existing nine-item page retains items plus one real add tile and two decorative slots',async()=>{
   const s=await surface(), html=s.element('workLauncherGrid').innerHTML;
