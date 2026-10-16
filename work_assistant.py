@@ -14,6 +14,7 @@ from desktop_workspace import BLOCKED_EXTENSIONS, _safe_route
 import quick_launcher
 import chat_launcher
 import windows_app_catalog
+import assistant_voice
 
 _LOCKS = quick_launcher._LOCKS
 _LOCKS_GUARD = quick_launcher._LOCKS_GUARD
@@ -190,6 +191,7 @@ class WorkAssistant:
         return self._overview(c, _day(day))
 
     def _message(self, c, role, content, message_id=None):
+        if role == 'assistant': content = assistant_voice.receipt(content)
         c.execute('INSERT INTO work_messages VALUES (?,?,?,?)', (message_id or uuid.uuid4().hex, role, content, _now()))
 
     def _task(self, c, task_id):

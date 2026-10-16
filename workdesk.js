@@ -209,6 +209,19 @@
   }
   document.addEventListener('DOMContentLoaded',()=>{
     if (!$('work')) return;
+    const masthead=$('workMasthead'), brand=document.querySelector('.side .brand');
+    function alignMasthead() {
+      if (!masthead || !brand || !document.body.classList.contains('work-desktop')) return;
+      const ruleTop=brand.getBoundingClientRect().bottom-(parseFloat(getComputedStyle(brand).borderBottomWidth) || 0);
+      const height=Math.max(0,ruleTop-$('work').getBoundingClientRect().top);
+      const value=height.toFixed(2)+'px';
+      if (masthead.style.getPropertyValue('--work-masthead-height') !== value) masthead.style.setProperty('--work-masthead-height',value);
+    }
+    window.addEventListener('resize',alignMasthead);
+    if (brand && typeof ResizeObserver === 'function') new ResizeObserver(alignMasthead).observe(brand);
+    if (typeof MutationObserver === 'function') new MutationObserver(alignMasthead).observe(document.body,{attributes:true,attributeFilter:['class']});
+    document.fonts?.ready?.then(alignMasthead);
+    alignMasthead();
     $('workTaskDialog').addEventListener('close',()=>{historySequence++; if (selected) $('workTaskList').querySelector(`[data-work-task="${CSS.escape(selected)}"]`)?.focus();});
     $('work').addEventListener('submit',submit); $('work').addEventListener('click',click);
     $('workUtilities')?.addEventListener('click',click);

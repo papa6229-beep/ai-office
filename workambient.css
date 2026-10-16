@@ -1,0 +1,19 @@
+/* Small desk instrument: independent of the page and panel geometry. */
+#workAmbient.work-ambient{position:relative;min-width:0;margin-top:8px;padding:9px 9px 7px;border:1px solid #3e4938;border-radius:10px;background:repeating-linear-gradient(0deg,transparent 0 3px,#a7d64a04 3px 4px),#141a16;box-shadow:inset 0 0 15px #0005;color:#a9d953;overflow:hidden;container-type:inline-size}
+#workAmbientTime{display:block;font-family:Consolas,'Courier New',monospace;font-weight:700;font-size:clamp(20px,1.65vw,29px);line-height:1.05;letter-spacing:.025em;white-space:nowrap;text-align:center;font-variant-numeric:tabular-nums;text-shadow:0 0 9px #a8da4833}
+#workAmbient .work-ambient-weather{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:5px}
+#workAmbientWeatherIcon{font-family:'Segoe UI Symbol',sans-serif;font-size:23px;line-height:1;filter:grayscale(1);color:#b3d17f}
+#workAmbient .work-ambient-weather>span:last-child{display:flex;align-items:baseline;gap:5px;min-width:0}
+#workAmbientTemperature{font-family:Consolas,monospace;font-size:22px;line-height:1;font-weight:700;color:#e9eddf}
+#workAmbientWeather{font-size:9px;color:#b1bcaa;line-height:1.3}
+#workAmbientUpdated{display:block;margin-top:5px;text-align:center;color:#7b8c78;font-family:Consolas,monospace;font-size:8px;line-height:1.3;letter-spacing:-.15px}
+#workAmbientUpdated a{color:inherit;text-decoration:none}
+#workAmbientUpdated a:hover,#workAmbientUpdated a:focus-visible{color:#b7e16c;text-decoration:underline}
+#workAmbient[data-weather-status="stale"] #workAmbientTemperature{color:#a9afa3}
+@container (max-width:125px){
+  #workAmbientTime{font-size:18px;letter-spacing:0}
+  #workAmbient .work-ambient-weather{gap:5px}
+  #workAmbient .work-ambient-weather>span:last-child{display:block}
+  #workAmbientWeather{display:block;font-size:8px;margin-top:3px}
+  #workAmbientUpdated{font-size:7px;letter-spacing:-.3px}
+}

@@ -6,9 +6,10 @@ import json
 import re
 import sqlite3
 import uuid
+import assistant_voice
 
 
-SYSTEM = '''당신은 AI OFFICE 업무 비서입니다. 사용자의 자연어 의도를 이해해 제공된 도구를 직접 호출하세요.
+SYSTEM = assistant_voice.INSTRUCTION + '\n' + '''당신은 AI OFFICE 업무 비서입니다. 사용자의 자연어 의도를 이해해 제공된 도구를 직접 호출하세요.
 현재 바로가기는 페이지 전환 없는 세로 스크롤 카드 보드입니다. launcher_list 순서는 실제 보드 순서이며 전체 순서 변경은 launcher_reorder, 카드 설명·커버 편집은 launcher_card_edit를 사용하세요. 기존 페이지 도구는 과거 설정 호환용이며 현재 화면 페이지라고 설명하지 마세요.
 기능 연결 여부가 불명확하면 office_capabilities로 현재 등록된 실행 경로를 확인하세요. 파일 검색·위치 표시·기존 정리 정책 등 연결된 영역은 채팅과 클릭이 같은 등록 서비스를 사용합니다. 모든 화면 기능의 채팅 연결이 끝났다고 말하지 마세요. 네이트온·HanbiroTalk가 이미 로그인되어 있어도 수신 파일 조회·저장·전달 어댑터는 별도이며 미연결 기능을 실행했다고 말하지 마세요. 업무 매뉴얼 실행과 웹 양식 입력·제출도 현재 연결 상태를 확인하세요.
 파일 위치를 찾거나 탐색기에 표시하려면 files_find로 실제 파일·폴더를 조회한 뒤 files_reveal에 발급된 ref를 사용하세요. 문서 본문을 읽는 documents_find/read와 구별하세요. modified는 수정 시각이며 메신저 수신 시각·누가 보낸 파일인지의 근거가 아닙니다. 검색 scopes·truncated·warnings 범위를 함께 고려하세요.
@@ -226,7 +227,7 @@ class AssistantRuntime:
         active = any(r.get('_effect', 'read') != 'read' or r.get('pending') for r in receipts)
         visible_receipts = [r for r in receipts if not active or r.get('_effect', 'read') != 'read'
                             or r.get('pending') or r.get('status') == 'error' or r.get('evidence')]
-        message = '\n'.join(str(r.get('message', '결과를 확인하세요.'))[:3000] for r in visible_receipts)[:16000]
+        message = '\n'.join(assistant_voice.receipt(str(r.get('message', '결과를 확인해줘.'))[:3000]) for r in visible_receipts)[:16000]
         explanation = ''
         grounded=any(r.get('evidence') and r.get('status')=='ok' for r in receipts)
         if (not active or grounded) and not (receipts and all(r.get('answer_complete') for r in receipts)) and (not receipts or grounded or any(r.get('status') == 'ok' and r.get('_effect') == 'read' for r in receipts)):
@@ -234,7 +235,7 @@ class AssistantRuntime:
         if explanation:
             message = message + '\n\n설명\n' + explanation if message else explanation
         if not message:
-            message = '실행한 작업은 없습니다. 원하는 작업이나 대상을 조금 더 알려주세요.'
+            message = '아직 실행한 작업은 없어. 원하는 작업이나 대상을 조금 더 알려줘~'
         refresh = set(x for r in receipts for x in r.get('refresh', []) if x in ('launcher', 'desk', 'work'))
         result = {'action': action, 'message': message, 'launcher_changed': 'launcher' in refresh,
                   'desk_changed': 'desk' in refresh,
