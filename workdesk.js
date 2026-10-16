@@ -6,6 +6,31 @@
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const statusNames = {todo:'예정', review:'검토중', doing:'진행중', done:'완료'};
   const stamp = value => { if (!value) return ''; const d = new Date(value); return Number.isNaN(d.getTime()) ? String(value) : new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(d); };
+  let followingChat = true, chatScrollQueued = false, chatScrollIntentUntil = 0, chatResizeObserver = null;
+  function settleChatScroll(force = false) {
+    if (force) followingChat = true;
+    if (!followingChat || chatScrollQueued) return;
+    chatScrollQueued = true;
+    const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : callback => setTimeout(callback, 0);
+    // Notices, context and the unlocked composer can change the log height after
+    // render(). Wait for that layout, then check once more on the next frame.
+    frame(() => {
+      const log = $('workMessages');
+      if (followingChat && log) log.scrollTop = log.scrollHeight;
+      frame(() => {
+        chatScrollQueued = false;
+        if (followingChat && log) log.scrollTop = log.scrollHeight;
+      });
+    });
+  }
+  function observeChatLayout() {
+    const log = $('workMessages');
+    if (!log || typeof ResizeObserver !== 'function') return;
+    chatResizeObserver ||= new ResizeObserver(() => settleChatScroll());
+    chatResizeObserver.disconnect();
+    chatResizeObserver.observe(log);
+    if (log.lastElementChild) chatResizeObserver.observe(log.lastElementChild);
+  }
   let companionState = null, companionOutcome = null, companionError = '';
   function waitingForSelection() {
     const messages = overview?.messages || [];
@@ -30,6 +55,7 @@
   function notice(message = '', error = false) {
     $('workNotice').textContent = message; $('workNotice').hidden = !message;
     $('workNotice').classList.toggle('work-error', error);
+    settleChatScroll();
   }
   function locks() {
     const blocked = busy || !!uncertain || !overview?.action_token;
@@ -46,6 +72,7 @@
     $('workSend').textContent = busy ? '처리 중…' : '요청 보내기';
     $('workConnection').textContent = busy ? '요청 처리 중' : overview ? '업무 기록 연결됨' : '연결 필요';
     companionUpdate();
+    settleChatScroll();
   }
   const taskHistory = new Map();
   let historySequence = 0, historyNotice = '';
@@ -85,16 +112,17 @@
     $('workCounts').textContent = `예정 ${counts.todo ?? 0} · 검토중 ${counts.review ?? 0} · 진행중 ${counts.doing ?? 0} · 완료 ${counts.done ?? 0}`;
     $('workTaskList').innerHTML = tasks.length ? tasks.map(t=>`<button type="button" class="work-task-row" data-work-task="${escape(t.id)}" aria-pressed="${t.id === selected}"><span class="work-state ${escape(t.status)}">${escape(statusNames[t.status] || t.status)}</span><span class="work-task-copy"><span class="work-task-name">${escape(t.title)}</span><small>${t.due_date ? '마감 '+escape(t.due_date) : '마감일 없음'}</small><span class="work-task-badges">${t.notes?.length ? `<span class="work-task-badge">메모 ${t.notes.length}</span>` : ''}${t.resources?.length ? `<span class="work-task-badge">자료 ${t.resources.length}</span>` : ''}${(overview.events || []).some(e=>e.task_id === t.id) ? `<span class="work-task-badge">기록 ${(overview.events || []).filter(e=>e.task_id === t.id).length}</span>` : ''}</span></span><span aria-hidden="true">›</span></button>`).join('') : '<div class="work-empty work-task-empty"><span class="work-empty-mark" aria-hidden="true">＋</span><div><strong>오늘 할 일을 여기에 모아보세요</strong><p>비서에게 말하거나 ‘업무 추가’로 등록하세요.</p></div></div>';
     const messages = overview.messages || [];
-    const log = $('workMessages'), nearBottom = log.scrollHeight-log.scrollTop-log.clientHeight < 50;
+    const log = $('workMessages');
     const choices = overview.launcher_choices || [], actions = overview.assistant_actions || [];
     log.innerHTML = messages.length ? messages.map(m=>{
       const options = m.role === 'assistant' ? choices.filter(c=>c.message_id === m.id).map(c=>`<div class="work-launcher-choice" role="group" aria-label="${escape(c.name)} 프로그램 선택"><span>${escape(c.name)} · 사용할 프로그램을 골라주세요.</span>${(c.options || []).map(option=>`<button type="button" class="work-secondary" data-work-launcher-choice="${escape(c.id)}" data-work-launcher-target="${escape(option.target)}"><strong>${escape(option.title)}</strong>${option.detail ? `<small>${escape(option.detail)}</small>` : ''}</button>`).join('')}</div>`).join('') : '';
       const pending = m.role === 'assistant' ? actions.filter(a=>a.message_id === m.id).map(a=>`<div class="work-assistant-action${a.kind === 'approval' ? ' work-action-approval' : ''}" role="group" aria-label="${escape(a.title)}"><b>${escape(a.title)}</b>${a.description ? `<p>${escape(a.description)}</p>` : ''}<div>${(a.options || []).map(option=>`<button type="button" class="work-secondary" data-work-assistant-action="${escape(a.id)}" data-work-assistant-option="${escape(option.id)}">${escape(option.label)}${option.description ? `<small>${escape(option.description)}</small>` : ''}</button>`).join('')}</div></div>`).join('') : '';
       return `<div class="work-message ${m.role === 'user' ? 'work-user' : ''}"><strong>${m.role === 'user' ? '나' : 'Aemeath'}</strong>${escape(m.content)}${options}${pending}</div>`;
     }).join('') : '<p class="work-empty">무슨 일을 해야 하나요?<br>업무를 등록하거나 바로가기에 추가할 프로그램을 알려주세요.</p>';
-    if (nearBottom) log.scrollTop = log.scrollHeight;
     renderDetail();
     locks();
+    observeChatLayout();
+    settleChatScroll();
   }
   window.workLoad = async function workLoad() {
     if (!$('work') || loading || busy || uncertain) return;
@@ -102,7 +130,9 @@
     try {
       const response = await fetch('/api/work', {cache:'no-store'}), data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || '업무를 불러오지 못했습니다.');
+      const initialLoad = !overview;
       overview = data; taskHistory.clear(); notice(); render();
+      settleChatScroll(initialLoad);
       if ($('workTaskDialog').open && selected) loadHistory(selected);
     } catch (e) {
       companionError='연결을 확인해 주세요';
@@ -151,6 +181,7 @@
         selected = data.result.task_id; renderDetail(false);
       }
       taskHistory.delete(selected); request.cleanup?.(); render();
+      if (stageRequest) settleChatScroll(true);
       if ($('workTaskDialog').open && selected) loadHistory(selected);
       const summary = (data.result?.message || '업무 기록을 저장했습니다.').split('\n')[0];
       notice(summary.length > 160 ? summary.slice(0,160)+'…' : summary);
@@ -225,6 +256,28 @@
     $('workTaskDialog').addEventListener('close',()=>{historySequence++; if (selected) $('workTaskList').querySelector(`[data-work-task="${CSS.escape(selected)}"]`)?.focus();});
     $('work').addEventListener('submit',submit); $('work').addEventListener('click',click);
     $('workUtilities')?.addEventListener('click',click);
+    const chatLog = $('workMessages');
+    const chatScrollIntent = () => { chatScrollIntentUntil = Date.now()+1500; };
+    chatLog.addEventListener('wheel',event=>{
+      chatScrollIntent();
+      if (event.deltaY < 0) followingChat = false;
+    },{passive:true});
+    chatLog.addEventListener('touchmove',chatScrollIntent,{passive:true});
+    chatLog.addEventListener('pointerdown',chatScrollIntent,{passive:true});
+    chatLog.addEventListener('keydown',event=>{
+      if (['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key)) {
+        chatScrollIntent();
+        if (['ArrowUp','PageUp','Home'].includes(event.key)) followingChat = false;
+      }
+    });
+    chatLog.addEventListener('scroll',()=>{
+      const atBottom = chatLog.scrollHeight-chatLog.scrollTop-chatLog.clientHeight < 8;
+      if (atBottom) followingChat = true;
+      else if (Date.now() < chatScrollIntentUntil) followingChat = false;
+    },{passive:true});
+    window.addEventListener('resize',()=>settleChatScroll());
+    document.fonts?.ready?.then(()=>settleChatScroll());
+    observeChatLayout();
     const command = $('workCommand');
     let composing = false;
     command.addEventListener('input',()=>{companionOutcome=null;companionUpdate();});
