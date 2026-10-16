@@ -18,6 +18,8 @@ import browser_bookmarks
 import assistant_model
 import lmstudio_runtime
 import model_requests
+import chat_stream
+import office_reload
 import browser_workspace
 import windows_workspace
 import capabilities
@@ -221,8 +223,9 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
+        if path=='/api/work/reload-status':return self.reply(office_reload.snapshot())
         if path in _AEMEATH_ASSETS:
             b=(ROOT/path.lstrip('/')).read_bytes()
             self.send_response(200);self.send_header('Content-Type','image/gif' if path.endswith('.gif') else 'image/png');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(b);return
@@ -342,6 +345,10 @@ class Handler(BaseHTTPRequestHandler):
             s=config();s['api_key']='' if not s.get('api_key') else '(설정됨)';return self.reply({'tasks':tasks,'runs':runs,'settings':s,'action_token':DESK_TOKEN})
         self.reply({'error':'not found'},404)
     def do_POST(self):
+        with office_reload.action(readonly=urlparse(self.path).path=='/api/work/stream') as admitted:
+            if not admitted:return self.reply({'error':'수정한 기능을 반영하고 있어요. 잠시 뒤 다시 요청해 주세요.'},503)
+            self._do_POST()
+    def _do_POST(self):
         try:
             p=urlparse(self.path).path;d=self.body()
             if p.startswith('/api/files/'):
@@ -390,6 +397,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
                 payload={k:v for k,v in d.items() if k!='token'}
+                if p=='/api/work/stream':
+                    if set(payload)-{'request_id'}:raise ValueError('대화 진행 요청을 확인하세요.')
+                    return self.reply(chat_stream.snapshot(payload.get('request_id')))
                 if p=='/api/work/preview-resource':
                     if set(payload)-{'resource_id'}:raise ValueError('등록한 업무 자료만 미리 볼 수 있습니다.')
                     files=file_workspace.FileWorkspace(db_path=DB,workspace=config().get('workspace'))
@@ -404,10 +414,17 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     action='task' if p=='/api/task' else 'status' if p=='/api/task/status' else p.rsplit('/',1)[-1]
                     if p=='/api/task/status' and 'id' in payload:payload['task_id']=payload.pop('id')
-                    result=service.perform(action,payload)
+                    if action in {'command','assistant-action'} and config().get('api_type')=='codex':
+                        with chat_stream.capture(payload.get('request_id')):
+                            result=service.perform(action,payload)
+                    else:result=service.perform(action,payload)
                 result['action_token']=DESK_TOKEN
                 if p in {'/api/task','/api/task/status'}:result['ok']=True
-                return self.reply(result)
+                changes=result.get('result',{}).get('source_changes',[])
+                ticket=office_reload.prepare(changes,payload.get('request_id')) if changes else None
+                if ticket:result['result']['source_reload']=ticket
+                try:return self.reply(result)
+                finally:office_reload.schedule(self.server,ticket)
             if p in DESK_ACTIONS:
                 origin=self.headers.get('Origin')
                 allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
@@ -559,5 +576,5 @@ if __name__=='__main__':
         except Exception as exc:
             print(f"[WARNING] 브라우저 자동 실행 실패: {exc}", flush=True)
         print(f"브라우저에서 직접 접속: {url}", flush=True)
-    threading.Thread(target=launch_browser, daemon=True).start()
+    if os.environ.get('AI_OFFICE_NO_BROWSER')!='1':threading.Thread(target=launch_browser, daemon=True).start()
     server.serve_forever()

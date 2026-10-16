@@ -39,7 +39,7 @@
       const card=document.createElement('article');card.className='work-stage-artifact';
       const header=document.createElement('header'),title=document.createElement('strong'),badge=document.createElement('small');
       title.textContent=artifact.title || '작업 결과';
-      const origin={source:'원본 자료',draft:artifact.kind==='code' ? '코드 초안' : '텍스트 초안',summary:'AI 요약',ai:'AI 결과'}[artifact.origin] || (artifact.kind==='code' ? '코드 초안' : '작업 결과');
+      const origin={source:'원본 자료',applied:'실제 적용된 소스 변경',draft:artifact.kind==='code' ? '코드 초안' : '텍스트 초안',summary:'AI 요약',ai:'AI 결과'}[artifact.origin] || (artifact.kind==='code' ? '코드 초안' : '작업 결과');
       badge.textContent=[origin,artifact.language,artifact.truncated ? '일부 표시' : ''].filter(Boolean).join(' · ');header.append(title,badge);card.append(header,content(artifact));
       const actions=document.createElement('div');actions.className='work-stage-artifact-actions';
       const enlarge=document.createElement('button');enlarge.type='button';enlarge.textContent='크게 보기';enlarge.addEventListener('click',()=>expand(artifact));actions.append(enlarge);

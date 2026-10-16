@@ -132,6 +132,7 @@
       if (!response.ok || data.error) throw new Error(data.error || '업무를 불러오지 못했습니다.');
       const initialLoad = !overview;
       overview = data; taskHistory.clear(); notice(); render();
+      if(initialLoad){try{const draft=sessionStorage.getItem('ai-office-command-draft');if(draft && !$('workCommand').value)$('workCommand').value=draft;sessionStorage.removeItem('ai-office-command-draft');}catch(_){}}
       settleChatScroll(initialLoad);
       if ($('workTaskDialog').open && selected) loadHistory(selected);
     } catch (e) {
@@ -146,6 +147,65 @@
     } finally { loading = false; locks(); }
   };
   function requestID() { return Array.from(crypto.getRandomValues(new Uint8Array(16)), b=>b.toString(16).padStart(2,'0')).join(''); }
+  function liveReply(request) {
+    const enabled=['command','assistant-action'].includes(request.endpoint);
+    let stopped=false, timer=null, controller=null, revision=-1;
+    const log=$('workMessages');
+    const user=document.createElement('div'), draft=document.createElement('div');
+    if(enabled && request.endpoint==='command' && request.body.message){
+      user.className='work-message work-user';
+      const label=document.createElement('strong');label.textContent='나';
+      user.append(label,document.createTextNode(request.body.message));log.append(user);
+    }
+    draft.className='work-message work-live-reply';draft.hidden=true;
+    const label=document.createElement('strong'), text=document.createElement('span');
+    label.textContent='Aemeath · 작성 중';draft.append(label,text);
+    if(enabled)log.append(draft);
+    async function poll(){
+      if(stopped || !enabled)return;
+      controller=new AbortController();
+      const deadline=setTimeout(()=>controller?.abort(),4000);
+      try{
+        const response=await fetch('/api/work/stream',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({token:request.body.token,request_id:request.body.request_id}),signal:controller.signal,cache:'no-store'});
+        if(response.status===403){stopped=true;return;}
+        const data=await response.json();
+        if(stopped || data.request_id!==request.body.request_id)return;
+        if(data.revision!==revision){
+          revision=data.revision;text.textContent=data.text || '';draft.hidden=!data.text;
+          settleChatScroll();
+        }
+        // The original POST owns completion, errors and retry semantics.
+        // This view is provisional and cannot trigger or retry an action.
+      }catch(_){/* The final POST response remains authoritative. */}
+      finally{clearTimeout(deadline);controller=null;if(!stopped)timer=setTimeout(poll,250);}
+    }
+    if(enabled){timer=setTimeout(poll,120);settleChatScroll(true);}
+    return ()=>{stopped=true;clearTimeout(timer);controller?.abort();draft.remove();user.remove();};
+  }
+  function reflectSourceReload(ticket){
+    if(!ticket?.id)return;
+    function refreshSource(){
+      try{sessionStorage.setItem('ai-office-command-draft',$('workCommand').value || '');}catch(_){}
+      location.reload();
+    }
+    notice(ticket.message || '수정한 소스를 반영하고 있어요.');
+    if(ticket.mode==='refresh'){setTimeout(refreshSource,400);return;}
+    let attempts=0;
+    async function poll(){
+      try{
+        const response=await fetch('/api/work/reload-status',{cache:'no-store'});
+        const data=await response.json();
+        if(data.id===ticket.id){
+          if(['active','rolled_back'].includes(data.state)){refreshSource();return;}
+          if(data.state==='failed'){notice(data.message,true);return;}
+        }
+      }catch(_){/* The expected restart briefly closes this connection. */}
+      if(++attempts<240)setTimeout(poll,1000);
+      else notice('소스는 저장됐어요. 진행 중인 작업이 끝나면 자동 반영돼요. 잠시 뒤 새로고침해줘.');
+    }
+    setTimeout(poll,600);
+  }
   async function write(endpoint, payload, cleanup, existing) {
     if (busy || (!existing && uncertain) || !overview?.action_token) return;
     const request = existing || {endpoint, body:{...payload, token:overview.action_token, request_id:requestID()}, cleanup};
@@ -154,6 +214,7 @@
     const stageRequest=['command','assistant-action','choose-launcher'].includes(request.endpoint);
     const stageEvent=(phase,result)=>{if(stageRequest)document.dispatchEvent(new CustomEvent('work-stage-request',{detail:{requestId:request.body.request_id,message:request.body.message || '선택한 요청 처리',phase,result}}));};
     stageEvent('start');
+    let stopLive=()=>{};
     try {
       if (existing) {
         // A server restart rotates the action token. Refresh only that field:
@@ -166,8 +227,10 @@
         request.body.token = session.action_token;
         overview.action_token = session.action_token;
       }
+      stopLive=liveReply(request);
       const response = await fetch('/api/work/'+request.endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request.body)});
       const data = await response.json();
+      stopLive();
       // Authentication rejection and an in-flight request do not establish
       // whether the original attempt committed. Keep the same retry request.
       const unresolved = response.status === 403 || response.status === 409 || response.status === 202 ||
@@ -192,13 +255,14 @@
       }
       if (data.result?.launcher_changed) document.dispatchEvent(new CustomEvent('work-launcher-changed'));
       if (data.result?.desk_changed) document.dispatchEvent(new CustomEvent('work-desk-changed'));
+      if (data.result?.source_reload) reflectSourceReload(data.result.source_reload);
     } catch (e) {
       stageEvent(confirmedResponse ? 'error' : 'uncertain',{message:e.message});
       if (!confirmedResponse) uncertain = request;
       else uncertain = null;
       companionOutcome=null;companionError=confirmedResponse ? '요청을 확인해 주세요' : '결과 확인이 필요해요';
       notice(`${confirmedResponse ? '요청 실패' : '처리 결과 확인 실패'}: ${e.message}`, true);
-    } finally { busy = false; locks(); }
+    } finally { stopLive();busy = false; locks(); }
   }
   function submit(event) {
     const form = event.target;

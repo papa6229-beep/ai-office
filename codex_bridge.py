@@ -1,10 +1,12 @@
 """Subscription-authenticated Codex planner. Only AI OFFICE executes tools.
 
-Each request uses a fresh ephemeral thread and an isolated working directory.
+Requests reuse a restricted process, with a fresh ephemeral thread per call.
 The child has no executor capabilities; its only output is a validated plan.
 No account credentials, full protocol events, or model reasoning are logged.
 """
 import base64
+import atexit
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -24,6 +26,11 @@ EFFORT = 'low'
 _MAX_EVENT = 2 * 1024 * 1024
 _MAX_ARGUMENTS = 24000
 _WORKSPACE = Path(__file__).resolve().parent / 'local_backups' / 'codex-planner-workspace'
+_client_lock = threading.RLock()
+_shared_client = None
+_stream_local = threading.local()
+_METADATA_TTL = 60
+_MAX_CLIENT_TURNS = 32
 _INSTRUCTIONS = '''You are the AI OFFICE structured planner, not a coding agent or executor.
 Only the application executes its registered tools after validating your proposal.
 Never run shell commands, use built-in tools, access files, browse, call MCP, or delegate.
@@ -98,6 +105,10 @@ class _Client:
         self.failed = threading.Event()
         self.proc = None
         self.catalog = None
+        self.metadata = None
+        self.metadata_at = 0
+        self.turns = 0
+        self.read_bytes = 0
         executable = _cli()
         _WORKSPACE.mkdir(parents=True, exist_ok=True)
         self.catalog = _restricted_catalog()
@@ -123,14 +134,13 @@ class _Client:
         threading.Thread(target=self._read, args=(self.proc, self.events, self.failed), daemon=True).start()
 
     def _read(self, proc, events, failed):
-        total = 0
         try:
             while True:
                 line = proc.stdout.readline(_MAX_EVENT + 1)
                 if not line:
                     break
-                total += len(line)
-                if len(line) > _MAX_EVENT or total > 16 * _MAX_EVENT:
+                self.read_bytes += len(line)
+                if len(line) > _MAX_EVENT or self.read_bytes > 16 * _MAX_EVENT:
                     raise ValueError()
                 event = json.loads(line)
                 if not isinstance(event, dict):
@@ -188,7 +198,7 @@ class _Client:
                     raise ValueError('Codex 연결 단계에서 오류가 났어요: ' + method)
                 self.pending.extend(deferred)
                 return event.get('result', {})
-            if method == 'turn/start' and event.get('method') in {'item/started', 'item/completed', 'turn/completed'}:
+            if method == 'turn/start' and event.get('method') in {'item/started', 'item/completed', 'item/agentMessage/delta', 'turn/completed'}:
                 deferred.append(event)
 
     def initialize(self):
@@ -246,12 +256,14 @@ class _Client:
 
 
 def _catalog(client, settings):
-    account = client.rpc('account/read', {'refreshToken': False}).get('account') or {}
-    if account.get('type') != 'chatgpt':
-        raise ValueError('Codex 앱에서 ChatGPT 계정으로 로그인해 주세요. API 키는 사용하지 않아요.')
     selected = settings.get('codex_model') or settings.get('gemma_model') or MODEL
     if selected != MODEL:
         raise ValueError('AI OFFICE의 Codex 모델은 GPT-6 Luna로 설정해 주세요.')
+    if client.metadata and time.monotonic() - client.metadata_at < _METADATA_TTL:
+        return client.metadata
+    account = client.rpc('account/read', {'refreshToken': False}).get('account') or {}
+    if account.get('type') != 'chatgpt':
+        raise ValueError('Codex 앱에서 ChatGPT 계정으로 로그인해 주세요. API 키는 사용하지 않아요.')
     models, cursor = [], None
     for _ in range(4):
         params = {'includeHidden': False, 'limit': 100}
@@ -265,25 +277,169 @@ def _catalog(client, settings):
     model = next((row for row in models if row.get('model') == selected), None)
     if model is None or EFFORT not in {row.get('reasoningEffort') for row in model.get('supportedReasoningEfforts', [])}:
         raise ValueError('현재 구독에서 GPT-6 Luna의 낮은 추론 설정을 사용할 수 없어요. 자동 대체는 하지 않아요.')
-    return {'authenticated': True, 'plan': account.get('planType'),
+    result = {'authenticated': True, 'plan': account.get('planType'),
             'models': [{'id': row.get('model'), 'name': row.get('displayName')}
                        for row in models if isinstance(row.get('model'), str)],
             'selected_model': selected, 'reasoning_effort': EFFORT,
             'service_tier': 'default'}, model
+    client.metadata, client.metadata_at = result, time.monotonic()
+    return result
+
+
+def _identity():
+    """Invalidate only from public configuration metadata, never credentials."""
+    home = Path(os.environ.get('CODEX_HOME') or (Path.home() / '.codex'))
+    executable = Path(_cli())
+    def stamp(path):
+        try:
+            value = path.stat()
+            return value.st_mtime_ns, value.st_size
+        except OSError:
+            return None
+    return (str(home), str(executable), stamp(executable),
+            stamp(home / 'config.toml'), stamp(home / 'models_cache.json'),
+            MODEL, EFFORT)
+
+
+def _discard(client=None):
+    global _shared_client
+    target = client or _shared_client
+    if target is _shared_client:
+        _shared_client = None
+    if target:
+        target.close()
+
+
+def _connection(timeout):
+    global _shared_client
+    identity = _identity()
+    client = _shared_client
+    if client and (client.identity != identity or client.failed.is_set()
+                   or client.proc.poll() is not None or client.turns >= _MAX_CLIENT_TURNS):
+        _discard(client)
+        client = None
+    if client is None:
+        client = _Client(timeout)
+        try:
+            client.initialize()
+        except Exception:
+            client.close()
+            raise
+        client.identity = identity
+        _shared_client = client
+    else:
+        # Each admitted request receives its own complete timeout budget.
+        client.deadline = time.monotonic() + timeout
+        client.read_bytes = 0
+    return client
+
+
+def close():
+    """Close only this application's child process; never another Codex app."""
+    with _client_lock:
+        _discard()
+
+
+atexit.register(close)
+
+
+@contextmanager
+def stream_scope(callback):
+    """Send provisional visible prose on this worker thread, never reasoning."""
+    previous = getattr(_stream_local, 'callback', None)
+    _stream_local.callback = callback if callable(callback) else None
+    try:
+        yield
+    finally:
+        _stream_local.callback = previous
+
+
+def _emit_draft(text):
+    callback = getattr(_stream_local, 'callback', None)
+    if callback:
+        try:
+            callback({'text': text[:32000], 'phase': 'draft'})
+        except Exception:
+            # UI disconnects must not cause model retries or duplicate effects.
+            pass
+
+
+def _partial_string(raw, key):
+    """Decode one top-level JSON string, including an unfinished last chunk."""
+    decoder = json.JSONDecoder()
+    pos = len(raw) - len(raw.lstrip())
+    if pos >= len(raw) or raw[pos] != '{':
+        return None
+    pos += 1
+    while pos < len(raw):
+        try:
+            pos += len(raw[pos:]) - len(raw[pos:].lstrip())
+            if raw[pos:pos + 1] == ',':
+                pos += 1
+                continue
+            name, pos = decoder.raw_decode(raw, pos)
+            pos += len(raw[pos:]) - len(raw[pos:].lstrip())
+            if raw[pos:pos + 1] != ':':
+                return None
+            pos += 1
+            pos += len(raw[pos:]) - len(raw[pos:].lstrip())
+            if name != key:
+                _, pos = decoder.raw_decode(raw, pos)
+                continue
+            if raw[pos:pos + 1] != '"':
+                return None
+            end = pos + 1
+            while end < len(raw):
+                if raw[end] == '\\':
+                    end += 2
+                elif raw[end] == '"':
+                    return json.loads(raw[pos:end + 1])
+                else:
+                    end += 1
+            # Cut only an incomplete escape/surrogate at the end; never render
+            # raw JSON escapes or a partial unicode code point in the chat.
+            prefix = raw[pos:]
+            for trim in range(min(13, len(prefix))):
+                candidate = prefix[:len(prefix) - trim] if trim else prefix
+                try:
+                    value = json.loads(candidate + '"')
+                    return value.encode('utf-8', 'ignore').decode('utf-8')
+                except (ValueError, UnicodeError):
+                    continue
+            return None
+        except (ValueError, TypeError, IndexError):
+            return None
+    return None
+
+
+def _visible_draft(raw, output_schema):
+    content = _partial_string(raw, 'content')
+    if content is None:
+        return ''
+    if isinstance(output_schema, dict) and 'decision' in output_schema.get('properties', {}):
+        decision = _partial_string(content, 'decision')
+        if decision not in {'answer', 'clarify', 'cancel'}:
+            return ''
+        content = _partial_string(content, 'message') or ''
+    elif output_schema is not None:
+        return ''
+    if content.lstrip().startswith(('{', '[', '```')):
+        return ''
+    return content
 
 
 def status(settings):
     """Read subscription/model metadata; performs no inference or login."""
-    client = None
-    try:
-        client = _Client(45)
-        client.initialize()
-        return _catalog(client, settings)[0]
-    except (OSError, TypeError, KeyError, UnicodeError):
-        raise ValueError('Codex 연결을 확인하지 못했어요. Codex 앱과 로그인 상태를 확인해 주세요.') from None
-    finally:
-        if client:
-            client.close()
+    with model_requests.request_slot(), _client_lock:
+        client = None
+        try:
+            client = _connection(45)
+            return _catalog(client, settings)[0]
+        except Exception as exc:
+            _discard(client)
+            if isinstance(exc, ValueError):
+                raise
+            raise ValueError('Codex 연결을 확인하지 못했어요. Codex 앱과 로그인 상태를 확인해 주세요.') from None
 
 
 def _snapshot(messages, tools, output_schema):
@@ -343,6 +499,7 @@ def _normalize(text, names, output_schema):
 
 def call(messages, tools, settings, *, output_schema=None, image_data_url=None, background=False):
     """Return bounded content/proposed tool calls; never execute any tool."""
+    _emit_draft('')
     systems, snapshot, names = _snapshot(messages, tools, output_schema)
     schema = {'type': 'object', 'additionalProperties': False,
               'required': ['content', 'tool_calls'], 'properties': {
@@ -364,11 +521,10 @@ def call(messages, tools, settings, *, output_schema=None, image_data_url=None, 
         except ValueError:
             raise ValueError('이미지 형식을 확인하세요.') from None
         input_items.append({'type': 'image', 'url': image_data_url})
-    client = None
-    try:
-        with model_requests.request_slot(background=background or settings.get('_judgment_background') is True):
-            client = _Client(max(15, min(180, int(settings.get('timeout', 90)))))
-            client.initialize()
+    with model_requests.request_slot(background=background or settings.get('_judgment_background') is True), _client_lock:
+        client = None
+        try:
+            client = _connection(max(15, min(180, int(settings.get('timeout', 90)))))
             metadata, model = _catalog(client, settings)
             if image_data_url and 'image' not in model.get('inputModalities', []):
                 raise ValueError('선택한 Codex 모델이 이미지를 지원하지 않아요.')
@@ -386,11 +542,24 @@ def call(messages, tools, settings, *, output_schema=None, image_data_url=None, 
                 'approvalPolicy': 'never', 'outputSchema': schema})
             turn_id = turn['turn']['id']
             final = None
+            drafts = {}
+            visible = ''
             while True:
                 event = client.event()
                 params = event.get('params') or {}
                 if params.get('threadId') != thread_id:
                     continue
+                if event.get('method') == 'item/agentMessage/delta':
+                    item_id, delta = params.get('itemId'), params.get('delta')
+                    if isinstance(item_id, str) and isinstance(delta, str):
+                        raw = drafts.get(item_id, '') + delta
+                        if len(raw) > _MAX_EVENT or len(drafts) > 12:
+                            raise ValueError('Codex 답변 크기를 확인하지 못했어요.')
+                        drafts[item_id] = raw
+                        draft = _visible_draft(raw, output_schema)
+                        if draft != visible:
+                            visible = draft
+                            _emit_draft(draft)
                 if event.get('method') in {'item/started', 'item/completed'}:
                     item = params.get('item') or {}
                     if item.get('type') not in {'userMessage', 'agentMessage', 'reasoning'}:
@@ -402,14 +571,25 @@ def call(messages, tools, settings, *, output_schema=None, image_data_url=None, 
                     if params['turn'].get('status') != 'completed' or not isinstance(final, str):
                         raise ValueError('Codex 답변이 완료되지 않았어요. 실행 기록을 확인해 주세요.')
                     try:
-                        return _normalize(final, names, output_schema)
+                        result = _normalize(final, names, output_schema)
                     except (ValueError, TypeError, KeyError, RecursionError):
                         raise ValueError('Codex의 구조화 답변 형식을 확인하지 못했어요. 실행은 시작하지 않았어요.') from None
-    except (OSError, TypeError, KeyError, IndexError, UnicodeError, RecursionError, json.JSONDecodeError):
-        raise ValueError('Codex 응답을 확인하지 못했어요. 실행 기록을 확인한 뒤 다시 요청해 주세요.') from None
-    finally:
-        if client:
-            client.close()
+                    _emit_draft('' if result['tool_calls'] else _visible_draft(final, output_schema))
+                    # A bounded non-inference RPC removes the event subscription.
+                    # Failure discards the child, but never repeats completed inference.
+                    try:
+                        client.deadline = min(client.deadline, time.monotonic() + 3)
+                        client.rpc('thread/unsubscribe', {'threadId': thread_id})
+                        client.turns += 1
+                    except Exception:
+                        _discard(client)
+                    return result
+        except Exception as exc:
+            _emit_draft('')
+            _discard(client)
+            if isinstance(exc, ValueError):
+                raise
+            raise ValueError('Codex 응답을 확인하지 못했어요. 실행 기록을 확인한 뒤 다시 요청해 주세요.') from None
 
 
 def ask(prompt, settings, *, image_data_url=None, background=False):

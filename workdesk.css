@@ -26,6 +26,8 @@
 #work .work-message{max-width:94%;box-sizing:border-box;padding:11px 14px;background:#303134;border:1px solid #45464a;border-radius:3px 10px 10px 10px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8}
 #work .work-message.work-user{align-self:flex-end;background:var(--ao-accent-muted,#29351f);border-color:var(--ao-accent-deep,#7aa52e);border-radius:10px 3px 10px 10px}
 #work .work-message strong{display:block;font-size:11px;color:#6ec4cf;margin-bottom:3px;font-weight:600}
+#work .work-live-reply{border-color:#718c4a}
+#work .work-live-reply>strong{color:var(--ao-accent-text,#c5e78f)}
 #work .work-context{display:flex;justify-content:space-between;gap:10px;margin:8px 0;color:#b3b3ad;font-size:11px;line-height:1.6;overflow-wrap:anywhere}
 #work #workCommand{border:1px solid #555650;border-radius:7px 7px 0 0;display:block;height:74px;min-height:70px;border-bottom:0}
 #work .work-compose-footer{border:1px solid #555650;border-top:0;border-radius:0 0 7px 7px;padding:9px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;background:#101113}

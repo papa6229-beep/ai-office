@@ -124,6 +124,30 @@ def call(messages, tools, settings, *, output_schema=None):
         raise ValueError('AI 서버의 도구 응답을 확인하지 못했습니다. 실행 결과를 확인한 후 다시 요청하세요.') from None
 
 
+def _intent_tool_summary(definition):
+    """Keep routing semantics and argument constraints, omit presentation bloat."""
+    def compact(value):
+        if isinstance(value, list):
+            return [compact(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        result = {}
+        for key, item in value.items():
+            if key in {'title', 'examples', '$comment'}:
+                continue
+            if key in {'properties', 'patternProperties', '$defs', 'definitions'} and isinstance(item, dict):
+                # Property names are data, even when named "title" or "examples".
+                result[key] = {name: compact(spec) for name, spec in item.items()}
+            elif key in {'enum', 'const', 'default'}:
+                result[key] = item
+            else:
+                result[key] = str(item)[:180] if key == 'description' else compact(item)
+        return result
+    function = definition['function']
+    return {'name': function['name'], 'description': str(function.get('description', ''))[:240],
+            'arguments': compact(function.get('parameters', {}))}
+
+
 def execution_decision(messages, observation_definitions, settings):
     """Classify the latest request, using bounded history only as reference data."""
     names=[row['function']['name'] for row in observation_definitions]
@@ -172,9 +196,9 @@ execute의 observation은 제공된 실제 도구 이름과 해당 스키마의 
                        and message['content'].startswith(fact_prefixes)]
     context={'current_request':messages[latest]['content'],
              'history_context':list(reversed(history)), 'runtime_context':runtime_context,
-             'observation_tools':observation_definitions,'response_schema':schema}
+             'observation_tools':[_intent_tool_summary(row) for row in observation_definitions]}
     output=call([{'role':'system','content':instruction},
-                 {'role':'user','content':json.dumps(context,ensure_ascii=False)}],[],settings,output_schema=schema)
+                 {'role':'user','content':json.dumps(context,ensure_ascii=False,separators=(',',':'))}],[],settings,output_schema=schema)
     try:
         if output.get('tool_calls'):raise ValueError()
         result=json.loads(output['content'])

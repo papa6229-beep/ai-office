@@ -13,6 +13,11 @@ _foreground_waiting = 0
 _request_active = False
 
 
+def is_idle():
+    with _condition:
+        return not _request_active and _foreground_scopes == 0
+
+
 @contextmanager
 def foreground_scope():
     """Keep background requests waiting until this conversation finishes."""
