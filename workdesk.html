@@ -8,7 +8,7 @@
   <div class="work-layout">
     <div class="work-main">
       <article class="work-assistant" aria-labelledby="workAssistantTitle">
-        <div class="work-panel-heading"><h3 id="workAssistantTitle">나의 업무 비서</h3><span id="workConnection" class="work-muted">연결 확인 중</span></div>
+        <div class="work-panel-heading"><h3 id="workAssistantTitle">JARVIS</h3><span id="workConnection" class="work-muted">연결 확인 중</span></div>
         <div id="workMessages" class="work-messages" role="log" aria-label="업무 비서 대화" aria-live="polite"><p class="work-empty">업무와 대화를 불러오고 있습니다.</p></div>
         <form id="workCommandForm">
           <div class="work-context"><span id="workContext">새 업무 또는 오늘 전체 업무에 대해 이야기합니다.</span><button type="button" id="workClearContext" class="work-text-button" data-work-action="clear-context" hidden>선택 해제</button></div>
@@ -30,13 +30,13 @@
     </div>
     <aside class="work-rail" aria-label="바로가기 런처">
       <article id="workLauncher" class="work-launcher" aria-labelledby="workLauncherTitle">
-        <div class="work-panel-heading"><div><p class="work-launcher-eyebrow">나의 실행 공간</p><h3 id="workLauncherTitle">LAUNCHER</h3></div><div class="work-launcher-tools"><button type="button" class="work-launcher-quiet" data-launcher-action="manage" aria-pressed="false">편집</button><button type="button" class="work-launcher-add" data-launcher-action="add">+ 추가</button></div></div>
+        <div class="work-panel-heading"><div><p class="work-launcher-eyebrow">나의 실행 공간</p><h3 id="workLauncherTitle">LAUNCHER</h3></div><div class="work-launcher-tools"><button type="button" class="work-launcher-add" data-launcher-action="add">+ 추가</button></div></div>
         <p class="work-launcher-intro">프로그램 · 웹사이트 · 폴더를 한 번에</p>
         <div id="workLauncherNotice" class="work-launcher-notice" role="status" aria-live="polite"></div>
         <div id="workLauncherRetry" class="work-launcher-retry" hidden><span>처리 결과를 확인하지 못했습니다.</span><button type="button" data-launcher-action="retry">같은 요청 다시 확인</button></div>
         <div id="workLauncherGrid" class="work-launcher-grid"><p class="work-launcher-empty">바로가기를 불러오는 중…</p></div>
         <nav id="workLauncherPages" class="work-launcher-pages" aria-label="바로가기 페이지"></nav>
-        <div class="work-launcher-footer"><p class="work-launcher-tip">우클릭으로 이름·이미지 편집</p><button type="button" class="work-launcher-refresh" data-launcher-action="reload">목록 새로고침</button></div>
+        <div class="work-launcher-footer"><p class="work-launcher-tip">드래그로 순서 변경 · 우클릭으로 수정</p><button type="button" class="work-launcher-refresh" data-launcher-action="reload">목록 새로고침</button></div>
       </article>
       <article id="workCalendar" class="work-calendar" aria-labelledby="workCalendarTitle">
         <div class="work-calendar-heading"><h3 id="workCalendarTitle">캘린더</h3><button type="button" class="work-secondary" data-calendar-action="today">오늘</button></div>
@@ -70,6 +70,7 @@
       <div id="workLauncherPalette" class="work-icon-palette" aria-label="아이콘 선택"></div>
       <label for="workLauncherImage">이미지 아이콘 업로드</label><input id="workLauncherImage" type="file" accept="image/png,image/jpeg,image/webp,image/x-icon,image/vnd.microsoft.icon,.ico"><p class="work-muted">PNG · JPG · WebP · ICO, 최대 512KB</p>
       <button type="button" class="work-text-button" data-launcher-action="clear-image">이미지 해제 · 글자 아이콘 사용</button>
+      <div id="workLauncherItemActions" class="work-launcher-item-actions" hidden><div><button type="button" id="workLauncherMoveUp" class="work-secondary" data-launcher-action="up">← 앞으로</button><button type="button" id="workLauncherMoveDown" class="work-secondary" data-launcher-action="down">뒤로 →</button></div><button type="button" id="workLauncherRemove" class="work-quiet" data-launcher-action="remove">바로가기 삭제</button></div>
       <p id="workLauncherFormNotice" class="work-form-notice" role="status" aria-live="polite"></p><button type="button" class="work-secondary" id="workLauncherDialogRetry" data-launcher-action="retry" hidden>같은 요청 다시 확인</button>
       <div class="work-form-actions"><button type="button" class="work-quiet" data-launcher-action="close">취소</button><button type="submit" id="workLauncherSave">바로가기 저장</button></div>
     </form>

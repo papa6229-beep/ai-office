@@ -200,10 +200,10 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let state = null, busy = false, loading = false, pending = null, editing = null, managing = false, imageData, imageReading = false, imageVersion = 0, imageURL = '';
+  let state = null, busy = false, loading = false, pending = null, editing = null, imageData, imageReading = false, imageVersion = 0, imageURL = '';
   let selectedApp = null, bookmarks = null, bookmarkLoading = false, dialogVersion = 0;
   let launcherRefreshQueued = false;
-  let appearanceOnly = false, selectedPage = 1;
+  let selectedPage = 1, dragItem = null, suppressLaunchUntil = 0;
   const pageStorageKey = 'ai-office.launcher.selected-page';
   try { selectedPage = Math.max(1, Number(localStorage.getItem(pageStorageKey)) || 1); } catch (_) {}
   function pages() {
@@ -233,6 +233,13 @@
     $('workLauncherDialogRetry').hidden = !pending;
     $('workLauncherSave').textContent = busy ? '저장 중…' : imageReading ? '이미지 읽는 중…' : '바로가기 저장';
     $('workLauncher').classList.toggle('is-busy',busy);
+    $('workLauncherGrid').querySelectorAll('[data-launcher-action="launch"]').forEach(tile => {tile.draggable = !dragBlocked();});
+    const current = (state?.items || []).find(x => x.id === editing);
+    const samePage = (state?.items || []).filter(x => (x.page || 1) === (current?.page || 1));
+    const index = samePage.findIndex(x => x.id === editing);
+    for (const [name, unavailable] of [['workLauncherMoveUp',index <= 0],['workLauncherMoveDown',index < 0 || index >= samePage.length-1]]) {
+      $(name).disabled = $(name).disabled || unavailable;
+    }
   }
   function icon(item) {
     return item.icon_image ? `<img src="/api/launcher/icon?id=${encodeURIComponent(item.id)}" alt="" loading="lazy">` : `<span>${esc(item.icon || Array.from(item.title || '✦').slice(0,2).join(''))}</span>`;
@@ -242,13 +249,11 @@
     const items = (state?.items || []).filter(item => (item.page || 1) === selectedPage);
     $('workLauncherPages').innerHTML = pages().map(page => `<button type="button" data-launcher-action="page" data-launcher-page="${page.id}" ${page.id === selectedPage ? 'aria-current="page"' : ''}>${esc(page.title)}</button>`).join('')+'<button type="button" data-launcher-action="add-page" aria-label="바로가기 페이지 추가">+ 페이지</button>';
     const capacity = Math.max(12, Number(state?.page_size) || 12);
-    const tiles = items.map((item,i) => `<div class="work-launcher-cell"><button type="button" class="work-launcher-tile${item.available === false ? ' is-unavailable' : ''}" data-launcher-action="launch" data-launcher-id="${esc(item.id)}" title="${esc(item.title)} · ${esc(item.target)}" aria-label="${esc(item.title)} 열기${item.available === false ? ' · 경로 확인 필요' : ''}"><span class="work-launcher-icon${item.icon_image ? ' is-image' : ''}" aria-hidden="true">${icon(item)}</span><span class="work-launcher-name">${esc(item.title)}</span></button>${managing ? `<div class="work-launcher-edit"><button type="button" data-launcher-action="edit" data-launcher-id="${esc(item.id)}" aria-label="${esc(item.title)} 수정">수정</button><button type="button" data-launcher-action="remove" data-launcher-id="${esc(item.id)}" aria-label="${esc(item.title)} 바로가기 삭제">삭제</button><button type="button" data-launcher-action="up" data-launcher-id="${esc(item.id)}" ${i === 0 ? 'hidden' : ''} aria-label="${esc(item.title)} 앞으로 이동">←</button><button type="button" data-launcher-action="down" data-launcher-id="${esc(item.id)}" ${i === items.length-1 ? 'hidden' : ''} aria-label="${esc(item.title)} 뒤로 이동">→</button></div>` : ''}</div>`).join('');
+    const tiles = items.map(item => `<div class="work-launcher-cell"><button type="button" draggable="true" class="work-launcher-tile${item.available === false ? ' is-unavailable' : ''}" data-launcher-action="launch" data-launcher-id="${esc(item.id)}" title="${esc(item.title)} · ${esc(item.target)}" aria-label="${esc(item.title)} 열기${item.available === false ? ' · 경로 확인 필요' : ''}"><span class="work-launcher-icon${item.icon_image ? ' is-image' : ''}" aria-hidden="true">${icon(item)}</span><span class="work-launcher-name">${esc(item.title)}</span></button></div>`).join('');
     const remaining = Math.max(0, capacity - items.length);
     const addTile = remaining ? '<button type="button" class="work-launcher-tile work-launcher-add-tile" data-launcher-action="add" aria-label="이 페이지에 바로가기 추가"><span aria-hidden="true">＋</span><span>추가</span></button>' : '';
     const slots = Array.from({length:Math.max(0,remaining-1)}, () => '<div class="work-launcher-slot" aria-hidden="true"></div>').join('');
     $('workLauncherGrid').innerHTML = tiles + addTile + slots;
-    const manage = $('workLauncher').querySelector('[data-launcher-action="manage"]');
-    manage.textContent = managing ? '편집 완료' : '편집'; manage.setAttribute('aria-pressed',String(managing));
     locks();
   }
   async function load(refresh = false) {
@@ -291,13 +296,13 @@
     const kind = $('workLauncherKind').value;
     const config = {app:['프로그램 전체 경로 (.exe / .lnk)','발견한 프로그램을 선택하거나 전체 경로를 입력하세요.','C:\\Program Files\\...\\app.exe'],web:['웹사이트 주소','http:// 또는 https://로 시작하는 웹사이트 주소를 입력하세요.','https://example.com'],folder:['폴더 전체 경로','작업 폴더를 선택하거나 전체 경로를 입력하세요.','C:\\Users\\...\\Documents']}[kind];
     $('workLauncherTargetLabel').textContent = config[0]; $('workLauncherTargetHelp').textContent = config[1]; $('workLauncherTarget').placeholder = config[2]; $('workLauncherPick').hidden = kind === 'web';
-    $('workLauncherKindWrap').hidden = appearanceOnly;
-    $('workLauncherSuggestionsWrap').hidden = appearanceOnly || kind !== 'app';
-    $('workLauncherBookmarksWrap').hidden = appearanceOnly || kind !== 'web';
+    $('workLauncherKindWrap').hidden = false;
+    $('workLauncherSuggestionsWrap').hidden = kind !== 'app';
+    $('workLauncherBookmarksWrap').hidden = kind !== 'web';
     const registered = kind === 'app' && !!selectedApp;
-    $('workLauncherSelectedApp').hidden = appearanceOnly || !registered;
-    $('workLauncherTargetWrap').hidden = appearanceOnly || registered;
-    $('workLauncherTarget').required = !appearanceOnly && !registered;
+    $('workLauncherSelectedApp').hidden = !registered;
+    $('workLauncherTargetWrap').hidden = registered;
+    $('workLauncherTarget').required = !registered;
     $('workLauncherSelectedAppName').textContent = registered ? 'Windows 시작 메뉴 · '+selectedApp.title : '';
   }
   function appResults() {
@@ -329,16 +334,17 @@
     if (url) { const img = document.createElement('img'); img.src=url; img.alt=''; $('workLauncherIconPreview').append(img); }
     else $('workLauncherIconPreview').textContent = $('workLauncherIcon').value || '✦';
   }
-  function open(item, compact = false) {
-    appearanceOnly = compact;
+  function open(item) {
+    clearDrag();
     dialogVersion++; selectedApp=item?.kind === 'app' && String(item.target).startsWith('startapp:') ? item : null;
     editing = item?.id || null; imageData = undefined; imageURL = item?.icon_image ? '/api/launcher/icon?id='+encodeURIComponent(item.id) : ''; imageVersion++; imageReading=false;
-    $('workLauncherForm').reset(); $('workLauncherDialogTitle').textContent = appearanceOnly ? '이름 · 아이콘 변경' : editing ? '바로가기 수정' : '바로가기 추가';
-    $('workLauncherDialog').classList.toggle('is-appearance', appearanceOnly);
+    $('workLauncherForm').reset(); $('workLauncherDialogTitle').textContent = editing ? '바로가기 수정' : '바로가기 추가';
+    $('workLauncherItemActions').hidden = !editing;
+    ['workLauncherRemove','workLauncherMoveUp','workLauncherMoveDown'].forEach(name => {$(name).dataset.launcherId = editing || '';});
     $('workLauncherName').value = item?.title || ''; $('workLauncherKind').value = item?.kind || 'app'; $('workLauncherTarget').value = selectedApp ? '' : item?.target || ''; $('workLauncherIcon').value = item?.icon || '✦'; $('workLauncherFormNotice').textContent='';
     $('workLauncherBookmarkPicker').hidden=!bookmarks; $('workLauncherBookmarkNotice').textContent=(bookmarks?.warnings || []).join(' ');
     appResults(); if (bookmarks) bookmarkResults();
-    kindFields(); preview(); locks(); $('workLauncherDialog').showModal(); $('workLauncherName').focus();
+    kindFields(); preview(); $('workLauncherDialog').showModal(); locks(); $('workLauncherName').focus();
   }
   async function click(event) {
     const button = event.target.closest('[data-launcher-action]'); if (!button || button.disabled) return;
@@ -349,15 +355,18 @@
     if (action === 'page') { selectPage(button.dataset.launcherPage); render(); return; }
     if (action === 'add-page') { await write('add-page',{}); return; }
     if (action === 'add') { open(); return; }
-    if (action === 'manage') { managing=!managing; render(); return; }
     if (action === 'edit') { if (item) open(item); return; }
-    if (action === 'launch' || action === 'remove') { if (item) await write(action,{id:item.id}); return; }
+    if (action === 'launch') { if (Date.now() < suppressLaunchUntil || dragItem) return; if (item) await write(action,{id:item.id}); return; }
+    if (action === 'remove') {
+      if (item) await write('remove',{id:item.id},()=>{$('workLauncherDialog').close();});
+      return;
+    }
     if (action === 'up' || action === 'down') {
       if (!item) return;
-      const pageItems=state.items.filter(x=>(x.page || 1)===selectedPage), from=pageItems.findIndex(x=>x.id===item.id), to=from+(action === 'up' ? -1 : 1);
+      const pageItems=state.items.filter(x=>(x.page || 1)===(item.page || 1)), from=pageItems.findIndex(x=>x.id===item.id), to=from+(action === 'up' ? -1 : 1);
       if (to < 0 || to >= pageItems.length) return;
       const ids=state.items.map(x=>x.id), first=ids.indexOf(pageItems[from].id), second=ids.indexOf(pageItems[to].id);
-      [ids[first],ids[second]]=[ids[second],ids[first]]; await write('reorder',{ids}); return;
+      [ids[first],ids[second]]=[ids[second],ids[first]]; await write('reorder',{ids},()=>{$('workLauncherDialog').close();}); return;
     }
     if (action === 'suggestion') {
       chooseSource(state?.suggestions?.[Number(button.dataset.sourceIndex)]); return;
@@ -396,8 +405,9 @@
     if (event.target.id !== 'workLauncherForm') return;
     event.preventDefault(); if (busy || pending || imageReading) return;
     const title=$('workLauncherName').value.trim(), kind=$('workLauncherKind').value, target=kind === 'app' && selectedApp ? selectedApp.target : $('workLauncherTarget').value.trim();
-    if (appearanceOnly) {
-      if (!title || !editing) return;
+    const original = state?.items?.find(x => x.id === editing);
+    if (original && kind === original.kind && target === original.target) {
+      if (!title) return;
       await write('appearance',{id:editing,title,icon:$('workLauncherIcon').value.trim(),...(imageData !== undefined ? {icon_data:imageData} : {})},()=>{$('workLauncherDialog').close();});
       return;
     }
@@ -406,28 +416,74 @@
     const payload={title,target,kind,icon:$('workLauncherIcon').value.trim(),...(editing ? {id:editing} : {page:selectedPage}),...(imageData !== undefined ? {icon_data:imageData} : {})};
     await write('save',payload,()=>{$('workLauncherDialog').close();});
   }
+  function dragBlocked() { return busy || loading || !!pending || !state?.action_token || $('workLauncherDialog').open; }
+  function clearDrag() {
+    dragItem = null;
+    $('workLauncherGrid').querySelectorAll('.is-dragging,.drop-before,.drop-after').forEach(tile => tile.classList.remove('is-dragging','drop-before','drop-after'));
+  }
+  function dragTarget(event) {
+    const tile = event.target.closest('[data-launcher-action="launch"]');
+    const item = state?.items?.find(x => x.id === tile?.dataset.launcherId);
+    const source = state?.items?.find(x => x.id === dragItem);
+    if (dragBlocked() || !tile || tile.disabled || !item || !source || (item.page || 1) !== selectedPage || (source.page || 1) !== selectedPage) return null;
+    return {tile,item,source};
+  }
+  function dropAfter(event, tile) { const rect = tile.getBoundingClientRect(); return event.clientX >= rect.left + rect.width/2; }
+  function dragStart(event) {
+    const tile=event.target.closest('[data-launcher-action="launch"]');
+    const item=state?.items?.find(x=>x.id===tile?.dataset.launcherId);
+    if (dragBlocked() || !tile || tile.disabled || !item || (item.page || 1) !== selectedPage || !event.dataTransfer) {event.preventDefault();return;}
+    clearDrag(); dragItem=item.id; suppressLaunchUntil=Date.now()+500;
+    event.dataTransfer.clearData(); event.dataTransfer.setData('text/plain',item.id); event.dataTransfer.effectAllowed='move';
+    tile.classList.add('is-dragging');
+  }
+  function dragOver(event) {
+    const target=dragTarget(event); if (!target || event.dataTransfer?.files?.length) {event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='none';return;}
+    event.preventDefault(); event.dataTransfer.dropEffect='move';
+    $('workLauncherGrid').querySelectorAll('.drop-before,.drop-after').forEach(tile=>tile.classList.remove('drop-before','drop-after'));
+    if (target.item.id !== dragItem) target.tile.classList.add(dropAfter(event,target.tile) ? 'drop-after' : 'drop-before');
+  }
+  async function drop(event) {
+    event.preventDefault(); // Do not let external URL/file drops navigate the work surface.
+    const target=dragTarget(event), sourceID=dragItem;
+    if (!target || event.dataTransfer?.files?.length || event.dataTransfer?.getData('text/plain') !== sourceID) {clearDrag();return;}
+    const after=dropAfter(event,target.tile); suppressLaunchUntil=Date.now()+500; clearDrag();
+    if (target.item.id === sourceID) return;
+    const pageItems=state.items.filter(x=>(x.page || 1)===selectedPage).map(x=>x.id);
+    const reordered=pageItems.filter(id=>id!==sourceID), at=reordered.indexOf(target.item.id)+(after ? 1 : 0);
+    reordered.splice(at,0,sourceID);
+    if (pageItems.every((id,index)=>id===reordered[index])) return;
+    let offset=0;
+    const ids=state.items.map(item=>(item.page || 1)===selectedPage ? reordered[offset++] : item.id);
+    await write('reorder',{ids});
+  }
   document.addEventListener('DOMContentLoaded',()=>{
     if (!$('workLauncher')) return;
     $('workLauncherPalette').innerHTML=['✦','🎨','🖥️','🌐','📁','📊','✉️','📝','🎬','⚙️'].map(x=>`<button type="button" data-launcher-action="palette" data-icon="${esc(x)}" aria-label="${esc(x)} 아이콘">${esc(x)}</button>`).join('');
     $('work').addEventListener('click',click); $('work').addEventListener('submit',submit);
-    function editAppearance(event) {
+    function editShortcut(event) {
       const tile=event.target.closest('[data-launcher-action="launch"]');
       if (!tile) return;
       event.preventDefault();
       if (tile.disabled || busy || loading || pending || !state?.action_token) return;
       const item=state.items.find(x=>x.id===tile.dataset.launcherId);
-      if (item) open(item,true);
+      if (item) open(item);
     }
-    $('workLauncherGrid').addEventListener('contextmenu',editAppearance);
+    $('workLauncherGrid').addEventListener('dragstart',dragStart);
+    $('workLauncherGrid').addEventListener('dragover',dragOver);
+    $('workLauncherGrid').addEventListener('drop',drop);
+    $('workLauncherGrid').addEventListener('dragend',()=>{if (dragItem) suppressLaunchUntil=Date.now()+500;clearDrag();});
+    $('workLauncherGrid').addEventListener('dragleave',event=>{if (!$('workLauncherGrid').contains(event.relatedTarget)) $('workLauncherGrid').querySelectorAll('.drop-before,.drop-after').forEach(tile=>tile.classList.remove('drop-before','drop-after'));});
+    $('workLauncherGrid').addEventListener('contextmenu',editShortcut);
     $('workLauncherGrid').addEventListener('keydown',event=>{
-      if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) editAppearance(event);
+      if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) editShortcut(event);
     });
     $('workLauncherKind').addEventListener('change',()=>{selectedApp=null;$('workLauncherTarget').value='';$('workLauncherFormNotice').textContent='';kindFields();});
     $('workLauncherAppSearch').addEventListener('input',appResults);
     $('workLauncherBookmarkSearch').addEventListener('input',bookmarkResults);
     $('workLauncherBookmarkProfile').addEventListener('change',bookmarkResults);
-    $('workLauncherDialog').addEventListener('cancel',()=>{dialogVersion++;});
-    $('workLauncherDialog').addEventListener('close',drainChatRefresh);
+    $('workLauncherDialog').addEventListener('cancel',()=>{dialogVersion++;clearDrag();});
+    $('workLauncherDialog').addEventListener('close',()=>{clearDrag();locks();drainChatRefresh();});
     document.addEventListener('work-launcher-changed',()=>{launcherRefreshQueued=true;drainChatRefresh();});
     $('workLauncherIcon').addEventListener('input',()=>{imageData='';imageURL='';imageVersion++;preview();});
     $('workLauncherImage').addEventListener('change',()=>{
