@@ -136,6 +136,24 @@ class LauncherApiTests(unittest.TestCase):
                        icon_data='data:image/gif;base64,' + base64.b64encode(raw[:-1]).decode())
         self.assertEqual(error.exception.code, 400)
 
+    def test_icon_revision_changes_without_exposing_image_bytes(self):
+        from PIL import Image
+        def png(color):
+            stream = io.BytesIO()
+            Image.new('RGB', (8, 8), color).save(stream, format='PNG')
+            return 'data:image/png;base64,' + base64.b64encode(stream.getvalue()).decode()
+        initial = self.write('save', title='아이콘', kind='web', target='https://example.com', icon_data=png('red'))['items'][0]
+        self.assertRegex(initial['icon_revision'], r'^[a-f0-9]{16}$')
+        self.assertNotIn('image', initial)
+        renamed = self.write('appearance', id=initial['id'], title='새 이름')['items'][0]
+        self.assertEqual(renamed['icon_revision'], initial['icon_revision'])
+        changed = self.write('appearance', id=initial['id'], title='새 이미지', icon_data=png('blue'))['items'][0]
+        self.assertNotEqual(changed['icon_revision'], initial['icon_revision'])
+        self.assertEqual(self.request()['items'][0]['icon_revision'], changed['icon_revision'])
+        cleared = self.write('appearance', id=initial['id'], title='이미지 제거', icon_data='')['items'][0]
+        self.assertIsNone(cleared['icon_revision'])
+        self.assertFalse(cleared['icon_image'])
+
     def test_bookmarks_are_read_only_and_require_explicit_local_request(self):
         expected = {'items': [{'title': '업무 사이트', 'kind': 'web',
                               'target': 'https://example.com/work', 'browser': 'Chrome',

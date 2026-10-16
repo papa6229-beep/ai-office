@@ -1,6 +1,7 @@
 import base64
 import concurrent.futures
 import contextlib
+import hashlib
 import io
 import json
 import pathlib
@@ -329,6 +330,35 @@ class QuickLauncherTests(unittest.TestCase):
         self.do('appearance', id=item_id, title='제거', icon_data='')
         with self.assertRaises(ValueError):
             self.service.icon_bytes(item_id)
+
+    def test_icon_revision_tracks_only_image_bytes_and_excludes_blob(self):
+        from PIL import Image
+        png = io.BytesIO()
+        Image.new('RGB', (8, 8), 'red').save(png, format='PNG')
+        data = 'data:image/png;base64,' + base64.b64encode(png.getvalue()).decode()
+        item_id = self.save(icon_data=data)
+        second = self.save('다른 바로가기')
+        def item():
+            return next(value for value in self.service.overview()['items'] if value['id'] == item_id)
+        first = item()
+        self.assertNotIn('image', first)
+        self.assertTrue(first['icon_image'])
+        self.assertEqual(first['icon_revision'], hashlib.sha256(self.service.icon_bytes(item_id)[0]).hexdigest()[:16])
+        self.do('appearance', id=item_id, title='이름 수정', icon='🎨')
+        self.do('reorder', ids=[second, item_id])
+        self.assertEqual(item()['icon_revision'], first['icon_revision'])
+        gif = self.gif_bytes()
+        self.do('appearance', id=item_id, title='GIF', icon_data='data:image/gif;base64,' + base64.b64encode(gif).decode())
+        self.assertNotEqual(item()['icon_revision'], first['icon_revision'])
+        self.assertEqual(item()['icon_revision'], hashlib.sha256(gif).hexdigest()[:16])
+        self.do('appearance', id=item_id, title='정지 이미지', icon_data=data)
+        self.assertEqual(item()['icon_revision'], first['icon_revision'])
+        self.do('appearance', id=item_id, title='이미지 제거', icon_data='')
+        cleared = item()
+        self.assertFalse(cleared['icon_image'])
+        self.assertIsNone(cleared['icon_revision'])
+        self.assertNotIn('image', cleared)
+        self.assertNotIn('base64', json.dumps(self.service.overview()))
 
     def test_static_gif_is_preserved_and_wrong_mime_or_truncation_rejected(self):
         from PIL import Image

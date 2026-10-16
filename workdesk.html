@@ -9,6 +9,12 @@
     <div class="work-main">
       <article class="work-assistant" aria-labelledby="workAssistantTitle">
         <div class="work-panel-heading"><h3 id="workAssistantTitle">Aemeath</h3><span id="workConnection" class="work-muted">연결 확인 중</span></div>
+        <div class="work-conversation-layout">
+          <aside id="workCompanion" class="work-companion" data-state="idle" aria-label="Aemeath 상태">
+            <div class="work-companion-stage" aria-hidden="true"><img id="workCompanionAnimation" class="work-companion-animation" src="/assets/aemeath/idle.gif" alt="" width="140" height="140"><img id="workCompanionStill" class="work-companion-still" src="/assets/aemeath/idle.png" alt="" width="140" height="140"><span class="work-companion-fallback">A</span></div>
+            <div class="work-companion-caption"><strong>Aemeath</strong><p id="workCompanionStatus" role="status" aria-live="polite">이야기를 기다리고 있어요</p></div>
+          </aside>
+          <div class="work-conversation-content">
         <div id="workMessages" class="work-messages" role="log" aria-label="업무 비서 대화" aria-live="polite"><p class="work-empty">업무와 대화를 불러오고 있습니다.</p></div>
         <form id="workCommandForm">
           <div class="work-context"><span id="workContext">새 업무 또는 오늘 전체 업무에 대해 이야기합니다.</span><button type="button" id="workClearContext" class="work-text-button" data-work-action="clear-context" hidden>선택 해제</button></div>
@@ -16,6 +22,8 @@
           <div class="work-compose-footer"><span>Enter 전송 · Shift+Enter 줄바꿈</span><button type="submit" id="workSend">요청 보내기</button></div>
         </form>
         <div class="work-examples" aria-label="요청 예시"><span>이렇게 요청해 보세요</span><button type="button" data-work-example="포토샵 좀 켜줘">포토샵 좀 켜줘</button><button type="button" data-work-example="바탕화면에 뭐가 있는지 살펴봐줘">바탕화면에 뭐가 있는지 살펴봐줘</button><button type="button" data-work-example="내일까지 행사 시안 준비해야 해. 할 일에 넣어줘">내일까지 행사 시안 준비해야 해. 할 일에 넣어줘</button></div>
+          </div>
+        </div>
       </article>
       <article class="work-tasks" aria-labelledby="workTasksTitle">
         <div class="work-panel-heading"><div><h3 id="workTasksTitle">오늘의 업무</h3><p id="workCounts" class="work-muted"></p></div><button type="button" data-work-action="add-task" class="work-secondary">+ 업무 추가</button></div>

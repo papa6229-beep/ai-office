@@ -1,0 +1,77 @@
+{
+  "source": "User-supplied Aemeath GIF archive",
+  "assets": [
+    {
+      "id": "answer",
+      "original_name": "\ub2f5\ubcc0_1.gif",
+      "bytes": 1150771,
+      "size": [
+        200,
+        200
+      ],
+      "frames": 150,
+      "duration": 40,
+      "sha256": "06bb3990052dee91c0fe6c4f48937a5926e0438fcc02916eb26ab00a4529ec42"
+    },
+    {
+      "id": "idle",
+      "original_name": "\ub300\uae30\ud654\uba74.gif",
+      "bytes": 1536943,
+      "size": [
+        200,
+        200
+      ],
+      "frames": 150,
+      "duration": 40,
+      "sha256": "854f26a68f2a8823d6f47ee3bf8868b7df57b5f2e1d23b8b5c430feafdfc45e9"
+    },
+    {
+      "id": "agree",
+      "original_name": "\ub3d9\uc758.gif",
+      "bytes": 1206504,
+      "size": [
+        200,
+        200
+      ],
+      "frames": 150,
+      "duration": 40,
+      "sha256": "8cbc49ce0c028126bf2ec8914fba458a9249b25ca092440e95a478e69bcf91e2"
+    },
+    {
+      "id": "error",
+      "original_name": "\ube44\ucd94\ucc9c.gif",
+      "bytes": 785047,
+      "size": [
+        200,
+        200
+      ],
+      "frames": 150,
+      "duration": 40,
+      "sha256": "ca116661de960c810668c835df0640ca359bff2303a7d427c3d5ceb388bfe57e"
+    },
+    {
+      "id": "typing",
+      "original_name": "\ucc44\ud305\uc785\ub825\uc911.gif",
+      "bytes": 818951,
+      "size": [
+        200,
+        200
+      ],
+      "frames": 134,
+      "duration": 40,
+      "sha256": "7f33a572b6b524afd010e41bbbfbbc940ed6a37176d030e630fa28abb1018ef0"
+    },
+    {
+      "id": "working",
+      "original_name": "\ud504\ub85c\uadf8\ub7a8 \uc2e4\ud589\uc911.gif",
+      "bytes": 746536,
+      "size": [
+        200,
+        200
+      ],
+      "frames": 86,
+      "duration": 40,
+      "sha256": "021b0b62cb48fb0194214b30c4090f27d06b5eca285f77479de763b7714a534e"
+    }
+  ]
+}

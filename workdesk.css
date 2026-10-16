@@ -227,3 +227,23 @@
 #work .work-launcher-tile:hover:not(:disabled) .work-launcher-icon{filter:drop-shadow(0 0 7px #a4d84b55)}
 #work .work-launcher-tile:focus-visible{outline:2px solid var(--ao-accent,#a4d84b);outline-offset:0}
 @media(min-width:601px) and (max-width:1150px){#work .work-launcher-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+/* A persistent companion rail, separate from the scrolling conversation. */
+#work .work-conversation-layout{display:grid;grid-template-columns:140px minmax(0,1fr);gap:16px;align-items:start}
+#work .work-conversation-content{min-width:0}
+#work .work-companion{position:sticky;top:12px;min-width:0;margin-top:2px;background:#111113;border-radius:12px;padding:12px 0 15px;text-align:center;overflow:hidden}
+#work .work-companion-stage{position:relative;width:140px;height:140px;margin:0 auto;background:#000;border-radius:10px;overflow:hidden}
+#work .work-companion-stage img{display:block;width:140px;height:140px;object-fit:contain}
+#work .work-companion-stage .work-companion-still{display:none}
+#work .work-companion-fallback{display:none;position:absolute;inset:0;align-items:center;justify-content:center;color:#efb2c4;font-size:42px;font-family:'Barlow Condensed',sans-serif;font-weight:700}
+#work .work-companion-caption{padding:12px 8px 0}
+#work .work-companion-caption>strong{color:#e7c2cf;font-size:16px;font-weight:700;letter-spacing:.1px}
+#work #workCompanionStatus{margin-top:6px;color:#bcb9bd;font-size:12px;line-height:1.65;min-height:3.3em;overflow-wrap:anywhere}
+#work .work-companion[data-state=working] #workCompanionStatus{color:#c5e78f}
+#work .work-companion[data-state=error] #workCompanionStatus{color:#ffa597}
+#work .work-companion.is-gif-unavailable .work-companion-animation{display:none}
+#work .work-companion.is-gif-unavailable .work-companion-still{display:block}
+#work .work-companion.is-still-unavailable .work-companion-still{display:none}
+#work .work-companion.is-gif-unavailable.is-still-unavailable .work-companion-fallback{display:flex}
+@media(prefers-reduced-motion:reduce){#work .work-companion-stage .work-companion-animation{display:none}#work .work-companion-stage .work-companion-still{display:block}#work .work-companion.is-still-unavailable .work-companion-still{display:none}#work .work-companion.is-still-unavailable .work-companion-fallback{display:flex}}
+@media(max-width:1150px){#work .work-conversation-layout{grid-template-columns:minmax(0,1fr);gap:13px}#work .work-companion{position:static;display:flex;align-items:center;text-align:left;padding:5px 10px;margin-top:0;gap:14px}#work .work-companion-stage,#work .work-companion-stage img{width:86px;height:86px;flex-shrink:0}#work .work-companion-caption{padding:0}#work #workCompanionStatus{min-height:0;margin-top:4px}}

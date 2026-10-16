@@ -186,3 +186,12 @@ test('floating launcher has five desktop columns and no decorative slot markup',
   assert.match(css,/work-launcher-grid\{[^}]*repeat\(5/);assert.doesNotMatch(source,/class="work-launcher-slot"/);
   assert.match(css,/work-launcher-tile\{[^}]*background:transparent;border:0/);
 });
+
+test('icon blob revisions refresh tile and editor URLs without a page reload',async()=>{
+  const s=await surface({imageIcon:true});s.state.items[0].icon_revision='revision-one';await s.click('reload');
+  assert.match(s.element('workLauncherGrid').innerHTML,/icon\?id=item0&amp;v=revision-one|icon\?id=item0&v=revision-one/);
+  edit(s);assert.equal(s.element('workLauncherIconPreview').children[0].src,'/api/launcher/icon?id=item0&v=revision-one');await s.click('close');
+  s.state.items[0].icon_revision='revision-two';await s.click('reload');
+  assert.match(s.element('workLauncherGrid').innerHTML,/icon\?id=item0&v=revision-two/);assert.doesNotMatch(s.element('workLauncherGrid').innerHTML,/revision-one/);
+  s.state.items[0].title='새 이름';await s.click('reload');assert.match(s.element('workLauncherGrid').innerHTML,/icon\?id=item0&v=revision-two/);
+});

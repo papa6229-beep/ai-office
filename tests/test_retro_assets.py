@@ -35,6 +35,27 @@ class RetroAssetTests(unittest.TestCase):
         self.assertIn('href="/retro.css"', html)
         self.assertIn('class="ao-report"', html)
 
+    def test_aemeath_assets_have_correct_content_types_and_bytes(self):
+        for state in ('answer', 'idle', 'agree', 'error', 'typing', 'working'):
+            for extension, mime, prefix in [('gif', 'image/gif', b'GIF'), ('png', 'image/png', b'\x89PNG')]:
+                path = f'/assets/aemeath/{state}.{extension}'
+                with self.subTest(path=path), urllib.request.urlopen(self.base+path, timeout=5) as response:
+                    self.assertEqual(response.headers.get_content_type(), mime)
+                    self.assertEqual(response.headers.get('X-Content-Type-Options'), 'nosniff')
+                    content = response.read()
+                    self.assertTrue(content.startswith(prefix))
+                    self.assertEqual(content, (app.ROOT/path.lstrip('/')).read_bytes())
+
+    def test_aemeath_route_exposes_only_known_images(self):
+        paths = ['/assets/aemeath/SOURCES.json', '/assets/aemeath/settings.json',
+                 '/assets/aemeath/../fonts/PretendardVariable.woff2',
+                 '/assets/aemeath/%2e%2e/%2e%2e/settings.json',
+                 '/assets/aemeath/unknown.gif', '/assets/aemeath/idle.svg']
+        for path in paths:
+            with self.subTest(path=path), self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(self.base+path, timeout=5)
+            self.assertEqual(error.exception.code, 404)
+
     def test_font_route_does_not_allow_arbitrary_workspace_files(self):
         for path in ['/assets/fonts/settings.json', '/assets/fonts/../../settings.json',
                      '/assets/fonts/%2e%2e/%2e%2e/settings.json']:

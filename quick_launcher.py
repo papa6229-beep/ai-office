@@ -2,6 +2,7 @@
 import base64
 import binascii
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -242,9 +243,11 @@ class QuickLauncher:
     def _overview(self, c):
         self._sync_pages(c)
         items = []
-        for row in c.execute('SELECT i.id,title,kind,target,icon,image IS NOT NULL AS icon_image,position,m.page_id AS page FROM launcher_items i JOIN launcher_item_pages m ON m.item_id=i.id ORDER BY position,i.id'):
+        for row in c.execute('SELECT i.id,title,kind,target,icon,image,position,m.page_id AS page FROM launcher_items i JOIN launcher_item_pages m ON m.item_id=i.id ORDER BY position,i.id'):
             item = dict(row)
-            item['icon_image'] = bool(item['icon_image'])
+            image = item.pop('image')
+            item['icon_image'] = image is not None
+            item['icon_revision'] = hashlib.sha256(image).hexdigest()[:16] if image is not None else None
             try:
                 _target(item['kind'], item['target'])
                 item['available'] = True

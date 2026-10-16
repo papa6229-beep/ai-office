@@ -22,6 +22,9 @@ import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 ROOT=pathlib.Path(__file__).resolve().parent
+_AEMEATH_ASSETS = frozenset(f'/assets/aemeath/{state}.{extension}'
+                          for state in ('answer', 'idle', 'agree', 'error', 'typing', 'working')
+                          for extension in ('gif', 'png'))
 DB=ROOT/'office.db'
 CFG=ROOT/'settings.json'
 HOST='127.0.0.1'; PORT=8765
@@ -173,6 +176,9 @@ class Handler(BaseHTTPRequestHandler):
         path=urlparse(self.path).path
         if path in {'/api/launcher','/api/launcher/icon','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
+        if path in _AEMEATH_ASSETS:
+            b=(ROOT/path.lstrip('/')).read_bytes()
+            self.send_response(200);self.send_header('Content-Type','image/gif' if path.endswith('.gif') else 'image/png');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(b);return
         if path in {'/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js','/retro.css','/assets/fonts/PretendardVariable.woff2','/assets/fonts/BarlowCondensed-Bold.ttf','/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'}:
             b=(ROOT/path.lstrip('/')).read_bytes()
             mime='font/woff2' if path.endswith('.woff2') else 'font/ttf' if path.endswith('.ttf') else 'text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8'

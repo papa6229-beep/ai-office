@@ -6,6 +6,27 @@
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const statusNames = {todo:'예정', doing:'진행 중', done:'완료'};
   const stamp = value => { if (!value) return ''; const d = new Date(value); return Number.isNaN(d.getTime()) ? String(value) : new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(d); };
+  let companionState = null, companionOutcome = null, companionError = '';
+  function waitingForSelection() {
+    const messages = overview?.messages || [];
+    return [...(overview?.launcher_choices || []), ...(overview?.assistant_actions || [])].some(card => card.options?.length && messages.some(m => m.role === 'assistant' && m.id === card.message_id));
+  }
+  function companionUpdate() {
+    const stage=$('workCompanion'), animation=$('workCompanionAnimation'), still=$('workCompanionStill'), status=$('workCompanionStatus');
+    if (!stage || !animation || !still || !status) return;
+    let next='idle', label='이야기를 기다리고 있어요';
+    if (busy) {next='working';label='요청 처리 중';}
+    else if (companionError || uncertain) {next='error';label=uncertain ? '결과 확인이 필요해요' : companionError;}
+    else if ($('workCommand')?.value.trim()) {next='typing';label='이야기를 듣고 있어요';}
+    else if (waitingForSelection()) {label='선택을 기다리고 있어요';}
+    else if (companionOutcome) {next=companionOutcome.state;label=companionOutcome.label;}
+    if (next !== companionState) {
+      companionState=next;stage.setAttribute?.('data-state',next);
+      stage.classList.toggle('is-gif-unavailable',false);stage.classList.toggle('is-still-unavailable',false);
+      animation.src='/assets/aemeath/'+next+'.gif';still.src='/assets/aemeath/'+next+'.png';
+    }
+    if (status.textContent !== label) status.textContent=label;
+  }
   function notice(message = '', error = false) {
     $('workNotice').textContent = message; $('workNotice').hidden = !message;
     $('workNotice').classList.toggle('work-error', error);
@@ -22,6 +43,7 @@
     $('workRetry').hidden = !uncertain;
     $('workSend').textContent = busy ? '처리 중…' : '요청 보내기';
     $('workConnection').textContent = busy ? '요청 처리 중' : overview ? '업무 기록 연결됨' : '연결 필요';
+    companionUpdate();
   }
   const taskHistory = new Map();
   let historySequence = 0, historyNotice = '';
@@ -66,7 +88,7 @@
     log.innerHTML = messages.length ? messages.map(m=>{
       const options = m.role === 'assistant' ? choices.filter(c=>c.message_id === m.id).map(c=>`<div class="work-launcher-choice" role="group" aria-label="${escape(c.name)} 프로그램 선택"><span>${escape(c.name)} · 사용할 프로그램을 골라주세요.</span>${(c.options || []).map(option=>`<button type="button" class="work-secondary" data-work-launcher-choice="${escape(c.id)}" data-work-launcher-target="${escape(option.target)}"><strong>${escape(option.title)}</strong>${option.detail ? `<small>${escape(option.detail)}</small>` : ''}</button>`).join('')}</div>`).join('') : '';
       const pending = m.role === 'assistant' ? actions.filter(a=>a.message_id === m.id).map(a=>`<div class="work-assistant-action${a.kind === 'approval' ? ' work-action-approval' : ''}" role="group" aria-label="${escape(a.title)}"><b>${escape(a.title)}</b>${a.description ? `<p>${escape(a.description)}</p>` : ''}<div>${(a.options || []).map(option=>`<button type="button" class="work-secondary" data-work-assistant-action="${escape(a.id)}" data-work-assistant-option="${escape(option.id)}">${escape(option.label)}${option.description ? `<small>${escape(option.description)}</small>` : ''}</button>`).join('')}</div></div>`).join('') : '';
-      return `<div class="work-message ${m.role === 'user' ? 'work-user' : ''}"><strong>${m.role === 'user' ? '나' : '업무 비서'}</strong>${escape(m.content)}${options}${pending}</div>`;
+      return `<div class="work-message ${m.role === 'user' ? 'work-user' : ''}"><strong>${m.role === 'user' ? '나' : 'Aemeath'}</strong>${escape(m.content)}${options}${pending}</div>`;
     }).join('') : '<p class="work-empty">무슨 일을 해야 하나요?<br>업무를 등록하거나 바로가기에 추가할 프로그램을 알려주세요.</p>';
     if (nearBottom) log.scrollTop = log.scrollHeight;
     renderDetail();
@@ -74,13 +96,14 @@
   }
   window.workLoad = async function workLoad() {
     if (!$('work') || loading || busy || uncertain) return;
-    loading = true;
+    loading = true; companionOutcome=null; companionError=''; companionUpdate();
     try {
       const response = await fetch('/api/work', {cache:'no-store'}), data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || '업무를 불러오지 못했습니다.');
       overview = data; taskHistory.clear(); notice(); render();
       if ($('workTaskDialog').open && selected) loadHistory(selected);
     } catch (e) {
+      companionError='연결을 확인해 주세요';
       notice(`업무 연결 실패: ${e.message} 화면을 다시 열어 재연결하세요.`, true);
       if (!overview) {
         $('workMessages').innerHTML = '<p class="work-empty">업무 기록에 연결하지 못했습니다.</p>';
@@ -94,7 +117,7 @@
   async function write(endpoint, payload, cleanup, existing) {
     if (busy || (!existing && uncertain) || !overview?.action_token) return;
     const request = existing || {endpoint, body:{...payload, token:overview.action_token, request_id:requestID()}, cleanup};
-    busy = true; notice(); locks();
+    companionError=''; companionOutcome=null; busy = true; notice(); locks();
     let confirmedResponse = false;
     try {
       if (existing) {
@@ -118,6 +141,7 @@
       if (unresolved) throw new Error(data.error || '요청을 처리 중입니다. 잠시 후 같은 요청으로 다시 확인하세요.');
       if (!response.ok || data.error) throw new Error(data.error || '요청을 처리하지 못했습니다.');
       uncertain = null; overview = data;
+      companionOutcome=request.endpoint === 'command' ? {state:'answer',label:'답변이 도착했어요'} : {state:'agree',label:['task','note','status','resource'].includes(request.endpoint) ? '기록을 저장했어요' : '응답을 확인했어요'};
       if (data.result?.task_id && data.result.task_id !== selected) {
         selected = data.result.task_id; renderDetail(false);
       }
@@ -130,6 +154,7 @@
     } catch (e) {
       if (!confirmedResponse) uncertain = request;
       else uncertain = null;
+      companionOutcome=null;companionError=confirmedResponse ? '요청을 확인해 주세요' : '결과 확인이 필요해요';
       notice(`${confirmedResponse ? '요청 실패' : '처리 결과 확인 실패'}: ${e.message}`, true);
     } finally { busy = false; locks(); }
   }
@@ -157,7 +182,7 @@
     if (button.dataset.workAssistantAction) { write('assistant-action',{pending_id:button.dataset.workAssistantAction,option_id:button.dataset.workAssistantOption}); return; }
     if (button.dataset.workLauncherChoice) { write('choose-launcher',{choice_id:button.dataset.workLauncherChoice,target:button.dataset.workLauncherTarget}); return; }
     if (button.dataset.workTask) { selected = button.dataset.workTask; renderDetail(false); render(); $('workTaskDialog').showModal(); loadHistory(selected); return; }
-    if (button.dataset.workExample) { $('workCommand').value=button.dataset.workExample; $('workCommand').focus(); return; }
+    if (button.dataset.workExample) { $('workCommand').value=button.dataset.workExample; companionOutcome=null;companionUpdate(); $('workCommand').focus(); return; }
     if (button.dataset.workStatus) { write('status',{task_id:selected,status:button.dataset.workStatus}); return; }
     if (button.dataset.workResource) { write('open-resource',{resource_id:button.dataset.workResource}); return; }
     switch (button.dataset.workAction) {
@@ -180,8 +205,12 @@
     $('work').addEventListener('submit',submit); $('work').addEventListener('click',click);
     const command = $('workCommand');
     let composing = false;
-    command.addEventListener('compositionstart',()=>{composing = true;});
-    command.addEventListener('compositionend',()=>{composing = false;});
+    command.addEventListener('input',()=>{companionOutcome=null;companionUpdate();});
+    command.addEventListener('change',()=>{companionOutcome=null;companionUpdate();});
+    $('workCompanionAnimation')?.addEventListener('error',()=>{$('workCompanion')?.classList.toggle('is-gif-unavailable',true);});
+    $('workCompanionStill')?.addEventListener('error',()=>{$('workCompanion')?.classList.toggle('is-still-unavailable',true);});
+    command.addEventListener('compositionstart',()=>{composing = true;companionUpdate();});
+    command.addEventListener('compositionend',()=>{composing = false;companionUpdate();});
     command.addEventListener('blur',()=>{composing = false;});
     command.addEventListener('keydown',event=>{
       if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
@@ -241,8 +270,9 @@
       $(name).disabled = $(name).disabled || unavailable;
     }
   }
+  const iconURL = item => '/api/launcher/icon?id='+encodeURIComponent(item.id)+(item.icon_revision ? '&v='+encodeURIComponent(item.icon_revision) : '');
   function icon(item) {
-    return item.icon_image ? `<img src="/api/launcher/icon?id=${encodeURIComponent(item.id)}" alt="" loading="lazy">` : `<span>${esc(item.icon || Array.from(item.title || '✦').slice(0,2).join(''))}</span>`;
+    return item.icon_image ? `<img src="${iconURL(item)}" alt="" loading="lazy">` : `<span>${esc(item.icon || Array.from(item.title || '✦').slice(0,2).join(''))}</span>`;
   }
   function render() {
     selectPage(selectedPage);
@@ -336,7 +366,7 @@
   function open(item) {
     clearDrag();
     dialogVersion++; selectedApp=item?.kind === 'app' && String(item.target).startsWith('startapp:') ? item : null;
-    editing = item?.id || null; imageData = undefined; imageURL = item?.icon_image ? '/api/launcher/icon?id='+encodeURIComponent(item.id) : ''; imageVersion++; imageReading=false;
+    editing = item?.id || null; imageData = undefined; imageURL = item?.icon_image ? iconURL(item) : ''; imageVersion++; imageReading=false;
     $('workLauncherForm').reset(); $('workLauncherDialogTitle').textContent = editing ? '바로가기 수정' : '바로가기 추가';
     $('workLauncherItemActions').hidden = !editing;
     ['workLauncherRemove','workLauncherMoveUp','workLauncherMoveDown'].forEach(name => {$(name).dataset.launcherId = editing || '';});
