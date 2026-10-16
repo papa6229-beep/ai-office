@@ -186,7 +186,7 @@
     log.innerHTML = messages.length ? messages.map(m=>{
       const options = m.role === 'assistant' ? choices.filter(c=>c.message_id === m.id).map(c=>`<div class="work-launcher-choice" role="group" aria-label="${escape(c.name)} 프로그램 선택"><span>${escape(c.name)} · 사용할 프로그램을 골라주세요.</span>${(c.options || []).map(option=>`<button type="button" class="work-secondary" data-work-launcher-choice="${escape(c.id)}" data-work-launcher-target="${escape(option.target)}"><strong>${escape(option.title)}</strong>${option.detail ? `<small>${escape(option.detail)}</small>` : ''}</button>`).join('')}</div>`).join('') : '';
       const pending = m.role === 'assistant' ? actions.filter(a=>a.message_id === m.id).map(a=>`<div class="work-assistant-action${a.kind === 'approval' ? ' work-action-approval' : ''}" role="group" aria-label="${escape(a.title)}"><b>${escape(a.title)}</b>${a.description ? `<p>${escape(a.description)}</p>` : ''}<div>${(a.options || []).map(option=>`<button type="button" class="work-secondary" data-work-assistant-action="${escape(a.id)}" data-work-assistant-option="${escape(option.id)}">${escape(option.label)}${option.description ? `<small>${escape(option.description)}</small>` : ''}</button>`).join('')}</div></div>`).join('') : '';
-      return `<div class="work-message ${m.role === 'user' ? 'work-user' : ''}"><strong>${m.role === 'user' ? '나' : 'Aemeath'}</strong>${escape(m.content)}${m.attachments?.length ? `<div class="work-message-attachments">${attachmentMarkup(m.attachments)}</div>` : ''}${options}${pending}</div>`;
+      return `<div class="work-message ${m.role === 'user' ? 'work-user' : ''}"><strong>${m.role === 'user' ? '태준' : 'Aemeath'}</strong>${escape(m.content)}${m.attachments?.length ? `<div class="work-message-attachments">${attachmentMarkup(m.attachments)}</div>` : ''}${options}${pending}</div>`;
     }).join('') : '<p class="work-empty">무슨 일을 해야 하나요?<br>업무를 등록하거나 바로가기에 추가할 프로그램을 알려주세요.</p>';
     renderDetail();
     locks();
@@ -223,7 +223,7 @@
     const user=document.createElement('div'), draft=document.createElement('div');
     if(enabled && request.endpoint==='command' && request.body.message){
       user.className='work-message work-user';
-      const label=document.createElement('strong');label.textContent='나';
+      const label=document.createElement('strong');label.textContent='태준';
       user.append(label,document.createTextNode(request.body.message));log.append(user);
     }
     draft.className='work-message work-live-reply';draft.hidden=true;
@@ -258,7 +258,7 @@
       try{sessionStorage.setItem('ai-office-command-draft',$('workCommand').value || '');}catch(_){}
       location.reload();
     }
-    notice(ticket.message || '수정한 소스를 반영하고 있어요.');
+    document.dispatchEvent(new CustomEvent('work-stage-notice',{detail:{message:ticket.message || '수정한 소스를 반영하고 있어요.'}}));
     if(ticket.mode==='refresh'){setTimeout(refreshSource,400);return;}
     let attempts=0;
     async function poll(){
@@ -267,11 +267,11 @@
         const data=await response.json();
         if(data.id===ticket.id){
           if(['active','rolled_back'].includes(data.state)){refreshSource();return;}
-          if(data.state==='failed'){notice(data.message,true);return;}
+          if(data.state==='failed'){document.dispatchEvent(new CustomEvent('work-stage-notice',{detail:{message:data.message,error:true}}));return;}
         }
       }catch(_){/* The expected restart briefly closes this connection. */}
       if(++attempts<240)setTimeout(poll,1000);
-      else notice('소스는 저장됐어요. 진행 중인 작업이 끝나면 자동 반영돼요. 잠시 뒤 새로고침해줘.');
+      else document.dispatchEvent(new CustomEvent('work-stage-notice',{detail:{message:'소스는 저장됐어요. 진행 중인 작업이 끝나면 자동 반영돼요.'}}));
     }
     setTimeout(poll,600);
   }
@@ -315,13 +315,9 @@
       taskHistory.delete(selected); request.cleanup?.(); render();
       if (stageRequest) settleChatScroll(true);
       if ($('workTaskDialog').open && selected) loadHistory(selected);
-      // Conversation results are already rendered in workMessages. Keep the
-      // banner for operation receipts and actual failures, not a second reply.
-      const toolFailure = data.result?.tool_results?.find(result => ['error','uncertain'].includes(result.status));
-      if (!stageRequest || toolFailure) {
-        const summary = (toolFailure?.message || data.result?.message || '업무 기록을 저장했습니다.').split('\n')[0];
-        notice(summary.length > 160 ? summary.slice(0,160)+'…' : summary, !!toolFailure);
-      }
+      // The chat owns the final reply; execution receipts live in WORKSPACE.
+      if (stageRequest) notice();
+      else notice(data.result?.message || '업무 기록을 저장했습니다.');
       if(data.companion_assets)acceptCompanionManifest(data.companion_assets);
       if(data.result?.companion_changed){companionOutcome=null;companionState=null;await refreshCompanionManifest();}
       if (data.result?.launcher_changed) document.dispatchEvent(new CustomEvent('work-launcher-changed'));

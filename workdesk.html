@@ -4,7 +4,6 @@
     <div class="work-main">
       <article class="work-assistant" aria-labelledby="workAssistantTitle">
         <div class="work-panel-heading"><h3 id="workAssistantTitle">Aemeath</h3><span id="workConnection" class="work-muted">연결 확인 중</span></div>
-        <div id="workNotice" class="work-notice" role="status" aria-live="polite" hidden></div>
         <div id="workRetry" class="work-retry" hidden><span>응답을 확인하지 못했습니다. 같은 요청으로 다시 확인할 수 있습니다.</span><button type="button" data-work-action="retry">같은 요청 다시 시도</button></div>
         <div class="work-conversation-layout">
           <div class="work-companion-rail">
@@ -25,6 +24,7 @@
         <form id="workCommandForm">
           <div class="work-context"><span id="workContext">새 업무 또는 오늘 전체 업무에 대해 이야기합니다.</span><button type="button" id="workClearContext" class="work-text-button" data-work-action="clear-context" hidden>선택 해제</button></div>
           <label class="work-sr-only" for="workCommand">업무 요청</label><textarea id="workCommand" rows="2" maxlength="6000" placeholder="평소 말하듯 요청하세요. 앱 열기, 업무 기록, 자료 조사와 정리를 도와드립니다." required></textarea>
+          <div id="workNotice" class="work-notice" role="status" aria-live="polite" hidden></div>
           <input id="workAttachmentInput" type="file" multiple hidden accept=".gif,.png,.jpg,.jpeg,.webp,.ico,.pdf,.docx,.txt,.md,.csv,.tsv,.json,.py,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.sql,.log,.rst,.toml,.zip"><div id="workAttachments" class="work-attachments" aria-live="polite" hidden></div><div class="work-compose-footer"><div class="work-compose-tools"><button type="button" id="workAttach" class="work-quiet" aria-label="파일 첨부" title="파일 첨부 · 최대 6개 · 문서 8MB · 이미지/ZIP 10MB">＋ 첨부</button><span>Enter 전송 · Shift+Enter 줄바꿈</span></div><button type="submit" id="workSend">요청 보내기</button></div>
         </form>
           </div>
@@ -53,10 +53,9 @@
       </article>
       <article id="workStage" class="work-stage" aria-labelledby="workStageTitle" tabindex="-1">
         <div class="work-panel-heading"><h3 id="workStageTitle">WORKSPACE</h3><span id="workStageStatus" class="work-stage-status">준비됨</span></div>
-        <p id="workStageRequest" class="work-stage-request">Aemeath의 작업 과정과 결과를 확인하세요.</p>
-        <nav class="work-stage-tabs" aria-label="작업 화면"><button type="button" data-stage-tab="process" aria-pressed="true">작업 요청 <span id="workRequestCount">0</span></button><button type="button" data-stage-tab="results" aria-pressed="false">결과 <span id="workStageCount">0</span></button></nav>
-        <div id="workStageProcess" class="work-stage-process"><p class="work-stage-empty">요청한 작업이 여기에 표시됩니다.</p></div>
-        <div id="workStageResults" class="work-stage-results" hidden><p class="work-stage-empty">작업을 선택하면 연결된 결과를 확인할 수 있어요.</p></div>
+        <p id="workStageRequest" class="work-stage-request">요청 카드에서 작업 내용과 결과를 확인하세요.</p>
+        <div id="workStageProcess" class="work-stage-process" aria-label="작업 요청 목록"><p class="work-stage-empty">요청한 작업이 여기에 표시됩니다.</p></div>
+        <div id="workStageResults" class="work-stage-results" hidden><button type="button" class="work-stage-back" data-stage-action="back">← 작업 목록</button><div id="workStageResultContent"></div></div>
         <p id="workStageNotice" class="work-stage-notice" role="status" aria-live="polite"></p>
       </article>
     </aside>

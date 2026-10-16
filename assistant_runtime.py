@@ -56,14 +56,48 @@ def _failure_receipt(error, fallback):
     return {'status':'error','message':fallback}
 
 
-def _read_explanation(text):
-    """Output guard only; never used to classify or execute user intent."""
-    if not isinstance(text, str):
-        return ''
-    claim = (r'(?:추가|등록|실행|삭제|이동|보관|전송|수정|변경|완료|정리|저장|처리|복원|설치|생성|제거)'
-             r'\s*(?:을|를)?\s*(?:했|하였|해\s*(?:두었|뒀|드렸)|완료)|열었|보냈|지웠|'
-             r'\b(?:added|registered|launched|deleted|moved|sent|saved|created|removed|opened|completed)\b')
-    return '' if re.search(claim, text, re.IGNORECASE) else text.strip()[:6000]
+def _chat_message(final_answer, receipts, pending_results, *, cancelled=False):
+    """Present the agent's answer, keeping execution diagnostics in the ledger.
+
+    Fallbacks use actual receipt states only; they neither infer user intent nor
+    ask a second model to summarize a failed request.
+    """
+    answer = str(final_answer or '').strip()[:6000]
+    terminal_error = bool(receipts and receipts[-1].get('status') == 'error')
+    if answer:
+        if terminal_error:
+            return answer + '\n\n마지막 단계는 완료하지 못했어. 자세한 기록은 WORKSPACE에서 확인해줘.'
+        return answer
+    failed = any(row.get('status') == 'error' for row in receipts)
+    if not failed and receipts and receipts[-1].get('answer_complete'):
+        # These explicitly complete read tools return requested factual answers,
+        # unlike internal source-save/transport receipts.
+        return assistant_voice.receipt(str(receipts[-1].get('message', ''))[:6000])
+    if pending_results:
+        choice = any(row.get('kind') == 'choice' for row in pending_results)
+        prompt = ('이어서 진행할 대상을 아래에서 골라줘~' if choice
+                  else '계속하려면 아래 승인 내용을 확인해줘~')
+        return '일부 단계는 처리하지 못했어. ' + prompt if failed else prompt
+    if cancelled and not failed:
+        return '응, 취소했어~'
+    saved = sum(row.get('status') == 'ok' and isinstance(row.get('data'), dict)
+                and isinstance(row['data'].get('source_change'), dict) for row in receipts)
+    if saved:
+        if failed:
+            return f'앱 변경 {saved}건은 저장했지만 작업을 끝까지 마무리하지 못했어. 남은 내용은 WORKSPACE에서 확인해줘.'
+        return f'앱 변경 {saved}건을 저장했어. 화면 반영 상태는 WORKSPACE에서 확인해줘~'
+    successful_actions = any(row.get('status') == 'ok' and not row.get('pending')
+                             and row.get('_effect') in {'write', 'external', 'approval'}
+                             for row in receipts)
+    if failed:
+        if successful_actions:
+            return '일부 작업은 처리됐지만 나머지는 마무리하지 못했어. 실행 기록은 WORKSPACE에서 확인해줘.'
+        return '이번 요청을 마무리하지 못했어. 자세한 기록은 WORKSPACE에서 확인해줘.'
+    if successful_actions:
+        return '작업을 처리했어. 실행 결과는 WORKSPACE에서 확인해줘~'
+    if any(row.get('status') == 'ok' for row in receipts):
+        return '조회는 했지만 최종 답변을 마무리하지 못했어. 확인한 기록은 WORKSPACE에서 볼 수 있어.'
+    return '답변을 마무리하지 못했어. 잠시 후 다시 요청해줘.'
 
 
 def _public_data(data):
@@ -248,30 +282,13 @@ class AssistantRuntime:
                 p['refs'] = context['refs']
                 self._validate_pending(p)
                 pending_results.append(p)
-        active = any(r.get('_effect', 'read') != 'read' or r.get('pending') for r in receipts)
-        visible_receipts = [r for r in receipts if not active or r.get('_effect', 'read') != 'read'
-                            or r.get('pending') or r.get('status') == 'error' or r.get('evidence')]
-        message = '\n'.join(assistant_voice.receipt(str(r.get('message', '결과를 확인해줘.'))[:3000]) for r in visible_receipts)[:16000]
-        explanation = ''
-        grounded=any(r.get('evidence') and r.get('status')=='ok' for r in receipts)
-        source_saved = context.get('_native_source_turn') and any(
-            r.get('status') == 'ok' and isinstance(r.get('data'), dict)
-            and isinstance(r['data'].get('source_change'), dict) for r in receipts)
-        if source_saved:
-            # Keep the agent's user-facing summary alongside actual receipts.
-            # The summary does not determine source_changes or activation.
-            explanation = str(final_answer or '').strip()[:6000]
-        elif (not active or grounded) and not (receipts and all(r.get('answer_complete') for r in receipts)) and (not receipts or grounded or any(r.get('status') == 'ok' and r.get('_effect') == 'read' for r in receipts)):
-            explanation = _read_explanation(final_answer)
-        if explanation:
-            message = message + '\n\n설명\n' + explanation if message else explanation
-        if not message:
-            message = '아직 실행한 작업은 없어. 원하는 작업이나 대상을 조금 더 알려줘~'
+        message = _chat_message(final_answer, receipts, pending_results,
+                                cancelled=pending is not None and payload.get('option_id') == 'cancel')
         refresh = set(x for r in receipts for x in r.get('refresh', []) if x in ('launcher', 'desk', 'work', 'companion_changed'))
         result = {'action': action, 'message': message, 'launcher_changed': 'launcher' in refresh,
                   'desk_changed': 'desk' in refresh,
                   'companion_changed': 'companion_changed' in refresh,
-                  'answer': explanation,
+                  'answer': message,
                   'tool_results': [dict({'status': r.get('status', 'error'), 'message': str(r.get('message', ''))[:3000]},
                                        **({'data': _public_data(r['data'])} if 'data' in r else {}))
                                    for r in receipts]}
@@ -279,14 +296,15 @@ class AssistantRuntime:
                                     if r.get('status')=='ok' and r.get('_effect')=='write'
                                     and isinstance(r.get('data'),dict)
                                     and isinstance(r['data'].get('source_change'),dict)]
-        # Preserve fenced source as an unexecuted draft even when the prose
-        # completion-claim guard rejects the accompanying explanation.
+        # Fenced source remains an unexecuted draft; visible prose never
+        # determines source_changes or activation.
         draft_blocks = list(re.finditer(r'```([\w+.-]{0,30})[ \t]*\r?\n([\s\S]*?)```',
                                         str(final_answer or '')[:6000]))[:4]
         if draft_blocks:
             result['drafts'] = [{'kind': 'code', 'language': block[1],
                                  'text': block[2][:6000], 'origin': 'draft'} for block in draft_blocks]
         message_id = uuid.uuid4().hex
+        result['message_id'] = message_id
         with _connect(self.db_path) as c:
             c.execute('INSERT INTO work_messages VALUES (?,?,?,?)', (message_id, 'assistant', message, _now()))
             if pending is not None:

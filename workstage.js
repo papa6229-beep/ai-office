@@ -9,7 +9,6 @@
     if(manual)userSelected=true;
     tab=next;
     $('workStageProcess').hidden=tab!=='process';$('workStageResults').hidden=tab!=='results';
-    $('workStage').querySelectorAll('[data-stage-tab]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.stageTab===tab)));
   }
   function mediaURL(value) {
     try {const url=new URL(value,location.origin);return url.origin===location.origin && ['/api/work/media','/api/work/attachment'].includes(url.pathname) && /^[a-f0-9-]{32,36}$/i.test(url.searchParams.get('id') || '') ? url.href : '';}
@@ -37,8 +36,8 @@
     return area;
   }
   function renderArtifacts() {
-    const root=$('workStageResults');root.replaceChildren();$('workStageCount').textContent=String(artifacts.length);
-    if(!artifacts.length){const p=document.createElement('p');p.className='work-stage-empty';p.textContent='이 요청에는 아직 별도 결과물이 없습니다.';root.append(p);return;}
+    const root=$('workStageResultContent');if(!root)return;root.replaceChildren();
+    if(!artifacts.length){const p=document.createElement('p');p.className='work-stage-empty';p.textContent='이 요청에는 아직 별도 결과물이 없습니다. 답변은 채팅에서 확인하세요.';root.append(p);return;}
     for(const artifact of artifacts){
       const card=document.createElement('article');card.className='work-stage-artifact';
       const header=document.createElement('header'),title=document.createElement('strong'),badge=document.createElement('small');
@@ -62,15 +61,26 @@
     const dialog=$('workStageDialog');$('workStageDialogTitle').textContent=artifact.title || '결과 미리보기';$('workStageExpanded').replaceChildren(content(artifact,true));
     if(!dialog.open)dialog.showModal();
   }
+  function renderExecutionLog(data){
+    const root=$('workStageResultContent');if(!root)return;
+    const steps=Array.isArray(data.steps)?data.steps:[],diagnostics=Array.isArray(data.diagnostics)?data.diagnostics:[];
+    if(!steps.length&&!diagnostics.length)return;
+    const details=document.createElement('details');details.className='work-execution-log';
+    const summary=document.createElement('summary');summary.textContent='작업 기록';details.append(summary);
+    const list=document.createElement('ol');
+    for(const step of steps){const item=document.createElement('li'),label=document.createElement('strong'),message=document.createElement('p');label.textContent=(step.label||'작업 처리')+' · '+({running:'진행 중',ok:'완료',error:'오류',pending:'대기',unknown:'확인 필요'}[step.status]||'확인 필요');message.textContent=step.message||'';item.dataset.status=step.status||'unknown';item.append(label,message);list.append(item);}
+    const recorded=new Set(steps.map(step=>step.message));
+    for(const entry of diagnostics){if(recorded.has(entry.message))continue;const item=document.createElement('li');item.dataset.status=entry.status;item.textContent=entry.message;list.append(item);}
+    details.append(list);root.append(details);
+  }
   function stop(){clearTimeout(timer);timer=null;}
   function renderRequestCards(){
     const root=$('workStageProcess');requests=requests.slice(0,30);
-    const signature=JSON.stringify([selectedRequest,requests.map(item=>[item.request.id,item.request.title,item.summary,item.request.status])]);if(signature===lastCards)return;lastCards=signature;
-    const focused=document.activeElement?.dataset?.requestId;
-    $('workRequestCount').textContent=String(requests.length);root.replaceChildren();
+    const signature=JSON.stringify([selectedRequest,requests.map(item=>[item.request.id,item.summary,item.request.status])]);if(signature===lastCards)return;lastCards=signature;
+    const focused=document.activeElement?.dataset?.requestId;root.replaceChildren();
     if(!requests.length){const p=document.createElement('p');p.className='work-stage-empty';p.textContent='요청한 작업이 여기에 표시됩니다.';root.append(p);return;}
     for(const item of requests){const card=document.createElement('button');card.type='button';card.className='work-request-card';card.dataset.requestId=item.request.id;card.dataset.status=item.request.status||'unknown';card.setAttribute('aria-pressed',String(item.request.id===selectedRequest));
-      const title=document.createElement('strong');title.textContent=item.request.title||'작업 요청';const summary=document.createElement('span');summary.textContent=item.summary||'요청 내용을 확인 중';const badge=document.createElement('small');badge.textContent={running:'진행 중',done:'완료',attention:'확인 필요'}[item.request.status]||'상태 확인 중';card.append(title,summary,badge);root.append(card);if(focused===item.request.id)card.focus({preventScroll:true});}
+      const summary=document.createElement('span');summary.textContent=item.summary||item.request.title||'작업 요청';const badge=document.createElement('small');badge.textContent={running:'진행 중',done:'완료',attention:'확인 필요'}[item.request.status]||'상태 확인 중';card.append(summary,badge);root.append(card);if(focused===item.request.id)card.focus({preventScroll:true});}
   }
   function render(data) {
     const request=data.request;if(!request)return;let item=requests.find(entry=>entry.request.id===request.id);
@@ -80,7 +90,7 @@
     if(request.id!==selectedRequest)return;
     const signature=JSON.stringify(data);if(signature===last)return;last=signature;
     $('workStageRequest').textContent=item.summary;$('workStageStatus').textContent={running:'진행 중',done:'완료',attention:'확인 필요'}[request.status]||'상태 확인 중';$('workStage').dataset.status=request.status;
-    artifacts=Array.isArray(data.artifacts)?data.artifacts.slice():[];renderArtifacts();
+    artifacts=Array.isArray(data.artifacts)?data.artifacts.slice():[];renderArtifacts();renderExecutionLog(data);
   }
   async function loadRequest(id){
     if(!id)return;selectedRequest=id;preview=false;userSelected=true;resultRevealed=false;last='';artifacts=[];renderArtifacts();renderRequestCards();notice();
@@ -137,10 +147,11 @@
   }
   document.addEventListener('DOMContentLoaded',()=>{
     if(!$('workStage'))return;
-    $('workStage').addEventListener('click',event=>{const card=event.target.closest('.work-request-card');if(card){select('results',true);loadRequest(card.dataset.requestId);return;}const button=event.target.closest('[data-stage-tab]');if(button)select(button.dataset.stageTab,true);});
+    $('workStage').addEventListener('click',event=>{const card=event.target.closest('.work-request-card');if(card){select('results',true);loadRequest(card.dataset.requestId);return;}if(event.target.closest('[data-stage-action="back"]')){select('process',true);return;}});
     $('workStageDialog').querySelector('[data-stage-action="close"]').addEventListener('click',()=>$('workStageDialog').close());
     $('workStageDialog').addEventListener('close',()=>{$('workStageExpanded').querySelectorAll('video').forEach(video=>{video.pause();video.removeAttribute('src');video.load();});$('workStageExpanded').replaceChildren();});
     document.addEventListener('work-stage-request',event=>start(event.detail || {}));
+    document.addEventListener('work-stage-notice',event=>{notice(event.detail?.message||'');});
     document.addEventListener('work-stage-preview',event=>{
       const artifact=event.detail?.artifact;if(!artifact)return;epoch++;stop();preview=true;finished=true;artifacts=[artifact];renderArtifacts();select('results');
       $('workStageRequest').textContent=artifact.title || '선택한 자료';$('workStageStatus').textContent='미리보기';$('workStage').dataset.status='preview';notice();$('workStage').focus({preventScroll:true});$('workStage').scrollIntoView({block:'nearest',behavior:'smooth'});

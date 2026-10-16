@@ -29,6 +29,77 @@ _FIELDS = {'task': {'title', 'detail', 'due_date'}, 'status': {'task_id', 'statu
            'choose-launcher': {'choice_id', 'target'}}
 
 
+def _project_chat_messages(c, messages):
+    """Display canonical replies by exact message ID without changing history."""
+    visible = {row['id']: row for row in messages if row.get('role') == 'assistant'}
+    if not visible or not c.execute("SELECT 1 FROM sqlite_master WHERE name='assistant_requests'").fetchone():
+        return
+    try:
+        rows = c.execute("""
+            SELECT CASE WHEN json_extract(response,'$.result.message_id') IS NOT NULL
+                        THEN json_extract(response,'$.result.message_id')
+                        WHEN json_extract(response,'$.messages[#-1].role')='assistant'
+                         AND json_extract(response,'$.result.message')=json_extract(response,'$.messages[#-1].content')
+                        THEN json_extract(response,'$.messages[#-1].id') END message_id,
+                   json_extract(response,'$.result.answer') answer,
+                   CASE WHEN coalesce(json_extract(response,'$.result.answer'),'')=''
+                        THEN substr(json_extract(response,'$.result.tool_results'),1,250001) END receipts,
+                   substr(json_extract(response,'$.assistant_actions'),1,64001) actions,
+                   json_extract(payload,'$.payload.option_id') option_id
+            FROM (SELECT response,payload FROM assistant_requests
+                  WHERE response IS NOT NULL ORDER BY rowid DESC LIMIT 100)
+            WHERE json_valid(response) AND json_valid(payload)
+        """).fetchall()
+        projected = [dict(row) for row in rows]
+    except sqlite3.OperationalError:
+        # Older SQLite builds may lack JSON functions. Bound fallback parsing.
+        projected = []
+        for row in c.execute('SELECT response,payload FROM assistant_requests '
+                             'WHERE response IS NOT NULL ORDER BY rowid DESC LIMIT 100'):
+            if len(row['response']) > 1_000_000 or len(row['payload']) > 120000:
+                continue
+            try:
+                response = json.loads(row['response'])
+                payload = json.loads(row['payload'])
+                result = response.get('result', {})
+                last = (response.get('messages') or [{}])[-1]
+                message_id = result.get('message_id') or (last.get('id') if last.get('role') == 'assistant'
+                              and result.get('message') == last.get('content') else None)
+                projected.append({'message_id': message_id, 'answer': result.get('answer'),
+                                  'receipts': result.get('tool_results', []),
+                                  'actions': response.get('assistant_actions', []),
+                                  'option_id': payload.get('payload', {}).get('option_id')})
+            except (ValueError, TypeError, AttributeError, IndexError):
+                continue
+    from assistant_runtime import _chat_message
+    seen = set()
+    for row in projected:
+        message_id = row.get('message_id')
+        if message_id not in visible or message_id in seen:
+            continue
+        answer = row.get('answer')
+        if isinstance(answer, str) and answer.strip():
+            visible[message_id]['content'] = answer.strip()[:6000]
+            seen.add(message_id)
+            continue
+        try:
+            receipts = json.loads(row['receipts']) if isinstance(row.get('receipts'), str) else row.get('receipts', [])
+            actions = json.loads(row['actions']) if isinstance(row.get('actions'), str) else row.get('actions', [])
+            if not isinstance(receipts, list) or not all(isinstance(item, dict) for item in receipts):
+                receipts = []
+            if not isinstance(actions, list):
+                actions = []
+            pending = [item for item in actions if isinstance(item, dict) and item.get('message_id') == message_id]
+            visible[message_id]['content'] = _chat_message('', receipts, pending,
+                                                         cancelled=row.get('option_id') == 'cancel')
+            seen.add(message_id)
+        except (ValueError, TypeError, KeyError):
+            # An oversized old ledger must not put its raw diagnostic transcript
+            # back into chat. The canonical answer was empty for this exact ID.
+            visible[message_id]['content'] = '최종 답변은 남아 있지 않아. 자세한 실행 기록은 WORKSPACE에서 확인해줘.'
+            seen.add(message_id)
+
+
 def _now():
     return datetime.datetime.now().astimezone().isoformat(timespec='microseconds')
 
@@ -123,6 +194,7 @@ class WorkAssistant:
                     resource['exists'] = False
         events = [dict(row) for row in c.execute('SELECT * FROM work_events ORDER BY created DESC LIMIT 200')]
         messages = [dict(row) for row in c.execute('SELECT id,role,content,created FROM (SELECT rowid seq,* FROM work_messages ORDER BY rowid DESC LIMIT 100) ORDER BY seq')]
+        _project_chat_messages(c, messages)
         for message in messages:
             message['attachments']=work_attachments.for_message(c,message['id'])
         row = c.execute('SELECT id,day,body,created FROM work_reports WHERE day=? ORDER BY created DESC LIMIT 1', (day,)).fetchone()

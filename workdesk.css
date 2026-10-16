@@ -25,6 +25,8 @@
 #work .work-messages{max-height:230px;min-height:145px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:4px 3px 12px;scrollbar-width:thin}
 #work .work-message{max-width:94%;box-sizing:border-box;padding:11px 14px;background:#303134;border:1px solid #45464a;border-radius:3px 10px 10px 10px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8}
 #work .work-message.work-user{align-self:flex-end;background:var(--ao-accent-muted,#29351f);border-color:var(--ao-accent-deep,#7aa52e);border-radius:10px 3px 10px 10px}
+#work .work-message:not(.work-user):not(.work-live-reply){background:#272126;border-color:#765563;border-radius:10px 3px 10px 10px}
+#work .work-message:not(.work-user):not(.work-live-reply)>strong{color:#efb9cc}
 #work .work-message strong{display:block;font-size:11px;color:#6ec4cf;margin-bottom:3px;font-weight:600}
 #work .work-live-reply{border-color:#718c4a}
 #work .work-live-reply>strong{color:var(--ao-accent-text,#c5e78f)}
@@ -317,7 +319,7 @@
 #work .work-launcher-cover .work-launcher-icon{position:absolute;inset:0;width:100%;height:100%;font-size:72px;align-self:auto}
 #work .work-launcher-cover .work-launcher-icon.is-image{background:transparent;border-radius:0;box-shadow:none;overflow:visible}
 #work .work-launcher-cover .work-launcher-icon img{width:100%;height:100%;object-fit:cover;filter:none}
-#work .work-launcher-kind{position:absolute;left:9px;top:-18px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:34px;height:34px;border:2px solid #c8ec92;border-radius:50%;background:#a4d84b;color:#17210b;font-family:Arial,Pretendard,sans-serif;font-size:21px;font-weight:900;line-height:1;box-shadow:0 0 0 3px #191c1e}
+#work .work-launcher-kind{position:absolute;left:9px;top:-18px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:27px;height:27px;border:2px solid #c8ec92;border-radius:50%;background:#a4d84b;color:#17210b;font-family:Arial,Pretendard,sans-serif;font-size:16px;font-weight:900;line-height:1;box-shadow:0 0 0 3px #191c1e}
 #work .work-launcher-kind[data-launcher-kind="P"]{background:#448cf0;border-color:#a2c9ff;color:#fff}
 #work .work-launcher-kind[data-launcher-kind="F"]{background:#e8af51;border-color:#ffe0a9;color:#342108}
 #work .work-launcher-name{color:#fff;font-size:12px;line-height:1.35;min-height:0;font-weight:750;text-align:left;-webkit-line-clamp:2;overflow-wrap:anywhere}

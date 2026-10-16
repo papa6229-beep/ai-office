@@ -253,4 +253,11 @@ def snapshot(db, request_id=None):
         if payload.get('task_id'):request['task_id']=payload['task_id']
         # The chat explanation is not a deliverable. Keep the response key for
         # older clients, but only explicitly published/previewed artifacts show.
-        return {'request':request,'steps':steps,'artifacts':artifacts,'answer':''}
+        diagnostics=[]
+        for receipt in result.get('tool_results',[]):
+            if isinstance(receipt,dict) and receipt.get('status') in {'error','uncertain'}:
+                message=_text(receipt.get('message'),1000)
+                if message and message not in {entry['message'] for entry in diagnostics}:
+                    diagnostics.append({'status':receipt['status'],'message':message})
+                if len(diagnostics)>=20:break
+        return {'request':request,'steps':steps,'artifacts':artifacts,'diagnostics':diagnostics,'answer':''}
