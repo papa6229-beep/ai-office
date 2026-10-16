@@ -186,8 +186,28 @@ def _artifact(value):
         result['download_url']=download_url
     return result
 
+def request_list(db):
+    with connect(db) as c:
+        if not c.execute("SELECT 1 FROM sqlite_master WHERE name='assistant_requests'").fetchone(): return []
+        rows=c.execute('SELECT id,payload,created FROM assistant_requests r WHERE EXISTS '
+                       '(SELECT 1 FROM assistant_steps s WHERE s.request_id=r.id) '
+                       'ORDER BY created DESC,rowid DESC LIMIT 30').fetchall()
+    items=[]
+    for row in rows:
+        try: payload=json.loads(row['payload']).get('payload',{})
+        except (ValueError,TypeError): payload={}
+        message=_text(payload.get('message',''),500)
+        if not message: message='작업 요청'
+        detail=snapshot(db,row['id'])
+        if detail['request']:
+            items.append({'request':detail['request'],'summary':detail['request']['summary'],'data':detail})
+    return items
+
 def snapshot(db, request_id=None):
     if request_id is not None and not re.fullmatch('[0-9a-fA-F]{32}',request_id): raise ValueError('유효한 요청 ID가 필요합니다.')
+    if request_id is None:
+        return {'request':None,'steps':[],'artifacts':[],'answer':'',
+                'requests':request_list(db)}
     empty={'request':None,'steps':[],'artifacts':[],'answer':''}
     with connect(db) as c:
         if not c.execute("SELECT 1 FROM sqlite_master WHERE name='assistant_requests'").fetchone(): return empty
@@ -225,8 +245,11 @@ def snapshot(db, request_id=None):
         stale=False
         try:stale=(datetime.datetime.now().astimezone()-datetime.datetime.fromisoformat(row['created'])).total_seconds()>600
         except (ValueError,TypeError):stale=True
-        status=('attention' if attention else 'done') if row['status']=='done' else 'attention' if stale else 'running'
-        request={'id':row['id'],'status':status,'created':row['created'],'title':'Aemeath 작업','outcome':'확인이 필요합니다.' if status=='attention' else '요청 처리가 종료되었습니다.' if status=='done' else '작업 중입니다.'}
+        status=('attention' if attention else 'done') if row['status']=='done' else 'running'
+        summary=' '.join(_text(payload.get('message',''),500).split()) or '작업 요청'
+        request={'id':row['id'],'status':status,'created':row['created'],'title':summary[:70],
+                 'summary':summary[:180],'uncertain':stale and status=='running',
+                 'outcome':'확인이 필요합니다.' if status=='attention' else '요청 처리가 종료되었습니다.' if status=='done' else '작업 중입니다.'}
         if payload.get('task_id'):request['task_id']=payload['task_id']
         # The chat explanation is not a deliverable. Keep the response key for
         # older clients, but only explicitly published/previewed artifacts show.

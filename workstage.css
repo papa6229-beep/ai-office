@@ -11,6 +11,14 @@
 #work .work-stage-tabs span{font-size:10px;opacity:.7;margin-left:4px}
 #work .work-stage-process,#work .work-stage-results{max-height:calc(100vh - 395px);min-height:280px;overflow:auto;scrollbar-width:thin;overscroll-behavior:contain}
 #work .work-stage-empty{padding:36px 8px;color:#8e9b97;line-height:1.9;font-size:12px}
+#work .work-request-card{display:grid;width:100%;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;text-align:left;margin:0 0 9px;padding:12px;border:1px solid #37443c;border-radius:8px;background:#101615;color:#e1e9df;box-shadow:none;cursor:pointer}
+#work .work-request-card:hover,#work .work-request-card[aria-pressed=true]{border-color:#8bad55;background:#1b241d}
+#work .work-request-card strong{font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+#work .work-request-card>span{grid-column:1/-1;color:#aebbb2;font-size:12px;line-height:1.6;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+#work .work-request-card small{grid-column:2;grid-row:1;padding:3px 7px;border:1px solid #475443;border-radius:20px;color:#bdcbaf;font-size:10px;white-space:nowrap}
+#work .work-request-card[data-status=running] small{color:#c8ee91;border-color:#77964d}
+#work .work-request-card[data-status=attention] small{color:#efc49c;border-color:#8a654c}
+#work .work-request-card[data-status=done] small{color:#9fc9ad;border-color:#496a53}
 #work .work-stage-process ol{list-style:none;margin:0;padding:0}
 #work .work-stage-process li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid #293332}
 #work .work-stage-step-number{font-family:Consolas,monospace;font-size:11px;color:#657c70;padding-top:2px}

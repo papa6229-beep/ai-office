@@ -141,9 +141,7 @@ def _validate(value, schema):
 
 
 class AssistantRuntime:
-    MAX_ROUNDS = 6
-    MAX_CALLS = 12
-    MAX_SOURCE_CALLS = 48
+    MAX_BATCH_CALLS = 12
     SOURCE_TOOLS = frozenset({
         "office_source_list", "office_source_read", "office_source_apply",
         "office_source_history", "office_source_rollback",
@@ -343,16 +341,8 @@ class AssistantRuntime:
                    if definition['function']['name'] in self.SOURCE_TOOLS]
         schemas = {definition['function']['name']: definition['function'].get('parameters', {})
                    for definition in allowed}
-        calls_used = count
 
         def dispatch(name, arguments):
-            nonlocal calls_used
-            if calls_used >= self.MAX_SOURCE_CALLS:
-                receipts.append({'status': 'error', 'message':
-                    '한 번의 앱 원본 작업 한도에 도달했습니다. 완료된 실행 기록을 확인하세요.'})
-                import codex_bridge
-                raise codex_bridge.CodexFailure('tool_limit')
-            calls_used += 1
             effect = 'invalid'
             try:
                 if name not in self.SOURCE_TOOLS or name not in schemas:
@@ -449,8 +439,8 @@ class AssistantRuntime:
             rounds_used=saved.get('rounds',0)
             effects=dict(saved.get('effects',{}))
             effects[_json({'name':resumed['name'],'arguments':resumed['arguments']})]=resumed['result']
-            if type(count) is not int or type(rounds_used) is not int or not 0<=count<=self.MAX_CALLS or not 0<=rounds_used<=self.MAX_ROUNDS:
-                raise ValueError('실행 한도 기록을 확인하지 못했습니다.')
+            if type(count) is not int or type(rounds_used) is not int or count < 0 or rounds_used < 0:
+                raise ValueError('실행 기록의 순서를 확인하지 못했습니다.')
         initial_output = None
         if not resumed and callable(self.intent_call):
             # Classify the current request before a native tool-capable call.
@@ -485,8 +475,10 @@ class AssistantRuntime:
                 receipts.append(_failure_receipt(error,
                     '요청을 실행할 방법을 확인하지 못해 아직 시도하지 않았습니다. 권한 부족이나 완료 여부는 확인되지 않았습니다.'))
                 return
-        # The initial read counts toward MAX_CALLS, not native model rounds.
-        for round_index in range(-1 if initial_output is not None else rounds_used, self.MAX_ROUNDS):
+        # Batch size bounds malformed output; completed observations do not
+        # impose an artificial lifetime count on the active human request.
+        round_index = -1 if initial_output is not None else rounds_used
+        while True:
             last_tool = next((message for message in reversed(messages) if message.get('role') == 'tool'), {})
             if (round_index != -1 and callable(self.source_model)
                     and str(last_tool.get('tool_name', '')).startswith('office_source_')):
@@ -496,7 +488,7 @@ class AssistantRuntime:
             if not isinstance(output, dict):
                 raise ValueError('모델 응답을 확인할 수 없습니다.')
             calls = output.get('tool_calls') or []
-            if not isinstance(calls, list) or len(calls) > self.MAX_CALLS:
+            if not isinstance(calls, list) or len(calls) > self.MAX_BATCH_CALLS:
                 raise ValueError('도구 호출 수를 확인할 수 없습니다.')
             if not calls:
                 return str(output.get('content') or '')[:6000]
@@ -511,9 +503,6 @@ class AssistantRuntime:
             assistant_turn={'role': 'assistant', 'content': str(output.get('content') or '')[:3000], 'tool_calls': normalized}
             messages.append(assistant_turn)
             for call_index,(call, native) in enumerate(zip(calls, normalized)):
-                if count >= self.MAX_CALLS:
-                    receipts.append({'status': 'error', 'message': '한 번의 작업 한도에 도달했습니다. 완료된 결과를 확인하세요.'})
-                    return
                 count += 1
                 name, args = call['name'], call['arguments']
                 effect = 'invalid'
@@ -556,4 +545,4 @@ class AssistantRuntime:
                     if len(frozen)<=4_000_000:
                         result['pending']['continuation']=json.loads(frozen)
                     return
-        receipts.append({'status': 'error', 'message': '한 번의 작업 한도에 도달했습니다. 완료된 결과를 확인하세요.'})
+            round_index += 1

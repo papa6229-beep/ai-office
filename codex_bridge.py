@@ -120,6 +120,7 @@ def _planner_config(catalog):
 class _Client:
     def __init__(self, timeout, *, source_tools=False):
         self.source_tools = source_tools
+        self.idle_timeout = 180 if source_tools else None
         self.deadline = time.monotonic() + timeout
         self.counter = 0
         self.events = queue.Queue(maxsize=256)
@@ -162,7 +163,7 @@ class _Client:
                 if not line:
                     break
                 self.read_bytes += len(line)
-                if len(line) > _MAX_EVENT or self.read_bytes > 16 * _MAX_EVENT:
+                if len(line) > _MAX_EVENT or (not self.source_tools and self.read_bytes > 16 * _MAX_EVENT):
                     raise ValueError()
                 event = json.loads(line)
                 if not isinstance(event, dict):
@@ -192,6 +193,12 @@ class _Client:
                 if self.failed.is_set():
                     raise CodexFailure('connection_closed') from None
                 continue
+            if self.idle_timeout and (
+                    ('id' in event and 'method' not in event)
+                    or str(event.get('method', '')).startswith(('item/', 'turn/'))):
+                # Source work has a silence budget, not a total-task deadline.
+                # Actual model progress and RPC responses keep a live task alive.
+                self.deadline = time.monotonic() + self.idle_timeout
             if ('method' in event and 'id' in event and self.source_tools
                     and event.get('method') == 'item/tool/call'):
                 return event
@@ -207,7 +214,7 @@ class _Client:
                 item = (event.get('params') or {}).get('item') or {}
                 allowed = {'userMessage', 'agentMessage', 'reasoning'}
                 if self.source_tools:
-                    allowed.add('dynamicToolCall')
+                    allowed.update({'dynamicToolCall', 'contextCompaction'})
                 if item.get('type') not in allowed:
                     raise ValueError('Codex에서 계획 외 실행 단계가 감지되어 중단했어요.')
             return event
@@ -784,7 +791,7 @@ def run_source(messages, tools, settings, dispatch):
         started_at = time.monotonic()
         phase = 'connection'
         try:
-            client = _Client(600, source_tools=True)
+            client = _Client(180, source_tools=True)
             client.initialize()
             metadata, _ = _catalog(client, settings)
             phase = 'thread_start'
@@ -838,9 +845,8 @@ def run_source(messages, tools, settings, dispatch):
                         response = {'success': receipt.get('status') == 'ok',
                                     'contentItems': [{'type': 'inputText', 'text': text}]}
                         handled[call_id] = (signature, response)
-                        if len(handled) > 48:
-                            raise CodexFailure('tool_limit')
                     client.send({'id': event['id'], 'result': response})
+                    client.deadline = time.monotonic() + client.idle_timeout
                     continue
                 if params.get('threadId') != thread_id:
                     continue
@@ -854,6 +860,9 @@ def run_source(messages, tools, settings, dispatch):
                         _emit_draft(raw)
                 if event.get('method') == 'item/completed':
                     item = params.get('item') or {}
+                    # Bound concurrently streaming drafts without imposing a
+                    # lifetime count on a long, actively progressing task.
+                    drafts.pop(item.get('id'), None)
                     if item.get('type') == 'agentMessage' and item.get('phase') in {None, 'final_answer'}:
                         final = item.get('text')
                 if event.get('method') == 'turn/completed' and params.get('turn', {}).get('id') == turn_id:

@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const $=id=>document.getElementById(id);
-  let active='',epoch=0,timer=null,attempts=0,failures=0,finished=false,preview=false,artifacts=[],tab='process',last='',pollSerial=0,terminal=null,userSelected=false,resultRevealed=false;
+  let active='',epoch=0,timer=null,attempts=0,failures=0,finished=false,preview=false,artifacts=[],tab='process',last='',pollSerial=0,terminal=null,userSelected=false,resultRevealed=false,requests=[],selectedRequest='',requestsLoaded=false,lastCards='';
   const esc=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   function notice(text='') {$('workStageNotice').textContent=text;}
   function select(next,manual=false) {
@@ -38,7 +38,7 @@
   }
   function renderArtifacts() {
     const root=$('workStageResults');root.replaceChildren();$('workStageCount').textContent=String(artifacts.length);
-    if(!artifacts.length){const p=document.createElement('p');p.className='work-stage-empty';p.textContent='파일 찾기의 ‘미리보기’나 업무에 연결된 자료를 열어 확인하세요.';root.append(p);return;}
+    if(!artifacts.length){const p=document.createElement('p');p.className='work-stage-empty';p.textContent='이 요청에는 아직 별도 결과물이 없습니다.';root.append(p);return;}
     for(const artifact of artifacts){
       const card=document.createElement('article');card.className='work-stage-artifact';
       const header=document.createElement('header'),title=document.createElement('strong'),badge=document.createElement('small');
@@ -50,6 +50,10 @@
       if(['code','text'].includes(artifact.kind)){const copy=document.createElement('button');copy.type='button';copy.textContent='복사';copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(String(artifact.text || ''));notice('내용을 복사했습니다.');}catch{notice('복사 권한을 확인해 주세요. 크게 보기에서 텍스트를 선택할 수 있습니다.');}});actions.append(copy);}
       const href=downloadURL(artifact.download_url);
       if(href){const link=document.createElement('a');link.href=href;link.download='';link.className='work-stage-download';link.textContent='다운로드';actions.append(link);}
+      else if(['code','text'].includes(artifact.kind)){
+        const save=document.createElement('button');save.type='button';save.textContent=artifact.truncated?'표시된 내용 저장':'다운로드';
+        save.addEventListener('click',()=>{const extensions={diff:'diff',javascript:'js',python:'py',html:'html',css:'css',json:'json',markdown:'md'};const extension=extensions[artifact.language]||'txt';const name=String(artifact.title||'작업 결과').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').slice(0,80);const url=URL.createObjectURL(new Blob([String(artifact.text||'')],{type:'text/plain;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download=name+'.'+extension;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);});actions.append(save);
+      }
       card.append(actions);root.append(card);
     }
     if(artifacts.length && !resultRevealed){resultRevealed=true;if(!userSelected)select('results');}
@@ -59,16 +63,34 @@
     if(!dialog.open)dialog.showModal();
   }
   function stop(){clearTimeout(timer);timer=null;}
-  function render(data) {
-    const signature=JSON.stringify(data);if(signature===last)return;last=signature;
-    const request=data.request;
-    if(request){$('workStageRequest').textContent=request.title || '요청 처리';$('workStageStatus').textContent={running:'진행중',done:'처리 종료',attention:'확인 필요'}[request.status] || '상태 확인 중';$('workStage').dataset.status=request.status;}
-    const steps=Array.isArray(data.steps) ? data.steps : [];
-    $('workStageProcess').innerHTML=steps.length ? '<ol>'+steps.map((step,index)=>`<li data-status="${esc(step.status)}"><div class="work-stage-step-number">${String(index+1).padStart(2,'0')}</div><div><div class="work-stage-step-heading"><strong>${esc(step.label || step.name || '처리 단계')}</strong><span>${esc({running:'진행중',ok:'완료',error:'오류',pending:'대기',unknown:'확인 필요'}[step.status] || '확인 필요')}</span></div>${step.message ? `<pre>${esc(step.message)}</pre>` : ''}</div></li>`).join('')+'</ol>' : '<p class="work-stage-empty">'+(request?.status==='running' ? '요청을 받았습니다. 실제 처리 단계를 기다리고 있어요.' : '표시할 처리 단계가 없습니다.')+'</p>';
-    artifacts=Array.isArray(data.artifacts) ? data.artifacts.slice() : [];
-    renderArtifacts();
+  function renderRequestCards(){
+    const root=$('workStageProcess');requests=requests.slice(0,30);
+    const signature=JSON.stringify([selectedRequest,requests.map(item=>[item.request.id,item.request.title,item.summary,item.request.status])]);if(signature===lastCards)return;lastCards=signature;
+    const focused=document.activeElement?.dataset?.requestId;
+    $('workRequestCount').textContent=String(requests.length);root.replaceChildren();
+    if(!requests.length){const p=document.createElement('p');p.className='work-stage-empty';p.textContent='요청한 작업이 여기에 표시됩니다.';root.append(p);return;}
+    for(const item of requests){const card=document.createElement('button');card.type='button';card.className='work-request-card';card.dataset.requestId=item.request.id;card.dataset.status=item.request.status||'unknown';card.setAttribute('aria-pressed',String(item.request.id===selectedRequest));
+      const title=document.createElement('strong');title.textContent=item.request.title||'작업 요청';const summary=document.createElement('span');summary.textContent=item.summary||'요청 내용을 확인 중';const badge=document.createElement('small');badge.textContent={running:'진행 중',done:'완료',attention:'확인 필요'}[item.request.status]||'상태 확인 중';card.append(title,summary,badge);root.append(card);if(focused===item.request.id)card.focus({preventScroll:true});}
   }
-  function schedule(delay=1100){stop();if(!document.hidden && !preview && !finished)timer=setTimeout(()=>poll(epoch),delay);}
+  function render(data) {
+    const request=data.request;if(!request)return;let item=requests.find(entry=>entry.request.id===request.id);
+    const summary=String(request.summary||request.title||'작업 요청');
+    if(!item){item={request,summary,data};requests.unshift(item);}else{item.request=request;item.summary=summary;item.data=data;}
+    if(!selectedRequest)selectedRequest=request.id;renderRequestCards();
+    if(request.id!==selectedRequest)return;
+    const signature=JSON.stringify(data);if(signature===last)return;last=signature;
+    $('workStageRequest').textContent=item.summary;$('workStageStatus').textContent={running:'진행 중',done:'완료',attention:'확인 필요'}[request.status]||'상태 확인 중';$('workStage').dataset.status=request.status;
+    artifacts=Array.isArray(data.artifacts)?data.artifacts.slice():[];renderArtifacts();
+  }
+  async function loadRequest(id){
+    if(!id)return;selectedRequest=id;preview=false;userSelected=true;resultRevealed=false;last='';artifacts=[];renderArtifacts();renderRequestCards();notice();
+    try{const response=await fetch('/api/work/stage?request_id='+encodeURIComponent(id),{cache:'no-store'});const data=await response.json();if(!response.ok||data.error)throw Error(data.error||'요청을 불러오지 못했습니다.');if(id!==selectedRequest||preview)return;render(data);
+      if(data.request?.status==='running'&&finished){active=id;finished=false;terminal=null;attempts=0;failures=0;epoch++;}
+      if(!finished)schedule();
+    }catch(error){if(id===selectedRequest)notice(error.message);}
+  }
+
+  function schedule(delay=1100){stop();if(!document.hidden && !preview && (!finished || !requestsLoaded))timer=setTimeout(()=>poll(epoch),delay);}
   async function poll(version) {
     if(document.hidden || preview || version!==epoch)return;
     const serial=++pollSerial;
@@ -77,6 +99,11 @@
       if(version!==epoch || preview || serial!==pollSerial)return;
       if(!response.ok || data.error)throw Error(data.error || '작업 화면 연결을 확인할 수 없습니다.');
       failures=0;attempts++;
+      if(Array.isArray(data.requests)){
+        requests=data.requests.filter(item=>item?.request?.id).slice(0,30);requestsLoaded=true;renderRequestCards();
+        if(!active && requests.length){selectedRequest=requests[0].request.id;active=selectedRequest;const chosen=requests[0];render(chosen.data);finished=['done','attention'].includes(chosen.request.status);}
+        else if(!requests.length){finished=true;}
+      }
       if(data.request && (!active || data.request.id===active)){
         if(!active)active=data.request.id;
         render(data);finished=['done','attention'].includes(data.request.status);notice();
@@ -98,8 +125,7 @@
     if(!detail.requestId)return;
     if(detail.phase==='start'){
       const same=active===detail.requestId;active=detail.requestId;epoch++;stop();attempts=0;failures=0;finished=false;preview=false;terminal=null;
-      if(!same){userSelected=false;resultRevealed=false;}
-      if(!same){last='';artifacts=[];renderArtifacts();$('workStageProcess').innerHTML='<p class="work-stage-empty">요청을 받았습니다. 실제 처리 단계를 기다리고 있어요.</p>';}
+      if(!same){userSelected=false;resultRevealed=false;selectedRequest=active;last='';artifacts=[];renderArtifacts();if(!requests.some(entry=>entry.request.id===active))requests.unshift({request:{id:active,title:'작업 요청',status:'running'},summary:detail.message||'작업 요청',data:null});renderRequestCards();}
       $('workStageRequest').textContent=detail.message || '요청 처리';$('workStageStatus').textContent='진행중';$('workStage').dataset.status='running';notice();if(!same)select('process');poll(epoch);return;
     }
     if(detail.requestId!==active || preview)return;
@@ -111,7 +137,7 @@
   }
   document.addEventListener('DOMContentLoaded',()=>{
     if(!$('workStage'))return;
-    $('workStage').addEventListener('click',event=>{const button=event.target.closest('[data-stage-tab]');if(button)select(button.dataset.stageTab,true);});
+    $('workStage').addEventListener('click',event=>{const card=event.target.closest('.work-request-card');if(card){select('results',true);loadRequest(card.dataset.requestId);return;}const button=event.target.closest('[data-stage-tab]');if(button)select(button.dataset.stageTab,true);});
     $('workStageDialog').querySelector('[data-stage-action="close"]').addEventListener('click',()=>$('workStageDialog').close());
     $('workStageDialog').addEventListener('close',()=>{$('workStageExpanded').querySelectorAll('video').forEach(video=>{video.pause();video.removeAttribute('src');video.load();});$('workStageExpanded').replaceChildren();});
     document.addEventListener('work-stage-request',event=>start(event.detail || {}));
