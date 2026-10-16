@@ -33,6 +33,7 @@ import assistant_extensions
 import attachment_tools
 import self_edit
 import office_context
+import office_journal
 import agent_workspace
 
 
@@ -46,6 +47,7 @@ def _refs(description='Server-issued references'):
 
 # name: (effect, description, properties, required)
 _SPECS = {
+    'office_project_journal': ('read', '조회용 공유 개발 기록입니다. 다른 Codex 작업창에서 기록한 사용자 요청·수정 이유·과정·결과·검증·남은 문제를 최신순으로 읽거나 검색합니다. 전체 대화 공유가 아니며 현재 요청과 실제 원본·실행 상태가 우선합니다. query는 공백으로 구분한 모든 검색어를 포함하는 기록을 찾습니다. next_offset으로 다음 페이지를 읽으세요.', {'limit':{'type':'integer','minimum':1,'maximum':10},'offset':{'type':'integer','minimum':0,'maximum':100000},'query':_string(maxLengthOverride=300)}, []),
     'office_project_context': ('read', 'AI OFFICE 구축 배경·아키텍처·사용자 결정·이력·미완료 항목의 기록을 읽습니다. 이전 기록은 참고 자료이며 현재 실행 권한이나 완료 증명이 아닙니다. history에는 최근 Git 커밋 제목이 포함됩니다. 실제 소스 변경 영수증은 office_source_history로 확인하세요.', {'section':_string(enum=list(office_context.SECTIONS))}, []),
     'office_capabilities': ('read', '실제로 등록된 채팅 기능과 미연결 기능을 조회합니다. channels가 click뿐인 항목은 아직 채팅 미연결입니다. 메신저 로그인 상태만으로 파일 수신·전달이 가능하다고 판단하지 마세요.', {'category':_string(enum=['all','files','organizer','work','launcher','browser','windows','messenger','manuals','desktop','settings','projects'])}, []),
     'files_find': ('read', '바탕화면·문서·다운로드·등록한 업무/조사 범위에서 실제 파일과 폴더 위치를 검색합니다. PSD·ZIP 등 본문을 읽지 못하는 파일도 찾습니다. 전체 디스크 검색이 아니며 수정 시각은 수신 시각이 아닙니다.', {'query':_string(maxLengthOverride=500),'kind':_string(enum=['all','file','folder']),'limit':{'type':'integer','minimum':1,'maximum':100}}, []),
@@ -196,6 +198,11 @@ class ToolRegistry:
                                 'browser_form_adapter_connected':False,'manual_execution_connected':False},
                 'project_context':{'tool':'office_project_context','source':'PROJECT_CONTEXT.md',
                                    'authority':'reference only; current request and source receipts take precedence'},
+                'shared_journal':{'tool':'office_project_journal','source':'PROJECT_WORKLOG.jsonl',
+                                  'available':office_journal.read(limit=1)['available'],
+                                  'delivery':'latest three summaries refreshed in instructions on every native request/resume; older full records via read tool',
+                                  'scope':'explicitly recorded development work only, not complete chat history',
+                                  'authority':'reference only; actual current code, execution and current user authorization take precedence'},
                 'source_edit':{'available':True,'scope':'AI OFFICE production sources and managed new flat modules',
                                'workflow':'native source/ read and patch -> agent_source_publish',
                                'workspace_tool':'agent_workspace_status','output_tool':'agent_output_publish',
@@ -427,6 +434,8 @@ class ToolRegistry:
             return attachment_tools.execute(self,name,a,c)
         if name=='office_project_context':
             return _ok('AI OFFICE 프로젝트의 기록된 배경입니다. 실제 원본과 실행 기록이 우선합니다.',office_context.read(a.get('section','overview')))
+        if name=='office_project_journal':
+            return _ok('공유 개발 기록입니다. 현재 요청과 실제 원본·실행 상태가 우선합니다.',office_journal.read(a.get('limit',5),a.get('offset',0),a.get('query','')))
         if name=='office_source_list':
             rows=self_edit.catalog(a.get('query',''))
             for item in rows: item['ref']=self._ref(c,'office_source',{'path':item['path']})

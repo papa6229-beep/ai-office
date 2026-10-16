@@ -9,6 +9,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import office_journal
 
 ROOT = Path(__file__).absolute().parent
 DOCUMENT = ROOT / 'PROJECT_CONTEXT.md'
@@ -58,10 +59,9 @@ def _section(text, section):
 def brief():
     """One small snapshot per request; absent documentation never blocks chat."""
     text = _document()
-    if text is None:
-        return ''
-    core = _section(text, 'core')[:3000]
-    return PREFIX + '\n' + REFERENCE_NOTE + '\n' + core if core else ''
+    core = _section(text, 'core')[:3000] if text is not None else ''
+    project = PREFIX + '\n' + REFERENCE_NOTE + '\n' + core if core else ''
+    return '\n\n'.join(part for part in (project, office_journal.brief()) if part)
 
 
 def _git_history():

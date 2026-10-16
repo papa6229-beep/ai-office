@@ -35,7 +35,7 @@ model_requests.py office_weather.py organizer_lab.py organizer_policy.py
 project_intelligence.py quick_launcher.py scanner.py streamdock_import.py
 system_settings.py updater.py windows_actions.py windows_app_catalog.py
 windows_workspace.py work_assistant.py work_stage.py workspace_insights.py
-attachment_tools.py work_attachments.py companion_assets.py office_context.py
+attachment_tools.py work_attachments.py companion_assets.py office_context.py office_journal.py
 desk-collections.js desk-judgment.js desk-organizer.js desk-policy.js desk.js
 workambient.js workdesk.js workstage.js desk.css retro.css workambient.css
 workdesk.css workstage.css first-release.html index.html workdesk.html'''.split())
