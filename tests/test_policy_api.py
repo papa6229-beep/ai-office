@@ -24,6 +24,8 @@ class PolicyApiTests(unittest.TestCase):
         self.original = self.source / 'brief.txt'
         self.original.write_bytes(b'generated fixture')
         self.addCleanup(patch.stopall)
+        patch.object(app, 'DB', self.root / 'office.db').start()
+        patch.object(app, 'config', return_value={}).start()
         patch.dict(os.environ,{'APPDATA':'C:/policy-api-fixture-protected-roaming','LOCALAPPDATA':'C:/policy-api-fixture-protected-local'}).start()
         patch.object(organizer_policy, 'STATE', self.root / 'policy.json').start()
         patch.object(organizer_policy, 'RUNTIME', self.root / 'runtime').start()

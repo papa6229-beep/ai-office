@@ -28,6 +28,8 @@ import windows_app_catalog
 import windows_workspace
 import windows_actions
 import system_settings
+import capabilities
+import assistant_extensions
 
 
 def _string(description='', **kwargs):
@@ -40,6 +42,9 @@ def _refs(description='Server-issued references'):
 
 # name: (effect, description, properties, required)
 _SPECS = {
+    'office_capabilities': ('read', '실제로 등록된 채팅 기능과 미연결 기능을 조회합니다. channels가 click뿐인 항목은 아직 채팅 미연결입니다. 메신저 로그인 상태만으로 파일 수신·전달이 가능하다고 판단하지 마세요.', {'category':_string(enum=['all','files','organizer','work','launcher','browser','windows','messenger','manuals','desktop','settings','projects'])}, []),
+    'files_find': ('read', '바탕화면·문서·다운로드·등록한 업무/조사 범위에서 실제 파일과 폴더 위치를 검색합니다. PSD·ZIP 등 본문을 읽지 못하는 파일도 찾습니다. 전체 디스크 검색이 아니며 수정 시각은 수신 시각이 아닙니다.', {'query':_string(maxLengthOverride=500),'kind':_string(enum=['all','file','folder']),'limit':{'type':'integer','minimum':1,'maximum':100}}, []),
+    'files_reveal': ('external', 'files_find가 발급한 파일 ref의 현재 위치를 탐색기로 표시합니다. 검색한 대상의 신원과 등록 범위를 다시 확인합니다. 파일 내용은 실행하지 않습니다.', {'ref':_string()}, ['ref']),
     'apps_list': ('read', '설치된 Windows 시작 메뉴 앱의 실제 제품 이름과 참조를 조회합니다.', {}, []),
     'apps_find': ('read', '자연어로 요청한 앱을 찾습니다. query가 한글/별칭이고 문자 일치가 없으면 Windows 등록 표시 이름 목록을 반환하므로 의미를 이해해 선택하세요. 패키지 식별자로 제품 이름을 추측하거나 다른 앱으로 대체하지 마세요. 없으면 현재 목록에서 찾지 못했다고 답하세요.', {'query':_string()}, ['query']),
     'apps_choose': ('read', '약칭·종류·버전이 모호하면 관련된 실제 설치 앱만 골라 선택 버튼을 표시합니다. 추가 목적에는 전부 추가와 취소 버튼도 제공됩니다. 실행 목적에는 개별 선택과 취소만 가능합니다.', {'refs':dict(_refs(),maxItems=98), 'purpose':_string(enum=['add','launch']), 'question':_string(maxLengthOverride=500)}, ['refs','purpose']),
@@ -91,9 +96,14 @@ _SPECS = {
     'desktop_recovery_list': ('read', '기존 복구 보관 작업과 복원 가능한 ref를 조회합니다.', {}, []),
     'desktop_restore_preview': ('approval', '선택한 복구 보관 작업을 원래 위치로 복원할 사용자 승인을 요청합니다.', {'ref':_string()}, ['ref']),
     'organizer_policy_status': ('read', '기존 실제 폴더 자동정리 정책의 설정/진행 상태를 조회합니다.', {}, []),
-    'organizer_policy_preview': ('write', '정책의 실제 이동 후보를 읽기 전용으로 미리 봅니다. 채팅에서 정책 실행은 아직 지원하지 않습니다.', {}, []),
+    'organizer_policy_preview': ('write', '조회한 기존 허용 정리 범위의 이동 후보를 미리 봅니다. 기록만 만들며 실제 파일은 이동하지 않습니다.', {'ref':_string()}, ['ref']),
+    'organizer_policy_run': ('write', '조회한 기존 허용 정리 범위 안에서 실제 폴더 정리를 실행하고 기록을 반환합니다. 실행 시 현재 후보를 다시 확인하므로 이전 미리보기 고정 목록을 실행하는 것이 아닙니다.', {'ref':_string()}, ['ref']),
+    'organizer_policy_enabled': ('write', '조회한 기존 허용 범위의 자동 정리 시작 여부를 변경합니다. 끄기는 다음 자동 실행을 막으며 진행 중 작업 취소가 아닙니다.', {'ref':_string(),'enabled':{'type':'boolean'}}, ['ref','enabled']),
+    'organizer_policy_undo': ('write', '조회한 정리 작업의 실제 이동을 기록에 따라 되돌립니다. 자동 실행도 꺼지며 충돌·변경된 파일은 결과에서 확인하세요.', {'ref':_string()}, ['ref']),
+    'organizer_policy_resume': ('write', '조회한 정리 작업의 기록된 방향으로 미완료/예외 항목을 재개합니다. 파일 신원과 충돌은 다시 확인합니다.', {'ref':_string()}, ['ref']),
 }
 _SPECS.update(windows_actions.SPECS)
+_SPECS.update(assistant_extensions.SPECS)
 _SPECS.update({
     'settings_status': ('read','현재 Windows 설정 진입점, 등록 앱과 HTTP/HTTPS 기본 앱 설정 기록을 조회합니다. 기본 브라우저 변경 요청에는 먼저 실제 상태를 확인하세요. 설정 화면을 열 앱 ref도 반환합니다. query는 Chrome 같은 앱 이름입니다.',{'query':_string()},[]),
     'settings_open': ('external','Windows 설정 화면을 직접 엽니다. default_apps는 settings_status에서 확인한 앱 ref를 지정해 해당 앱 기본값 화면으로 이동할 수 있습니다. 이후 windows_list/inspect로 실제 화면을 읽고 필요한 조작과 결과 확인을 이어가세요. 열기만으로 설정 변경 완료가 아닙니다.',{'section':_string(enum=list(system_settings.SECTIONS)),'app_ref':_string()},['section']),
@@ -141,6 +151,7 @@ class ToolRegistry:
         self.work_factory=work_factory
         self.configure_ai=configure_ai
         self.windows=windows_actions.WindowsActions(self,windows_service)
+        self.capabilities=capabilities.CapabilityService(db_path,workspace=workspace)
         with contextlib.closing(sqlite3.connect(self.db_path)) as c, c:
             c.execute('CREATE TABLE IF NOT EXISTS assistant_tool_effects (id TEXT PRIMARY KEY,signature TEXT NOT NULL,response TEXT)')
 
@@ -159,6 +170,9 @@ class ToolRegistry:
                             'change_workflow':'settings_status -> settings_open -> windows_inspect/action -> verify'},
                 'permissions':{'uses_current_windows_user':True,'arbitrary_shell':False,
                                'unknown_native_changes':'exact_action_approval','protected_os_prompts':False},
+                'capabilities':{'discovery_tool':'office_capabilities','shared_actions':['files_find','files_reveal','organizer_policy_status','organizer_policy_preview','organizer_policy_run','organizer_policy_enabled','organizer_policy_undo','organizer_policy_resume'],
+                                'messengers':{'names':['NateOn','HanbiroTalk'],'adapter_connected':False,'login_assumption':'사용자는 상시 로그인하지만 수신·저장·전달 어댑터 미연결'},
+                                'browser_form_adapter_connected':False,'manual_execution_connected':False},
                 'reporting':'모듈 미설치·기능 미연결·요소 미지원·실제 OS 접근 거부를 구별하고 실행 결과로 확인하세요.'}
 
     def effect(self,name):
@@ -357,6 +371,40 @@ class ToolRegistry:
         return dict(_ok(message,data),evidence=True)
 
     def _execute(self,name,a,c):
+        if name in assistant_extensions.SPECS:
+            return assistant_extensions.execute(self,name,a,c)
+        if name=='office_capabilities':
+            return _ok('등록된 기능과 연결 상태입니다.',self.capabilities.manifest(_SPECS,a.get('category','all')))
+        if name=='files_find':
+            data=self.capabilities.search(a.get('query',''),a.get('kind','all'),a.get('limit',50))
+            for item in data.get('items',[]):
+                item['ref']=self._ref(c,'file_selection',{'id':item['id'],'selection_token':item.pop('selection_token')})
+            return _ok('등록한 범위에서 파일·폴더 '+str(data.get('total',len(data.get('items',[]))))+'개를 찾았습니다.',data)
+        if name=='files_reveal':
+            item=self._get(c,a['ref'],'file_selection')
+            return _ok('탐색기에 파일 위치 표시를 요청했습니다.',self.capabilities.reveal(item['id'],item['selection_token'],c['step_id']))
+        if name=='organizer_policy_status':
+            data=self.capabilities.policy('status')
+            scope=data.pop('policy_scope')
+            records=data.pop('job_scopes')
+            data['policy_ref']=self._ref(c,'organizer_policy',scope) if scope is not None else None
+            by_id={record['id']:record for record in records}
+            for job in data.get('jobs',[]):
+                if job.get('id') in by_id:job['ref']=self._ref(c,'organizer_job',by_id[job['id']])
+            return _ok('실제 폴더 정리 범위와 작업 상태입니다.',data)
+        if name in {'organizer_policy_preview','organizer_policy_run','organizer_policy_enabled','organizer_policy_undo','organizer_policy_resume'}:
+            action=name.removeprefix('organizer_policy_')
+            job_action=action in {'undo','resume'}
+            snapshot=self._get(c,a['ref'],'organizer_job' if job_action else 'organizer_policy')
+            payload={'id':snapshot['id']} if job_action else {'enabled':a['enabled']} if action=='enabled' else {}
+            data=self.capabilities.policy(action,payload,c['step_id'],expected_job=snapshot if job_action else None,
+                                          expected_scope=None if job_action else snapshot)
+            notes={'preview':'이동 후보를 확인했습니다. 실제 파일은 이동하지 않았습니다.',
+                   'run':'허용된 정리 범위의 실행 결과입니다. 항목별 상태와 예외를 확인하세요.',
+                   'enabled':'자동 정리 예약 설정을 변경했습니다. 진행 중 작업 취소는 아닙니다.',
+                   'undo':'정리 되돌리기 결과입니다. 자동 정리도 꺼졌습니다.',
+                   'resume':'기록된 방향의 정리 재개 결과입니다.'}
+            return _ok(notes[action],data,refresh=['desk'])
         if name in windows_actions.SPECS: return self.windows.execute(name,a,c)
         if name=='settings_status':
             status=system_settings.status()
@@ -569,8 +617,6 @@ class ToolRegistry:
             live=next((b for b in desktop_recovery.status().get('batches',[]) if b['batch_id']==batch),None)
             if not live: raise ValueError('복구 보관 작업을 다시 조회하세요.')
             return {'status':'pending','message':'원래 위치로 복원할지 확인하세요.','pending':{'kind':'approval','title':'복원 승인','description':'보관한 파일을 원래 위치로 복원합니다. 기존 파일을 덮어쓰지 않습니다.\n'+'\n'.join(r['name'] for r in live['items']),'options':[{'id':'approve','label':'원래 위치로 복원'},{'id':'cancel','label':'취소'}],'operation':'restore','args':{'batch_id':batch}}}
-        if name=='organizer_policy_status': return _ok('실제 폴더 자동정리 정책 상태입니다.',organizer_policy.status())
-        if name=='organizer_policy_preview': return _ok('실제 폴더 이동 미리보기입니다. 채팅의 고정 목록 실행은 아직 지원하지 않습니다. 파일은 이동하지 않았습니다.',organizer_policy.preview())
         raise ValueError('지원하지 않는 도구입니다.')
 
     def _desktop_card(self,c,row):

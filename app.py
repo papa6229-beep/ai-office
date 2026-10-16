@@ -18,6 +18,7 @@ import browser_bookmarks
 import assistant_model
 import browser_workspace
 import windows_workspace
+import capabilities
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -137,6 +138,9 @@ def work_service():
             vision_model=lambda prompt,image:call_gemma_vision(prompt,image,settings),
             workspace=settings.get('workspace'),web_opener=open_managed_web,windows_service=windows_workspace.manager()))
 
+def capability_service():
+    return capabilities.CapabilityService(DB,workspace=config().get('workspace'))
+
 def open_managed_web(url):
     import importlib.util,webbrowser
     if importlib.util.find_spec('playwright') is None:
@@ -208,7 +212,7 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/desk/policy':
             try:
                 organizer_policy.ensure_worker()
-                return self.reply(organizer_policy.status())
+                return self.reply(capability_service().policy_snapshot())
             except (ValueError,OSError) as exc:return self.reply({'error':str(exc)},400)
         if path=='/api/desk/organizer':
             try:return self.reply({'job':organizer_lab.latest()})
@@ -281,6 +285,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             p=urlparse(self.path).path;d=self.body()
+            if p.startswith('/api/files/'):
+                allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
+                if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+                    return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
+                service=capability_service()
+                if p=='/api/files/search':
+                    if set(d)-{'token','query','kind','limit'}:raise ValueError('파일 검색 요청을 확인하세요.')
+                    return self.reply(service.search(d.get('query',''),d.get('kind','all'),d.get('limit',50)))
+                if p=='/api/files/reveal':
+                    if set(d)-{'token','id','selection_token','request_id'}:raise ValueError('검색한 파일만 선택할 수 있습니다.')
+                    return self.reply(service.reveal(d.get('id'),d.get('selection_token'),d.get('request_id')))
+                return self.reply({'error':'not found'},404)
             if p.startswith('/api/launcher/'):
                 allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
@@ -348,14 +364,20 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(judgment_view())
                 if p.startswith('/api/desk/policy-'):
                     action=p.rsplit('-',1)[-1]
-                    allowed_keys={'token','source_dir','destination_dir','exclusions','auto_enabled','authorized'} if action=='save' else {'token','enabled'} if action=='enabled' else {'token','id'} if action in ('undo','resume') else {'token'}
+                    allowed_keys={'token','source_dir','destination_dir','exclusions','auto_enabled','authorized'} if action=='save' else {'token','enabled','request_id','expected_scope'} if action=='enabled' else {'token','id','request_id','expected_job'} if action in ('undo','resume') else {'token','request_id','expected_scope'}
                     if set(d)-allowed_keys:raise ValueError('정리 범위 설정과 기록 번호만 사용할 수 있습니다.')
-                    if action=='save':result=organizer_policy.save({k:v for k,v in d.items() if k!='token'})
-                    elif action=='preview':result=organizer_policy.preview()
-                    elif action=='run':result=organizer_policy.run()
-                    elif action=='enabled':result=organizer_policy.set_enabled(d.get('enabled'))
-                    elif action=='undo':result=organizer_policy.undo(item_id)
-                    else:result=organizer_policy.resume(item_id)
+                    service=capability_service()
+                    if action=='save':
+                        with organizer_policy.LOCK:
+                            organizer_policy.save({k:v for k,v in d.items() if k!='token'})
+                            result=service.policy_snapshot()
+                    else:
+                        proof='expected_job' if action in ('undo','resume') else 'expected_scope'
+                        if d.get('request_id') is not None and not isinstance(d.get(proof),dict):
+                            raise ValueError('정리 상태를 새로고침한 뒤 표시된 범위를 선택하세요.')
+                        payload={'enabled':d.get('enabled')} if action=='enabled' else {'id':item_id} if action in ('undo','resume') else {}
+                        result=service.policy(action,payload,d.get('request_id'),
+                                              expected_scope=d.get('expected_scope'),expected_job=d.get('expected_job'))
                     organizer_policy.ensure_worker()
                     return self.reply(result)
                 if p.endswith(('/organizer-create','/organizer-execute','/organizer-undo')):

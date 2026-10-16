@@ -1,7 +1,7 @@
 <section id="work">
   <header class="work-heading">
     <div><p id="workDate" class="work-muted"></p><h2>오늘, 어떤 일을 도와드릴까요?</h2><p class="work-muted">업무를 기록하고, 자주 쓰는 도구를 바로 여세요.</p></div>
-    <div class="work-links"><button type="button" class="work-quiet" data-work-action="reload">새로고침</button><button type="button" class="work-quiet" data-work-action="desk">내 자료 열기</button><button type="button" class="work-quiet" data-work-action="tasks">기존 업무 리스트</button></div>
+    <div class="work-links"><button type="button" class="work-quiet" data-work-action="reload">새로고침</button><button type="button" class="work-quiet" data-files-action="open">파일 찾기</button><button type="button" class="work-quiet" data-work-action="desk">내 자료 열기</button><button type="button" class="work-quiet" data-work-action="tasks">기존 업무 리스트</button></div>
   </header>
   <div id="workNotice" class="work-notice" role="status" aria-live="polite" hidden></div>
   <div id="workRetry" class="work-retry" hidden><span>응답을 확인하지 못했습니다. 같은 요청으로 다시 확인할 수 있습니다.</span><button type="button" data-work-action="retry">같은 요청 다시 시도</button></div>
@@ -61,6 +61,15 @@
       </article>
     </aside>
   </div>
+  <dialog id="workFileDialog" class="work-dialog work-file-dialog" aria-labelledby="workFileTitle">
+    <div class="work-dialog-heading"><h3 id="workFileTitle">파일 찾기</h3><button type="button" class="work-quiet" data-files-action="close" aria-label="파일 찾기 닫기">닫기 ×</button></div>
+    <p class="work-muted">채팅에서도 파일을 찾아서 위치를 열어달라고 말할 수 있어요.</p>
+    <form id="workFileForm" class="work-file-form"><label class="work-sr-only" for="workFileQuery">파일 또는 폴더 이름</label><input id="workFileQuery" type="search" maxlength="400" placeholder="파일·폴더 이름으로 검색" required><label class="work-sr-only" for="workFileKind">검색 종류</label><select id="workFileKind"><option value="all">전체</option><option value="file">파일</option><option value="folder">폴더</option></select><button type="submit">찾기</button></form>
+    <p id="workFileStatus" class="work-muted" role="status" aria-live="polite">찾을 파일이나 폴더의 이름을 입력하세요.</p>
+    <button type="button" id="workFileRetry" class="work-secondary" data-files-action="retry" hidden>같은 위치 열기 요청 결과 확인</button>
+    <div id="workFileResults" class="work-file-results"></div>
+    <p id="workFileCoverage" class="work-muted"></p>
+  </dialog>
   <dialog id="workTaskDialog" class="work-dialog" aria-labelledby="workDetailTitle"><div class="work-dialog-heading"><h3 id="workDetailTitle">업무 상세</h3><button type="button" class="work-quiet" data-work-action="close-detail" aria-label="업무 상세 닫기">닫기 ×</button></div><article class="work-detail"><div id="workTaskDetailPanel"></div></article></dialog>
   <dialog id="workLauncherDialog" class="work-dialog work-launcher-dialog" aria-labelledby="workLauncherDialogTitle">
     <div class="work-dialog-heading"><h3 id="workLauncherDialogTitle">바로가기 추가</h3><button type="button" class="work-quiet" data-launcher-action="close" aria-label="바로가기 등록 닫기">닫기 ×</button></div>

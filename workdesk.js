@@ -68,7 +68,7 @@
     const blocked = busy || !!uncertain || !overview?.action_token;
     $('work').querySelectorAll('button,input,textarea').forEach(el => {
       if (el.matches('[data-work-inbox-tab]')) {el.disabled=false;return;}
-      if (el.closest('#workLauncher,#workLauncherDialog,#workCalendar') || el.matches('[data-work-action="close-detail"]')) return;
+      if (el.closest('#workLauncher,#workLauncherDialog,#workCalendar,#workFileDialog') || el.matches('[data-work-action="close-detail"],[data-files-action]')) return;
       if (el.matches('[data-work-action="desk"],[data-work-action="tasks"]')) return;
       if (el.matches('[data-work-action="reload"]')) { el.disabled = busy || !!uncertain || loading; return; }
       if (el.matches('[data-work-action="retry"]')) { el.disabled = busy; return; }
@@ -603,4 +603,77 @@
       renderCalendar();
     });
   });
+})();
+
+/* File search and chat use the same server capability; paths never become commands. */
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let token = '', items = [], busy = false, pending = null;
+  const requestID = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2,'0')).join('');
+  function message(text, error = false) {
+    $('workFileStatus').textContent=text;
+    $('workFileStatus').classList.toggle('work-error',error);
+  }
+  function lock() {
+    $('workFileDialog').querySelectorAll('input,select,button').forEach(el => {
+      if (el.dataset.filesAction === 'close') return;
+      el.disabled=busy || (!!pending && el.dataset.filesAction !== 'retry');
+    });
+    $('workFileRetry').hidden=!pending;
+  }
+  async function connect() {
+    const response=await fetch('/api/work',{cache:'no-store'}), data=await response.json();
+    if (!response.ok || !data.action_token) throw Error('연결을 확인한 뒤 다시 시도하세요.');
+    token=data.action_token;
+  }
+  async function search() {
+    if (busy || pending) return;
+    busy=true;items=[];$('workFileResults').innerHTML='';$('workFileCoverage').textContent='';lock();message('파일과 폴더 이름을 찾고 있어요…');
+    try {
+      if (!token) await connect();
+      const response=await fetch('/api/files/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,query:$('workFileQuery').value.trim(),kind:$('workFileKind').value,limit:50})});
+      const data=await response.json();
+      if (!response.ok || data.error) {if(response.status===403)token='';throw Error(data.error || '파일 검색을 완료하지 못했습니다.');}
+      items=Array.isArray(data.items) ? data.items : [];
+      $('workFileResults').innerHTML=items.map((item,index)=>`<article class="work-file-result"><div><strong>${esc(item.name)}</strong><small>${esc(item.kind === 'folder' ? '폴더' : '파일')} · ${esc(item.source || '')}</small><p>${esc(item.path)}</p></div><button type="button" class="work-secondary" data-files-action="reveal" data-files-index="${index}">위치 열기</button></article>`).join('');
+      message(items.length ? `${items.length}개를 표시합니다.${data.truncated ? ' 검색 범위 또는 표시 개수에 제한이 있습니다.' : ''}` : '확인한 범위에서 일치하는 파일이나 폴더를 찾지 못했습니다.');
+      const scopes=(data.scopes || []).map(scope=>typeof scope === 'string' ? scope : [scope.source || scope.name || scope.label,scope.path].filter(Boolean).join(' · '));
+      $('workFileCoverage').textContent=['검색 범위: '+(scopes.join(' / ') || '서버가 확인한 자료'),...(data.warnings || []).map(String)].join('\n');
+    } catch(error) {message(error.message,true);}
+    finally {busy=false;lock();}
+  }
+  async function reveal(item) {
+    if (busy) return;
+    if (!pending) {
+      if (!item?.id || !item.selection_token) {message('검색 결과를 새로 확인하세요.',true);return;}
+      pending={id:item.id,selection_token:item.selection_token,request_id:requestID()};
+    }
+    busy=true;lock();message('탐색기에 위치 표시를 요청하고 있어요…');
+    let responseReceived=false;
+    try {
+      if (!token) await connect();
+      const response=await fetch('/api/files/reveal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,...pending})});
+      const data=await response.json();responseReceived=true;
+      if (!response.ok || data.error) {if(response.status===403)token='';throw Error(data.error || '위치를 열지 못했습니다. 다시 검색해 주세요.');}
+      pending=null;message('탐색기에 위치 표시를 요청했습니다.');
+    } catch(error) {
+      if (responseReceived) pending=null;
+      message(responseReceived ? error.message : '위치 열기 결과를 확인하지 못했습니다. 같은 요청 결과를 확인해 주세요.',true);
+    } finally {busy=false;lock();}
+  }
+  function init() {
+    const dialog=$('workFileDialog');if (!dialog) return;
+    $('work').addEventListener('click',event=>{
+      const button=event.target.closest('[data-files-action]');if (!button || button.disabled) return;
+      const action=button.dataset.filesAction;
+      if (action==='open') {if(!dialog.open)dialog.showModal();$('workFileQuery').focus();return;}
+      if (action==='close') {dialog.close();return;}
+      if (action==='reveal') {reveal(items[Number(button.dataset.filesIndex)]);return;}
+      if (action==='retry' && pending) reveal();
+    });
+    $('workFileForm').addEventListener('submit',event=>{event.preventDefault();search();});
+  }
+  document.addEventListener('DOMContentLoaded',init);
 })();

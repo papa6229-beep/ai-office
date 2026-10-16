@@ -238,13 +238,13 @@ class RegistryTests(unittest.TestCase):
             with self.assertRaises(ValueError):self.registry.execute('desktop_hold_preview',{'refs':[ref]},self.context)
             hold.assert_not_called()
 
-    def test_policy_preview_is_readonly_and_cannot_run(self):
-        with patch('organizer_policy.preview',return_value={'items':[]}),patch('organizer_policy.run') as run:
-            result=self.registry.execute('organizer_policy_preview',{},self.context)
-            self.assertIn('아직 지원하지',result['message'])
+    def test_policy_operations_require_issued_scope_reference(self):
+        with patch('organizer_policy.preview') as preview,patch('organizer_policy.run') as run:
+            for name in ('organizer_policy_preview','organizer_policy_run'):
+                with self.assertRaises(ValueError):self.registry.execute(name,{},self.context)
+            preview.assert_not_called()
             run.assert_not_called()
             self.assertEqual(self.registry.effect('organizer_policy_preview'),'write')
-            with self.assertRaises(ValueError):self.registry.execute('organizer_policy_run',{},self.context)
 
     def test_native_effect_interruption_is_never_replayed(self):
         class Interrupted(BaseException):pass
