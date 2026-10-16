@@ -183,8 +183,13 @@
       taskHistory.delete(selected); request.cleanup?.(); render();
       if (stageRequest) settleChatScroll(true);
       if ($('workTaskDialog').open && selected) loadHistory(selected);
-      const summary = (data.result?.message || '업무 기록을 저장했습니다.').split('\n')[0];
-      notice(summary.length > 160 ? summary.slice(0,160)+'…' : summary);
+      // Conversation results are already rendered in workMessages. Keep the
+      // banner for operation receipts and actual failures, not a second reply.
+      const toolFailure = data.result?.tool_results?.find(result => ['error','uncertain'].includes(result.status));
+      if (!stageRequest || toolFailure) {
+        const summary = (toolFailure?.message || data.result?.message || '업무 기록을 저장했습니다.').split('\n')[0];
+        notice(summary.length > 160 ? summary.slice(0,160)+'…' : summary, !!toolFailure);
+      }
       if (data.result?.launcher_changed) document.dispatchEvent(new CustomEvent('work-launcher-changed'));
       if (data.result?.desk_changed) document.dispatchEvent(new CustomEvent('work-desk-changed'));
     } catch (e) {

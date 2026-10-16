@@ -338,7 +338,10 @@ def _analyze(item, settings, signature, local_only=False):
               + json.dumps(payload, ensure_ascii=False))
     if extension in IMAGES:
         model_name = str(settings.get('vision_model') or '').strip() or settings.get('gemma_model', '')
-        if settings.get('api_type', 'ollama') != 'ollama' or not local_image_review._vision_model(model_name):
+        import lmstudio_runtime
+        supported_transport = settings.get('api_type', 'ollama') == 'ollama' or (
+            lmstudio_runtime.is_managed(settings) and model_name == 'google/gemma-4-e4b')
+        if not supported_transport or not local_image_review._vision_model(model_name):
             row['reason'] = '설정된 모델은 이미지 이해를 지원하지 않아 보류했습니다.'
             return row
         image = local_image_review._image_payload(item)

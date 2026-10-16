@@ -30,6 +30,8 @@ def _vision_model(name):
     family, _, tag = name.partition(':')
     if 'cloud' in name:
         return False
+    if name == 'google/gemma-4-e4b':
+        return True
     if family == 'gemma4':
         return True
     if family == 'gemma3':

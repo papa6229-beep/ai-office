@@ -7,6 +7,7 @@ import urllib.request
 import uuid
 
 from local_content_review import validate_endpoint
+import lmstudio_runtime
 
 _MAX_RESPONSE = 2 * 1024 * 1024
 _MAX_ARGUMENTS = 24000
@@ -45,6 +46,8 @@ def _messages(messages, kind):
 
 def call(messages, tools, settings, *, output_schema=None):
     """Return normalized tool calls; this function never executes a tool."""
+    lmstudio_runtime.ensure_ready(settings)
+    managed = lmstudio_runtime.is_managed(settings)
     try:
         base = validate_endpoint(settings.get('gemma_url', ''))
     except (ValueError, TypeError):
@@ -61,10 +64,15 @@ def call(messages, tools, settings, *, output_schema=None):
         route = '/api/chat'
     else:
         payload.update(temperature=0.1, max_tokens=2048)
+        if managed:
+            payload['reasoning_effort'] = 'none'
         route = '/chat/completions'
     if output_schema is not None:
         if not isinstance(output_schema,dict) and output_schema!='json':raise ValueError('구조화 응답 형식을 확인하세요.')
         if kind=='ollama':payload['format']=output_schema
+        elif managed:
+            payload['response_format']={'type':'json_schema','json_schema':{
+                'name':'execution_decision','schema':output_schema if isinstance(output_schema,dict) else {'type':'object'}}}
         else:payload['response_format']={'type':'json_object'}
     raw = json.dumps(payload, ensure_ascii=False).encode('utf-8')
     if len(raw) > 768000:
@@ -131,7 +139,7 @@ execute의 observation은 제공된 실제 도구 이름과 해당 스키마의 
     # checked against registered read-only schemas again by the runtime.
     context={'conversation':messages,'observation_tools':observation_definitions,'response_schema':schema}
     output=call([{'role':'system','content':instruction},
-                 {'role':'user','content':json.dumps(context,ensure_ascii=False)}],[],settings,output_schema='json')
+                 {'role':'user','content':json.dumps(context,ensure_ascii=False)}],[],settings,output_schema=schema)
     try:
         if output.get('tool_calls'):raise ValueError()
         result=json.loads(output['content'])

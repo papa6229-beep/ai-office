@@ -6,8 +6,6 @@ echo ========================================
 echo AI OFFICE - Windows Launcher
 echo ========================================
 echo Log: "%LOG%"
-powershell.exe -NoLogo -NoProfile -NonInteractive -Command "try { $r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8765/' -TimeoutSec 2; if ($r.StatusCode -eq 200 -and $r.Content -match '<title>AI OFFICE</title>') { Start-Process 'http://127.0.0.1:8765/'; exit 0 } } catch {}; exit 1"
-if not errorlevel 1 exit /b 0
 echo [%date% %time%] Launcher started >> "%LOG%"
 set "PYTHONUNBUFFERED=1"
 set "PYEXE="
@@ -32,6 +30,14 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+echo Preparing selected local model...
+%PYEXE% -u lmstudio_runtime.py >> "%LOG%" 2>&1
+if errorlevel 1 (
+  echo [WARNING] Local model is not ready. See startup.log and AI OFFICE connection settings.
+  echo [WARNING] Opening AI OFFICE so you can check the connection.
+)
+powershell.exe -NoLogo -NoProfile -NonInteractive -Command "try { $r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8765/' -TimeoutSec 2; if ($r.StatusCode -eq 200 -and $r.Content -match '<title>AI OFFICE</title>') { Start-Process 'http://127.0.0.1:8765/'; exit 0 } } catch {}; exit 1"
+if not errorlevel 1 exit /b 0
 echo Starting local server at http://127.0.0.1:8765
 echo Logs will be saved to startup.log
 %PYEXE% -u app.py >> "%LOG%" 2>&1

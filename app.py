@@ -16,13 +16,14 @@ import work_assistant
 import quick_launcher
 import browser_bookmarks
 import assistant_model
+import lmstudio_runtime
 import browser_workspace
 import windows_workspace
 import capabilities
 import work_stage
 import office_weather
 import file_workspace
-import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
+import base64, json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 ROOT=pathlib.Path(__file__).resolve().parent
@@ -32,7 +33,7 @@ _AEMEATH_ASSETS = frozenset(f'/assets/aemeath/{state}.{extension}'
 DB=ROOT/'office.db'
 CFG=ROOT/'settings.json'
 HOST='127.0.0.1'; PORT=8765
-DEFAULT={'gemma_url':'http://127.0.0.1:11434','gemma_model':'gemma4:26b','vision_model':'','api_type':'ollama','api_key':'','workspace':str(pathlib.Path.home()/'Documents'/'AI-Office'),'timeout':60}
+DEFAULT={'gemma_url':'http://127.0.0.1:1234/v1','gemma_model':'google/gemma-4-e4b','vision_model':'','api_type':'openai','lmstudio_auto_start':True,'api_key':'','workspace':str(pathlib.Path.home()/'Documents'/'AI-Office'),'timeout':60}
 def config():
     if not CFG.exists(): CFG.write_text(json.dumps(DEFAULT,ensure_ascii=False,indent=2),encoding='utf-8')
     return {**DEFAULT,**json.loads(CFG.read_text(encoding='utf-8'))}
@@ -45,19 +46,24 @@ def db():
 def now():return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 def call_gemma(prompt,settings=None):
     s=settings if settings is not None else config();base=local_content_review.validate_endpoint(s['gemma_url']); t=int(s.get('timeout',60));model=s['gemma_model']
+    lmstudio_runtime.ensure_ready(s)
+    managed=lmstudio_runtime.is_managed(s)
     if s['api_type']=='openai':
         u=base+'/chat/completions';payload={'model':model,'messages':[{'role':'system','content':'당신은 한국어 업무 보조 AI입니다. 임의 실행을 약속하지 않고 확인 가능한 사실만 보고합니다.'},{'role':'user','content':prompt}],'temperature':0.2};headers={'Content-Type':'application/json'}
     else:
         u=base+'/api/chat';payload={'model':model,'messages':[{'role':'system','content':'당신은 한국어 업무 보조 AI입니다. 임의 실행을 약속하지 않고 확인 가능한 사실만 보고합니다.'},{'role':'user','content':prompt}],'stream':False,'options':{'temperature':0.2}};headers={'Content-Type':'application/json'}
     # Per-call judgment limits stay in the captured snapshot, never in user settings.
     if s.get('_judgment_json') is True:
-        if s['api_type']=='openai':payload['response_format']={'type':'json_object'}
+        if s['api_type']=='openai':
+            payload['response_format']=({'type':'json_schema','json_schema':{'name':'office_judgment','schema':{'type':'object'}}}
+                                        if managed else {'type':'json_object'})
         else:payload['format']='json'
     output_limit=s.get('_judgment_max_tokens')
     if type(output_limit) is int and 128<=output_limit<=1536:
         if s['api_type']=='openai':payload['max_tokens']=output_limit
         else:payload['options']['num_predict']=output_limit
     if s['api_type']!='openai':payload['think']=s.get('_judgment_think') is True
+    elif managed:payload['reasoning_effort']='none'
     if s.get('api_key'):headers['Authorization']='Bearer '+s['api_key']
     req=urllib.request.Request(u,data=json.dumps(payload).encode(),headers=headers,method='POST')
     class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -67,16 +73,30 @@ def call_gemma(prompt,settings=None):
     return response['message']['content']
 def call_gemma_vision(prompt,image_b64,settings=None):
     s=settings if settings is not None else config()
-    if s.get('api_type')!='ollama':raise ValueError('이미지 내용 분석은 설정된 Ollama Gemma 서버에서만 지원합니다.')
+    managed=lmstudio_runtime.is_managed(s)
+    if s.get('api_type')!='ollama' and not managed:raise ValueError('이미지 내용 분석은 Ollama Gemma 또는 관리되는 로컬 E4B 연결에서 지원합니다.')
+    lmstudio_runtime.ensure_ready(s)
     base=local_content_review.validate_endpoint(s['gemma_url']);model=str(s.get('vision_model') or '').strip() or s['gemma_model'];t=int(s.get('timeout',60))
-    payload={'model':model,'messages':[{'role':'user','content':prompt,'images':[image_b64]}],'stream':False,'options':{'temperature':0.2}}
+    if managed:
+        if model!='google/gemma-4-e4b':raise ValueError('로컬 이미지 분석 모델은 google/gemma-4-e4b로 설정하세요.')
+        # Scanner composites are JPEG; browser captures and the no-Pillow
+        # fallback retain PNG/WebP bytes. Declare the actual bounded input.
+        header=base64.b64decode(image_b64[:32],validate=True)
+        mime='image/png' if header.startswith(b'\x89PNG\r\n\x1a\n') else (
+            'image/webp' if header.startswith(b'RIFF') and header[8:12]==b'WEBP' else 'image/jpeg')
+        payload={'model':model,'messages':[{'role':'user','content':[{'type':'text','text':prompt},{'type':'image_url','image_url':{'url':'data:'+mime+';base64,'+image_b64}}]}],
+                 'stream':False,'temperature':0.2,'max_tokens':1536,'reasoning_effort':'none'}
+        route='/chat/completions'
+    else:
+        payload={'model':model,'messages':[{'role':'user','content':prompt,'images':[image_b64]}],'stream':False,'options':{'temperature':0.2}}
+        route='/api/chat'
     headers={'Content-Type':'application/json'}
     if s.get('api_key'):headers['Authorization']='Bearer '+s['api_key']
-    req=urllib.request.Request(base+'/api/chat',data=json.dumps(payload).encode(),headers=headers,method='POST')
+    req=urllib.request.Request(base+route,data=json.dumps(payload).encode(),headers=headers,method='POST')
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs):return None
     with urllib.request.build_opener(NoRedirect).open(req,timeout=t) as r:response=json.load(r)
-    return response['message']['content']
+    return response['choices'][0]['message']['content'] if managed else response['message']['content']
 def runlog(kind,status,summary,detail=''):
     with db() as c:c.execute('INSERT INTO runs VALUES (?,?,?,?,?,?)',(uuid.uuid4().hex,kind,status,summary,detail,now()))
 DESK_TOKEN=uuid.uuid4().hex
@@ -474,6 +494,9 @@ class Handler(BaseHTTPRequestHandler):
                 result=scanner.duplicate_report();runlog('중복 조사','완료',str(result['total_groups'])+'개 동일 내용 그룹 확인');return self.reply(result)
             if p=='/api/settings':
                 new={k:d[k] for k in ('gemma_url','gemma_model','vision_model','api_type','workspace','timeout') if k in d}
+                if 'lmstudio_auto_start' in d:
+                    if type(d['lmstudio_auto_start']) is not bool:raise ValueError('LM Studio 자동 준비 설정은 참/거짓이어야 합니다.')
+                    new['lmstudio_auto_start']=d['lmstudio_auto_start']
                 if 'api_key' in d and d['api_key']!='(설정됨)':new['api_key']=d['api_key']
                 s=config();s.update(new)
                 if s['api_type'] not in ['ollama','openai']:raise ValueError('지원하지 않는 API 형식')
@@ -493,6 +516,12 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:self.reply({'error':str(e)},400)
 if __name__=='__main__':
     config();db().close()
+    try:
+        lmstudio_runtime.ensure_ready(config())
+    except (RuntimeError, ValueError, OSError) as exc:
+        # Keep settings and the desk reachable; model callbacks retry readiness
+        # and report this failure without switching to another AI server.
+        print(f'[WARNING] 로컬 AI 준비 실패: {exc}', flush=True)
     organizer_policy.ensure_worker()
     start_ai_supervisor()
     import webbrowser, time
