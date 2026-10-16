@@ -270,6 +270,7 @@ class BrowserWorkspace:
         self._context = None
         self._pages.clear()
         self._snapshots.clear()
+        getattr(self,'_control_snapshots',{}).clear()
 
     def _route(self, route):
         try:
@@ -291,6 +292,7 @@ class BrowserWorkspace:
             if page.is_closed():
                 self._pages.pop(tab_id, None)
                 self._snapshots.pop(tab_id, None)
+                getattr(self,'_control_snapshots',{}).pop(tab_id,None)
         # A person can navigate a new tab in this dedicated window as well.
         # Adopt only supported pages; never attach to any other Chrome window.
         if self._context is not None:
@@ -336,6 +338,32 @@ class BrowserWorkspace:
 
     def view(self, tab_id):
         return self._dispatch('view', tab_id)
+
+    def inspect(self,tab_id):return self._dispatch('inspect',tab_id)
+
+    def export(self,tab_id):return self._dispatch('export',tab_id)
+
+    def _do_export(self,tab_id):
+        page=self._page(tab_id);data=page.evaluate(_COLLECT);text=_redact(data.get('text',''))
+        return dict(self._meta(tab_id,page),text=text,total_characters=len(text),truncated=bool(data.get('node_limit')),
+                    scope='현재 페이지의 수집 가능한 본문 최대 60000자. 입력값·내장 프레임은 별도 관찰합니다.')
+
+    def read_value(self,tab_id,snapshot_id,control_id):return self._dispatch('read_value',tab_id,snapshot_id,control_id)
+
+    def _do_read_value(self,*args):
+        import browser_controls
+        return browser_controls.read_value(self,*args)
+
+    def act(self,tab_id,snapshot_id,control_id,operation,value=None):
+        return self._dispatch('act',tab_id,snapshot_id,control_id,operation,value)
+
+    def _do_inspect(self,tab_id):
+        import browser_controls
+        return browser_controls.inspect(self,tab_id)
+
+    def _do_act(self,*args):
+        import browser_controls
+        return browser_controls.act(self,*args)
 
     def _do_open(self, url):
         validate_url(url)

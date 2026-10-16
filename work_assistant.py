@@ -23,7 +23,7 @@ _SAFE_DOCUMENTS = {'.txt', '.md', '.pdf', '.docx', '.xlsx', '.pptx', '.csv',
                    '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp',
                    '.ai', '.psd', '.psb', '.eps', '.indd', '.hwp', '.hwpx',
                    '.doc', '.xls', '.ppt', '.zip', '.7z', '.rar', '.mp4', '.webm'}
-_FIELDS = {'task': {'title', 'detail', 'due_date', 'status'},
+_FIELDS = {'task': {'title', 'detail', 'due_date', 'status', 'day'},
            'task-edit': {'task_id','title','detail','status'}, 'status': {'task_id', 'status'},
            'note': {'task_id', 'text'}, 'resource': {'task_id', 'path'},
            'command': {'message', 'task_id'}, 'report': {'day'},
@@ -194,7 +194,7 @@ class WorkAssistant:
                     resource['exists'] = True
                 except ValueError:
                     resource['exists'] = False
-        events = [dict(row) for row in c.execute('SELECT * FROM work_events ORDER BY created DESC LIMIT 200')]
+        events = [dict(row) for row in c.execute('SELECT * FROM work_events ORDER BY created DESC LIMIT 5000')]
         messages = [dict(row) for row in c.execute('SELECT id,role,content,created FROM (SELECT rowid seq,* FROM work_messages ORDER BY rowid DESC LIMIT 100) ORDER BY seq')]
         _project_chat_messages(c, messages)
         for message in messages:
@@ -204,7 +204,10 @@ class WorkAssistant:
         for count in c.execute('SELECT status,count(*) n FROM tasks GROUP BY status'):
             if count['status'] in counts: counts[count['status']] = count['n']
         from assistant_runtime import pending_actions
-        return {'tasks': tasks, 'events': events, 'messages': messages,
+        activity_days = [row['day'] for row in c.execute('''SELECT substr(created,1,10) day FROM tasks UNION SELECT substr(created,1,10) day FROM work_events ORDER BY day''') if row['day']]
+        day_events = [dict(row) for row in c.execute('SELECT * FROM work_events WHERE substr(created,1,10)=? ORDER BY created DESC LIMIT 5000', (day,))]
+        return {'tasks': tasks, 'events': events, 'activity_days': activity_days, 'messages': messages,
+                'day_events': day_events,
                 'report': dict(row) if row else None, 'counts': counts,
                 'launcher_choices': chat_launcher.pending(c), 'assistant_actions': pending_actions(c)}
 
@@ -263,7 +266,7 @@ class WorkAssistant:
                     self._message(c, 'assistant', result['message'])
                 else:
                     result = self._apply(c, action, payload)
-                response = self._overview_in_transaction(c, payload.get('day') if action == 'report' else None)
+                response = self._overview_in_transaction(c, payload.get('day') if action == 'report' else payload.get('day') if action == 'task' else None)
                 response['result'] = result
                 c.execute('INSERT OR REPLACE INTO work_requests VALUES (?,?,?)', (request_id, signature, json.dumps(response, ensure_ascii=False)))
             return response
@@ -290,10 +293,13 @@ class WorkAssistant:
             detail = p.get('detail', '')
             if not isinstance(detail, str) or len(detail) > 8000: raise ValueError('상세 내용을 확인하세요.')
             due = _day(p['due_date']) if p.get('due_date') else None
+            created_day = _day(p.get('day')) if p.get('day') else _day()
             status = p.get('status', 'review')
             if status not in ('review', 'doing', 'done'): raise ValueError('업무 상태를 확인하세요.')
             task_id = uuid.uuid4().hex
-            c.execute('INSERT INTO tasks VALUES (?,?,?,?,?)', (task_id, title, detail, status, _now()))
+            created = _now()
+            if created_day != _day(): created = created_day + 'T12:00:00+09:00'
+            c.execute('INSERT INTO tasks VALUES (?,?,?,?,?)', (task_id, title, detail, status, created))
             c.execute('INSERT INTO work_task_meta VALUES (?,?)', (task_id, due))
             kind, text, message = 'created', title, '업무를 추가했습니다: ' + title
         elif action=='task-edit':

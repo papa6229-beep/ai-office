@@ -27,7 +27,7 @@ MAX_TEXT = 12000
 # files, tests, diagnostics, and this module/restart boundary itself.
 ALLOWED = frozenset('''adobe_preview.py app.py assistant_extensions.py assistant_model.py
 assistant_runtime.py assistant_tools.py assistant_voice.py browser_bookmarks.py
-browser_workspace.py capabilities.py chat_launcher.py chat_stream.py codex_bridge.py
+browser_workspace.py browser_controls.py desktop_control.py capabilities.py chat_launcher.py chat_stream.py codex_bridge.py
 content_analysis.py desktop_collections.py desktop_judgment.py desktop_preferences.py
 desktop_recovery.py desktop_workspace.py document_reader.py file_executor.py
 file_workspace.py lmstudio_runtime.py local_content_review.py local_image_review.py

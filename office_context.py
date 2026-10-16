@@ -56,12 +56,19 @@ def _section(text, section):
     return ''
 
 
-def brief():
+def brief(db_path=None):
     """One small snapshot per request; absent documentation never blocks chat."""
     text = _document()
     core = _section(text, 'core')[:3000] if text is not None else ''
     project = PREFIX + '\n' + REFERENCE_NOTE + '\n' + core if core else ''
-    return '\n\n'.join(part for part in (project, office_journal.brief()) if part)
+    guidance=''
+    if db_path is not None:
+        try:
+            import aemeath_guidelines
+            guidance=aemeath_guidelines.prompt_context(db_path)
+        except (OSError,ValueError):
+            guidance=''
+    return '\n\n'.join(part for part in (project, office_journal.brief(), guidance) if part)
 
 
 def _git_history():

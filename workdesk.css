@@ -180,6 +180,11 @@
 #work .work-calendar-weekdays span:first-child,#work .work-calendar-day.is-sunday{color:#ff9685}
 #work .work-calendar-weekdays span:last-child,#work .work-calendar-day.is-saturday{color:#8cd1dc}
 #work .work-calendar-day{font-size:12px;line-height:22px;min-width:0;border-radius:999px;font-weight:650}
+#work button.work-calendar-day{display:flex;align-items:center;justify-content:center;width:100%;height:25px;padding:0;background:transparent;border:0;color:inherit;box-shadow:none}
+#work button.work-calendar-day:hover{background:#343831}
+#work button.work-calendar-day.is-selected{outline:1px solid var(--ao-accent,#a4d84b);outline-offset:-1px;color:#e6f4cc}
+#work button.work-calendar-day.has-work::after{content:'';width:4px;height:4px;border-radius:50%;background:var(--ao-accent,#a4d84b);position:absolute;margin-top:17px}
+#work button.work-calendar-day{position:relative}
 #work .work-calendar-day.is-today{background:var(--ao-accent,#a4d84b);color:#191a10;font-weight:900;box-shadow:inset 0 0 0 1px var(--ao-accent-border,#c4ec85)}
 
 #work .work-assistant>.work-panel-heading{padding-bottom:13px;border-bottom:2px solid #37383b}

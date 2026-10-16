@@ -23,6 +23,7 @@ STEP_LABELS={'files_find':'파일 찾기','files_preview':'자료 미리보기',
 STEP_LABELS.update({'attachments_list':'첨부 자료 확인','attachment_read':'첨부 자료 읽기·분석',
                     'attachment_preview':'첨부 미리보기','companion_assets':'캐릭터 목록 확인','companion_apply':'캐릭터 적용'})
 STEP_LABELS['work_edit']='업무 내용·상태 수정'
+STEP_LABELS.update({'desktop_observe':'데스크톱 화면 관찰','desktop_action':'마우스·키보드·창 조작','browser_inspect':'웹 입력란·버튼 관찰','browser_act':'웹 입력·클릭','browser_export':'웹 내용 복사','text_document':'텍스트 문서·메모장 연결'})
 STEP_LABELS.update({'office_source_list':'앱 원본 찾기','office_source_read':'앱 원본 읽기',
                     'office_source_apply':'앱 변경 저장','office_source_history':'앱 변경 이력',
                     'office_source_rollback':'앱 변경 되돌리기'})
@@ -44,7 +45,21 @@ def initialize(c):
         CREATE TABLE IF NOT EXISTS stage_media (
         id TEXT PRIMARY KEY,selection TEXT NOT NULL,created REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS stage_task_notes (
-        request_id TEXT PRIMARY KEY,title TEXT NOT NULL,summary TEXT NOT NULL,updated REAL NOT NULL);''')
+        request_id TEXT PRIMARY KEY,title TEXT NOT NULL,summary TEXT NOT NULL,updated REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS stage_reviews (
+        request_id TEXT PRIMARY KEY,decision TEXT NOT NULL,note TEXT NOT NULL,updated REAL NOT NULL);''')
+
+def set_review(db, request_id, decision):
+    if not isinstance(request_id,str) or not re.fullmatch('[0-9a-fA-F]{32}',request_id):
+        raise ValueError('작업 요청을 확인할 수 없습니다.')
+    if decision not in {'confirmed','needs_changes'}: raise ValueError('확인 상태를 선택하세요.')
+    with connect(db) as c,c:
+        initialize(c)
+        if not c.execute('SELECT 1 FROM assistant_requests WHERE id=?',(request_id,)).fetchone():
+            raise ValueError('작업 요청을 확인할 수 없습니다.')
+        c.execute('INSERT INTO stage_reviews VALUES (?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET decision=excluded.decision,updated=excluded.updated',
+                  (request_id,decision,'',time.time()))
+    return {'request_id':request_id,'decision':decision}
 
 
 def task_note(db, request_id, title, summary=''):
@@ -298,6 +313,8 @@ def snapshot(db, request_id=None):
         if exists:
             artifacts.extend(value for a in c.execute('SELECT artifact FROM stage_artifacts WHERE request_id IN ('+placeholders+') ORDER BY created LIMIT 12',related) if (value:=_artifact(json.loads(a[0]))))
         response=json.loads(row['response']) if row['response'] else {}
+        initialize(c)
+        review=c.execute('SELECT decision FROM stage_reviews WHERE request_id=?',(row['id'],)).fetchone()
         result=response.get('result',{})
         attention=bool(unresolved) or (not operations and any(r.get('status')=='error' for r in result.get('tool_results',[]) if isinstance(r,dict)))
         # Fenced code in a chat answer is not a published deliverable. Only
@@ -312,13 +329,15 @@ def snapshot(db, request_id=None):
             if verification['state'] in {'failed','unverified'}:status='attention'
             elif verification['state']=='verified':status='done'
             else:status='verifying'
+        if review and row['status']=='done':status='done' if review['decision']=='confirmed' else 'attention'
         note=None
         if c.execute("SELECT 1 FROM sqlite_master WHERE name='stage_task_notes'").fetchone():
             note=c.execute('SELECT title,summary FROM stage_task_notes WHERE request_id=?',(row['id'],)).fetchone()
         eligible,title,summary=_task_identity(note,operations,artifacts)
         request={'id':row['id'],'status':status,'created':row['created'],'title':title,
                  'summary':summary,'workspace_eligible':eligible,'uncertain':stale and status=='running',
-                 'outcome':'확인이 필요합니다.' if status=='attention' else '요청 처리가 종료되었습니다.' if status=='done' else '작업 중입니다.'}
+                 'outcome':'사용자가 확인 완료했습니다.' if review and review['decision']=='confirmed' else '사용자가 수정·재확인을 요청했습니다.' if review else '확인이 필요합니다.' if status=='attention' else '요청 처리가 종료되었습니다.' if status=='done' else '작업 중입니다.',
+                 'user_review':review['decision'] if review else None}
         if payload.get('task_id'):request['task_id']=payload['task_id']
         # The chat explanation is not a deliverable. Keep the response key for
         # older clients, but only explicitly published/previewed artifacts show.

@@ -90,7 +90,7 @@
     const focused=document.activeElement?.dataset?.requestId;root.replaceChildren();
     if(!requests.length){const p=document.createElement('p');p.className='work-stage-empty';p.textContent='요청한 작업이 여기에 표시됩니다.';root.append(p);return;}
     for(const item of requests){const card=document.createElement('button');card.type='button';card.className='work-request-card';card.dataset.requestId=item.request.id;card.dataset.status=item.request.status||'unknown';card.setAttribute('aria-pressed',String(item.request.id===selectedRequest));
-      const summary=document.createElement('span');summary.textContent=item.summary||item.request.title||'작업 요청';const badge=document.createElement('small');badge.textContent={running:'진행 중',done:'완료',verifying:'반영·확인 중',attention:'확인 필요'}[item.request.status]||'상태 확인 중';card.append(summary,badge);root.append(card);if(focused===item.request.id)card.focus({preventScroll:true});}
+      const summary=document.createElement('span');summary.textContent=item.summary||item.request.title||'작업 요청';const badge=document.createElement('small');badge.textContent=item.request.user_review==='confirmed'?'확인 완료':item.request.user_review==='needs_changes'?'수정·재확인 필요':({running:'진행 중',done:'완료',verifying:'반영·확인 중',attention:'확인 필요'}[item.request.status]||'상태 확인 중');card.append(summary,badge);root.append(card);if(focused===item.request.id)card.focus({preventScroll:true});}
   }
   function render(data) {
     const request=data.request;if(!request)return;
@@ -105,8 +105,27 @@
     if(!selectedRequest)selectedRequest=request.id;renderRequestCards();
     if(request.id!==selectedRequest)return;
     const signature=JSON.stringify(data);if(signature===last)return;last=signature;
-    $('workStageRequest').textContent=item.summary;$('workStageStatus').textContent={running:'진행 중',done:'완료',verifying:'반영·확인 중',attention:'확인 필요'}[request.status]||'상태 확인 중';$('workStage').dataset.status=request.status;
+    $('workStageRequest').textContent=item.summary;$('workStageStatus').textContent=request.user_review==='confirmed'?'사용자 확인 완료':request.user_review==='needs_changes'?'사용자 수정 요청':({running:'진행 중',done:'완료',verifying:'반영·확인 중',attention:'확인 필요'}[request.status]||'상태 확인 중');$('workStage').dataset.status=request.user_review==='confirmed'?'done':request.user_review==='needs_changes'?'attention':request.status;
     artifacts=Array.isArray(data.artifacts)?data.artifacts.slice():[];renderArtifacts();
+    if(request.status!=='running'){
+      const review=document.createElement('section');review.id='workStageReview';review.className='work-stage-review';
+      const label=document.createElement('p');label.textContent=request.user_review==='confirmed'?'사용자가 확인 완료로 표시했어요.':request.user_review==='needs_changes'?'사용자가 수정 또는 재확인이 필요하다고 표시했어요.':'직접 확인한 뒤 상태를 선택해줘.';review.append(label);
+      for(const [decision,text] of [['confirmed','확인 완료'],['needs_changes','수정·재확인 필요']]){
+        const button=document.createElement('button');button.type='button';button.textContent=text;button.disabled=request.user_review===decision;
+        button.addEventListener('click',async()=>{
+          button.disabled=true;notice('확인 상태를 저장하는 중…');
+          try{
+            const session=await fetch('/api/work',{cache:'no-store'}).then(r=>r.json());
+            if(!session.action_token)throw Error('오피스를 새로고침한 뒤 다시 시도해 주세요.');
+            const response=await fetch('/api/work/stage-review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:session.action_token,request_id:request.id,decision})});
+            const result=await response.json();if(!response.ok||result.error)throw Error(result.error||'상태를 저장하지 못했습니다.');
+            notice(text+'로 저장했어요.');render(result);
+            poll(epoch);
+          }catch(error){button.disabled=false;notice(error.message);}
+        });review.append(button);
+      }
+      $('workStageResultContent').prepend(review);
+    }
     if(request.summary){const scope=document.createElement('p');scope.className='work-task-scope';scope.textContent=request.summary;$('workStageResultContent').prepend(scope);}
     renderExecutionLog(data);
   }

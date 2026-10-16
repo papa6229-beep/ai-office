@@ -460,6 +460,16 @@ class Handler(BaseHTTPRequestHandler):
                     if accepted.get('followup'):
                         threading.Thread(target=resume_screen_verification,args=(self.server,accepted['actual_request_id']),daemon=True).start()
                     return
+                if p=='/api/work/stage-review':
+                    if set(payload)!={'request_id','decision'}:raise ValueError('작업 확인 상태를 선택하세요.')
+                    work_stage.set_review(DB,payload.get('request_id'),payload.get('decision'))
+                    return self.reply(work_stage.snapshot(DB,payload.get('request_id')))
+                if p=='/api/work/aemeath-guidelines':
+                    import aemeath_guidelines
+                    action=payload.get('action')
+                    if action=='read' and set(payload)=={'action'}:return self.reply(aemeath_guidelines.read(DB))
+                    if action=='save' and set(payload)=={'action','text'}:return self.reply(aemeath_guidelines.save(DB,payload.get('text')))
+                    raise ValueError('행동지침 요청을 확인해줘.')
                 if p=='/api/work/companion-remove':
                     if set(payload)!={'state','id'}:raise ValueError('캐릭터 제거 요청을 확인하세요.')
                     return self.reply({'companion_assets':companion_assets.remove(DB,payload['state'],payload['id'])})

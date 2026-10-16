@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   let overview = null, selected = null, busy = false, loading = false, uncertain = null;
+  let selectedDay = new Date().toLocaleDateString('en-CA');
   const $ = id => document.getElementById(id);
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const statusNames = {todo:'예정', review:'검토중', doing:'진행중', done:'완료'};
@@ -177,9 +178,15 @@
       <form id="workResourceForm"><label for="workResourcePath">파일 또는 폴더 경로</label><div class="work-resource-entry"><input id="workResourcePath" maxlength="4096" required value="${escape(pathDraft)}" placeholder="경로 직접 입력"><button type="button" class="work-quiet" data-work-action="pick-resource">폴더 선택</button></div><div class="work-form-actions"><button type="submit" class="work-secondary">자료 연결</button></div></form><p class="work-muted">원본 위치를 업무에 연결합니다.</p>`;
   }
   function render() {
-    const tasks = overview.tasks || [], counts = overview.counts || {};
+    // The day list is based on the task's creation date only. Historical
+    // activity belongs in the task detail/history, not in another day's list.
+    const tasks = (overview.tasks || []).filter(t => (t.created || '').slice(0,10) === selectedDay), counts = {todo:0,review:0,doing:0,done:0};
+    $('workCalendarGrid')?.querySelectorAll('[data-calendar-day]').forEach(button=>button.classList.toggle('has-work',(overview.activity_days || []).includes(button.dataset.calendarDay)));
+    tasks.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
+    const selectedDate = new Date(selectedDay+'T00:00:00');
+    $('workTasksTitle').textContent = `${selectedDate.getMonth()+1}월 ${selectedDate.getDate()}일 업무`;
     $('workCounts').textContent = `예정 ${counts.todo ?? 0} · 검토중 ${counts.review ?? 0} · 진행중 ${counts.doing ?? 0} · 완료 ${counts.done ?? 0}`;
-    $('workTaskList').innerHTML = tasks.length ? tasks.map(t=>`<button type="button" class="work-task-row" data-work-task="${escape(t.id)}" aria-pressed="${t.id === selected}"><span class="work-task-copy"><span class="work-task-name">${escape(t.title)}</span></span><span class="work-state ${escape(t.status)}">${escape(statusNames[t.status] || t.status)}</span></button>`).join('') : '<div class="work-empty work-task-empty"><span class="work-empty-mark" aria-hidden="true">＋</span><div><strong>오늘 할 일을 여기에 모아보세요</strong><p>비서에게 말하거나 ‘업무 추가’로 등록하세요.</p></div></div>';
+    $('workTaskList').innerHTML = tasks.length ? tasks.map(t=>`<button type="button" class="work-task-row" data-work-task="${escape(t.id)}" aria-pressed="${t.id === selected}"><span class="work-task-copy"><span class="work-task-name">${escape(t.title)}</span></span><span class="work-state ${escape(t.status)}">${escape(statusNames[t.status] || t.status)}</span></button>`).join('') : '<div class="work-empty work-task-empty"><span class="work-empty-mark" aria-hidden="true">＋</span><div><strong>이 날짜에 등록되거나 진행한 업무가 없어요</strong><p>캘린더 날짜를 바꾸거나 업무를 추가해 보세요.</p></div></div>';
     const messages = overview.messages || [];
     const log = $('workMessages');
     const choices = overview.launcher_choices || [], actions = overview.assistant_actions || [];
@@ -194,6 +201,10 @@
     settleChatScroll();
   }
   document.addEventListener('work-stage-verification',()=>{if(!busy&&!uncertain)window.workLoad?.();});
+  window.workSelectDay = function workSelectDay(day){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(day||''))return;
+    selectedDay=day;selected=null;render();
+  };
   window.workLoad = async function workLoad() {
     if (!$('work') || loading || busy || uncertain) return;
     loading = true; companionOutcome=null; companionError=''; companionUpdate();
@@ -339,6 +350,7 @@
     $('workTaskCreateTitle').textContent=task?'업무 수정':'업무 추가';
     $('workTaskTitle').value=task?.title||'';$('workTaskDetail').value=task?.detail||'';
     $('workTaskStatus').value=task?.status==='todo'?'review':task?.status||'review';
+    form.dataset.day=task ? '' : selectedDay;
     form.querySelector('[type="submit"]').textContent=task?'변경 저장':'업무 저장';
     $('workTaskCreateDialog').showModal();$('workTaskTitle').focus();
   }
@@ -354,7 +366,7 @@
     } else if (form.id === 'workTaskForm') {
       const title = $('workTaskTitle').value.trim(); if (!title) return;
       const taskID=form.dataset.taskId;
-      write(taskID?'task-edit':'task',{title,detail:$('workTaskDetail').value.trim(),status:$('workTaskStatus').value,...(taskID?{task_id:taskID}:{})},()=>{form.reset();form.dataset.taskId='';$('workTaskCreateDialog').close();});
+      write(taskID?'task-edit':'task',{title,detail:$('workTaskDetail').value.trim(),status:$('workTaskStatus').value,...(taskID?{task_id:taskID}:{day:form.dataset.day || selectedDay})},()=>{form.reset();form.dataset.taskId='';$('workTaskCreateDialog').close();});
     } else if (form.id === 'workNoteForm') {
       const text = $('workNoteText').value.trim(); if (!text || !selected) return;
       write('note',{task_id:selected,text},()=>{if ($('workNoteText')) $('workNoteText').value='';});
@@ -848,15 +860,17 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  let year, month;
+  let year, month, selectedCalendarDay=new Date().toLocaleDateString('en-CA');
   function renderCalendar() {
     const today=new Date(), first=new Date(year,month,1), days=new Date(year,month+1,0).getDate();
     $('workCalendarMonth').textContent=`${year}년 ${month+1}월`;
     let cells='<span class="work-calendar-blank" aria-hidden="true"></span>'.repeat(first.getDay());
     for(let day=1;day<=days;day++) {
       const current=today.getFullYear()===year && today.getMonth()===month && today.getDate()===day;
+      const dateKey=`${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      const selected=dateKey===selectedCalendarDay;
       const weekday=new Date(year,month,day).getDay();
-      cells+=`<span class="work-calendar-day${weekday===0 ? ' is-sunday' : weekday===6 ? ' is-saturday' : ''}${current ? ' is-today' : ''}"${current ? ' aria-current="date"' : ''} aria-label="${year}년 ${month+1}월 ${day}일">${day}</span>`;
+      cells+=`<button type="button" class="work-calendar-day${weekday===0 ? ' is-sunday' : weekday===6 ? ' is-saturday' : ''}${current ? ' is-today' : ''}${selected ? ' is-selected' : ''}" data-calendar-day="${dateKey}"${current ? ' aria-current="date"' : ''} aria-pressed="${selected}" aria-label="${year}년 ${month+1}월 ${day}일">${day}</button>`;
     }
     $('workCalendarGrid').innerHTML=cells;
   }
@@ -864,8 +878,10 @@
     if (!$('workCalendar')) return;
     const today=new Date(); year=today.getFullYear();month=today.getMonth();renderCalendar();
     $('workCalendar').addEventListener('click',event=>{
+      const dayButton=event.target.closest('[data-calendar-day]');
+      if(dayButton){selectedCalendarDay=dayButton.dataset.calendarDay;window.workSelectDay?.(selectedCalendarDay);renderCalendar();return;}
       const button=event.target.closest('[data-calendar-action]'); if (!button) return;
-      if(button.dataset.calendarAction==='today'){const now=new Date();year=now.getFullYear();month=now.getMonth();}
+      if(button.dataset.calendarAction==='today'){const now=new Date();year=now.getFullYear();month=now.getMonth();selectedCalendarDay=now.toLocaleDateString('en-CA');window.workSelectDay?.(selectedCalendarDay);}
       else {const next=new Date(year,month+(button.dataset.calendarAction==='prev' ? -1 : 1),1);year=next.getFullYear();month=next.getMonth();}
       renderCalendar();
     });

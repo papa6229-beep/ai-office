@@ -35,6 +35,7 @@ _MESSAGES = {
     'unsupported': '이 화면 요소는 요청한 UI Automation 동작을 지원하지 않습니다.',
     'invalid': '관찰한 창과 요소, 지원하는 동작을 지정하세요.',
     'busy': 'Windows 작업이 처리 중입니다. 잠시 후 다시 시도하세요.',
+    'focus': '대상 창을 전경으로 가져오지 못했습니다. 창을 다시 선택하고 현재 화면을 관찰하세요.',
     'uncertain': '화면 작업의 완료 여부를 확인하지 못했습니다. 다시 실행하기 전에 화면을 확인하세요.',
     'timeout': '대기 중인 화면 작업을 취소했습니다. 화면을 다시 확인하세요.',
 }
@@ -125,6 +126,18 @@ class WindowsWorkspace:
     def capture(self, window_id):
         if not isinstance(window_id, str):raise WindowsWorkspaceError('invalid')
         return self._request('capture', window_id)
+
+    def remote_observe(self,window_id):return self._request('remote_observe',window_id)
+
+    def remote_act(self,window_id,observation_id,operation,args):return self._request('remote_act',window_id,observation_id,operation,args)
+
+    def _do_remote_observe(self,window_id):
+        import desktop_control
+        return desktop_control.observe(self,window_id)
+
+    def _do_remote_act(self,*args):
+        import desktop_control
+        return desktop_control.act(self,*args)
 
     def act(self, window_id, control_id, snapshot_id, operation, value=None):
         if not all(isinstance(x, str) for x in (window_id, control_id, snapshot_id, operation)) or operation not in OPERATIONS:
