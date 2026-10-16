@@ -17,23 +17,23 @@
 #work .work-quiet{background:#2b2c2f;color:#f2f0e8;border-color:#505155}
 #work .work-secondary{background:#2b2c2f;color:#f2f0e8;border:1px solid #77776d}
 #work .work-text-button{background:transparent;padding:0;color:#6ec4cf;border:0;border-radius:2px;box-shadow:none;text-decoration:underline;text-underline-offset:3px}
-#work .work-layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,1fr);gap:22px;align-items:start}
+#work .work-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(370px,1fr);gap:22px;align-items:start}
 #work .work-main,#work .work-rail{min-width:0}
 #work .work-rail{display:block;position:sticky;top:18px}
-#work .work-assistant{background:linear-gradient(115deg,#ffffff03,transparent 65%),#1b1c1f;border:2px solid #49494d;border-radius:22px;padding:20px;box-shadow:inset 0 0 0 4px #0c0c0f,0 4px #0009}
+#work .work-assistant{position:relative;background:linear-gradient(115deg,#ffffff03,transparent 65%),#1b1c1f;border:2px solid #49494d;border-radius:15px;padding:18px;box-shadow:inset 0 0 0 4px #0c0c0f,0 4px #0009}
 #work .work-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
-#work .work-messages{max-height:285px;min-height:150px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:4px 3px 18px;scrollbar-width:thin}
+#work .work-messages{max-height:230px;min-height:145px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:4px 3px 12px;scrollbar-width:thin}
 #work .work-message{max-width:94%;box-sizing:border-box;padding:11px 14px;background:#303134;border:1px solid #45464a;border-radius:3px 10px 10px 10px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8}
 #work .work-message.work-user{align-self:flex-end;background:#3a3825;border-color:#716437;border-radius:10px 3px 10px 10px}
 #work .work-message strong{display:block;font-size:11px;color:#6ec4cf;margin-bottom:3px;font-weight:600}
 #work .work-context{display:flex;justify-content:space-between;gap:10px;margin:8px 0;color:#b3b3ad;font-size:11px;line-height:1.6;overflow-wrap:anywhere}
-#work #workCommand{border:1px solid #555650;border-radius:7px 7px 0 0;display:block;min-height:88px;border-bottom:0}
+#work #workCommand{border:1px solid #555650;border-radius:7px 7px 0 0;display:block;height:74px;min-height:70px;border-bottom:0}
 #work .work-compose-footer{border:1px solid #555650;border-top:0;border-radius:0 0 7px 7px;padding:9px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;background:#101113}
 #work .work-compose-footer span{font-size:11px;color:#aaa9a0}
-#work .work-examples{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}
+#work .work-examples{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
 #work .work-examples span{width:100%;font-size:11px;color:#a7a8a1}
 #work .work-examples button{background:transparent;border:0;box-shadow:none;border-radius:2px;color:#cecec4;font-size:11px;padding:4px 0;text-align:left;margin-right:12px;font-weight:400;text-decoration:underline;text-decoration-color:#64655c;text-underline-offset:4px}
-#work .work-tasks{margin-top:18px;padding:20px;background:#1b1c1f;border:2px solid #49494d;border-radius:22px;box-shadow:inset 0 0 0 4px #0c0c0f,0 4px #0009}
+#work .work-tasks{margin-top:18px;padding:18px;background:#17181a;border:1px solid #45464a;border-radius:10px;box-shadow:inset 0 0 0 4px #0c0c0f,0 4px #0009}
 #work .work-task-list{border-top:1px solid #38393c}
 #work .work-task-row{width:100%;display:flex;gap:12px;align-items:center;background:transparent;border:0;border-radius:0;box-shadow:none;padding:15px 10px;border-bottom:1px solid #3c3d40;color:#f2f0e8;text-align:left;font-weight:400}
 #work .work-task-row:hover{background:#252629}
@@ -67,7 +67,7 @@
 #work .work-notice.work-error{background:#382622;color:#ffb5a5}
 #work .work-retry{display:flex;justify-content:space-between;gap:12px;align-items:center}
 #work .work-sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
-#work .work-launcher{padding:18px;background:#1b1c1f;border:2px solid #49494d;border-radius:22px;color:#f2f0e8;box-shadow:inset 0 0 0 4px #0c0c0f,0 4px 0 #0009}
+#work .work-launcher{padding:18px;background:#1b1c1f;border:2px solid #49494d;border-radius:14px;color:#f2f0e8;box-shadow:inset 0 0 0 4px #0c0c0f,0 4px 0 #0009}
 #work .work-launcher .work-panel-heading{margin-bottom:6px;align-items:center}
 #work .work-launcher h3{font-size:24px;font-weight:900;letter-spacing:-.6px}
 #work .work-launcher-eyebrow{display:none}
@@ -78,15 +78,15 @@
 #work .work-launcher-notice{font-size:11px;color:#99d8df;line-height:1.7;overflow-wrap:anywhere}
 #work .work-launcher-notice:not(:empty){padding:10px 0}
 #work .work-launcher-notice.is-error{color:#ffab99}
-#work .work-launcher-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:10px;min-height:272px;align-content:start}
+#work .work-launcher-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px;min-height:268px;align-content:start}
 #work .work-launcher-cell{min-width:0}
-#work .work-launcher-tile{width:100%;min-width:0;box-sizing:border-box;height:86px;padding:6px 5px 4px;display:flex;align-items:center;flex-direction:column;gap:2px;background:linear-gradient(#323336,#27282b);border:2px solid #555650;border-bottom:4px solid #08090a;border-radius:12px;color:#f3f0e6;box-shadow:inset 0 1px #ffffff0b;transition:background .12s,transform .12s}
+#work .work-launcher-tile{width:100%;min-width:0;box-sizing:border-box;height:84px;padding:8px 5px 5px;display:flex;align-items:center;flex-direction:column;gap:2px;background:linear-gradient(#323336,#27282b);border:2px solid #555650;border-bottom:4px solid #08090a;border-radius:9px;color:#f3f0e6;box-shadow:inset 0 1px #ffffff0b;transition:background .12s,transform .12s}
 #work .work-launcher-tile:hover:not(:disabled){filter:none;background:#3d3c32;border-color:#e4be16;transform:translateY(-2px)}
 #work .work-launcher-tile:active:not(:disabled){transform:translateY(1px)}
-#work .work-launcher-icon{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:26px;height:26px;font-size:24px;line-height:1;overflow:hidden}
-#work .work-launcher-icon img{width:25px;height:25px;object-fit:contain}
+#work .work-launcher-icon{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:31px;height:31px;font-size:28px;line-height:1;overflow:hidden}
+#work .work-launcher-icon img{width:30px;height:30px;object-fit:contain}
 #work .work-launcher-icon>span{max-width:100%;font-weight:600;overflow:hidden}
-#work .work-launcher-name{font-size:11px;line-height:1.25;min-height:2.5em;font-weight:750;max-width:100%;overflow-wrap:anywhere;text-align:center;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+#work .work-launcher-name{font-size:11px;line-height:1.25;min-height:2.5em;font-weight:650;max-width:100%;overflow-wrap:anywhere;text-align:center;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 #work .work-launcher-kind{font-size:9px;line-height:1;font-weight:400;color:#b0b2a8}
 #work .work-launcher-tile.is-unavailable{border-color:#997448}
 #work .work-launcher-tile.is-unavailable .work-launcher-kind{color:#efd09b}
@@ -167,7 +167,7 @@
 #work .work-launcher-footer{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px}
 #work .work-launcher-tip{font-size:10px;line-height:1.6;color:#b6b6ad;margin:0}
 #work .work-launcher-dialog.is-appearance{width:min(430px,calc(100vw - 32px))}
-#work .work-calendar{margin-top:14px;padding:14px 20px;background:#1b1c1f;border:2px solid #49494d;border-radius:22px;color:#f2f0e8}
+#work .work-calendar{margin-top:12px;padding:11px 20px;background:#1b1c1f;border:2px solid #49494d;border-radius:10px;color:#f2f0e8}
 #work .work-calendar-heading,#work .work-calendar-navigation{display:flex;align-items:center;justify-content:space-between;gap:10px}
 #work .work-calendar-heading button{font-size:11px;padding:5px 10px}
 #work .work-calendar-navigation{margin:7px 0}
@@ -177,7 +177,7 @@
 #work .work-calendar-weekdays{font-size:11px;color:#aeb2a0;margin-bottom:7px}
 #work .work-calendar-weekdays span:first-child,#work .work-calendar-day.is-sunday{color:#ff9685}
 #work .work-calendar-weekdays span:last-child,#work .work-calendar-day.is-saturday{color:#8cd1dc}
-#work .work-calendar-day{font-size:12px;line-height:24px;min-width:0;border-radius:999px;font-weight:650}
+#work .work-calendar-day{font-size:12px;line-height:22px;min-width:0;border-radius:999px;font-weight:650}
 #work .work-calendar-day.is-today{background:#e4be16;color:#191a10;font-weight:900;box-shadow:inset 0 0 0 1px #f5d751}
 
 #work .work-assistant>.work-panel-heading{padding-bottom:13px;border-bottom:2px solid #37383b}
@@ -192,3 +192,31 @@
 #work .work-action-approval>b{color:#f0d65f}
 #work #workCommand{width:100%;resize:vertical}
 @media(prefers-reduced-motion:reduce){#work *,#work *::before,#work *::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+
+/* A compact instrument panel: one loud launcher tab, quieter task and calendar frames. */
+#work .work-heading{position:relative;isolation:isolate;overflow:hidden;padding:0 0 6px;margin-bottom:6px}
+#work .work-heading::after{content:'AI OFFICE';position:absolute;z-index:-1;pointer-events:none;right:14px;top:-22px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-style:italic;font-size:112px;letter-spacing:-3px;line-height:1;color:#ffffff06;transform:skewX(-9deg)}
+#work .work-assistant>.work-panel-heading{margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #45464a}
+#work .work-assistant>.work-panel-heading h3{border-left:4px solid #6ec4cf;padding-left:11px;font-size:20px}
+#work .work-assistant::before{content:'';position:absolute;pointer-events:none;top:-2px;left:26px;width:86px;height:3px;background:#6ec4cf}
+#work .work-launcher .work-panel-heading{padding-bottom:10px;border-bottom:1px solid #434448}
+#work .work-launcher h3{position:relative;isolation:isolate;font-size:21px;color:#171812;padding:4px 18px 4px 12px;line-height:1.4;transform:rotate(-2deg)}
+#work .work-launcher h3::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background:#e4be16;transform:skewX(-12deg);box-shadow:3px 3px #0b0b0d}
+#work .work-launcher-slot{height:84px;box-sizing:border-box;border:1px solid #303135;border-radius:9px;background:repeating-linear-gradient(135deg,transparent,transparent 5px,#ffffff02 5px,#ffffff02 6px)}
+#work .work-launcher-add-tile{border:1px dashed #686858;border-bottom:2px solid #38392e;background:#24251f;color:#d3c777;box-shadow:none;justify-content:center;gap:5px;font-size:11px}
+#work .work-launcher-add-tile>span:first-child{font-size:30px;line-height:1;font-weight:400}
+#work .work-launcher-pages button{border-radius:5px;padding:5px 9px;box-shadow:none}
+#work .work-launcher-pages button[aria-current=page]{transform:skewX(-8deg)}
+#work .work-launcher-tile:focus-visible{outline-offset:1px}
+#work .work-task-empty{display:flex;align-items:center;gap:15px;padding:23px 4px 18px}
+#work .work-empty-mark{display:flex;flex:0 0 40px;align-items:center;justify-content:center;width:40px;height:40px;color:#73766c;border:1px solid #43463e;font-size:28px;line-height:1;transform:rotate(-8deg)}
+#work .work-task-empty strong{color:#dfdfd5;font-size:13px;font-weight:600}
+#work .work-task-empty p{font-size:12px;color:#aaa99f;margin-top:4px;line-height:1.65}
+#work .work-tasks>.work-panel-heading{margin-bottom:13px}
+#work .work-tasks>.work-panel-heading h3{font-size:18px}
+#work .work-tasks .work-secondary{border-radius:6px}
+#work .work-calendar-heading{padding-bottom:5px;border-bottom:1px solid #37383c}
+#work .work-calendar-heading h3{color:#c5c5ba;font-size:13px}
+@media(max-width:1150px){#work .work-layout{grid-template-columns:minmax(0,1.15fr) minmax(350px,1fr);gap:18px}#work .work-launcher{padding:16px}}
+@media(max-width:850px){#work .work-layout{grid-template-columns:1fr}#work .work-heading::after{font-size:88px;top:0}}
+@media(max-width:600px){#work .work-launcher-grid{grid-template-columns:repeat(3,minmax(0,1fr))}#work .work-heading::after{display:none}#work .work-assistant,#work .work-tasks{padding:16px}#work .work-launcher{padding:17px 13px}#work .work-panel-heading{gap:8px}#work .work-assistant>.work-panel-heading h3{font-size:18px}#work .work-task-empty{gap:11px}}

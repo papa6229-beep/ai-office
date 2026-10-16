@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '..', 'workdesk.js'), 'utf8');
-async function surface({date, savePage} = {}) {
+async function surface({date, savePage, fullPage = false} = {}) {
   const elements = new Map(), ready = [], posts = [];
-  const state = {action_token:'fixture', pages:[{id:1,title:'1페이지'},{id:2,title:'2페이지'}], items:Array.from({length:12},(_,i)=>({id:'item'+i,title:'앱'+i,kind:'app',target:'missing.exe',available:false,page:i<9?1:2}))};
+  const state = {action_token:'fixture', page_size:12, pages:[{id:1,title:'1페이지'},{id:2,title:'2페이지'}], items:Array.from({length:12},(_,i)=>({id:'item'+i,title:'앱'+i,kind:'app',target:'missing.exe',available:false,page:(fullPage || i<9)?1:2}))};
   const element = id => {
     if (!elements.has(id)) {
       const handlers = new Map();
@@ -29,6 +29,8 @@ test('launcher shows nine items and navigates persistent empty pages',async()=>{
   const s=await surface(); assert.equal((s.element('workLauncherGrid').innerHTML.match(/data-launcher-action="launch"/g)||[]).length,9);
   await s.click('page',{launcherPage:'2'}); assert.match(s.element('workLauncherGrid').innerHTML,/앱9/); assert.doesNotMatch(s.element('workLauncherGrid').innerHTML,/앱0</);
   await s.click('add-page'); assert.equal(s.posts[0].url,'/api/launcher/add-page'); assert.match(s.element('workLauncherPages').innerHTML,/aria-current="page"[^>]*>3페이지/);
+  assert.equal((s.element('workLauncherGrid').innerHTML.match(/work-launcher-add-tile/g)||[]).length,1);
+  assert.equal((s.element('workLauncherGrid').innerHTML.match(/class="work-launcher-slot" aria-hidden="true"/g)||[]).length,11);
 });
 test('right click edits appearance without launching or validating broken target',async()=>{
   const s=await surface(); let prevented=false;
@@ -73,4 +75,20 @@ test('calendar controls remain enabled and work without launcher network',async(
   assert.equal(s.element('workCalendarMonth').textContent,'2025년 1월');
   await s.element('workCalendar').fire('click',{target:{closest:()=>({dataset:{calendarAction:'today'}})}});
   assert.equal(s.element('workCalendarMonth').textContent,'2024년 12월');assert.equal(s.posts.length,0);
+});
+
+
+test('twelve-item page is fully reachable without an extra add tile', async()=>{
+  const s=await surface({fullPage:true}); const html=s.element('workLauncherGrid').innerHTML;
+  assert.equal((html.match(/data-launcher-action="launch"/g)||[]).length,12);
+  assert.doesNotMatch(html,/work-launcher-add-tile|work-launcher-slot/);
+});
+test('existing nine-item page retains items plus one real add tile and two decorative slots',async()=>{
+  const s=await surface(), html=s.element('workLauncherGrid').innerHTML;
+  assert.equal((html.match(/work-launcher-add-tile/g)||[]).length,1);
+  assert.equal((html.match(/class="work-launcher-slot" aria-hidden="true"/g)||[]).length,2);
+  await s.click('page',{launcherPage:'2'});await s.click('add');
+  s.element('workLauncherName').value='새 도구';s.element('workLauncherKind').value='web';s.element('workLauncherTarget').value='https://example.com';
+  await s.element('work').fire('submit',{target:{id:'workLauncherForm'},preventDefault(){}});
+  assert.equal(s.posts[0].body.page,2);
 });

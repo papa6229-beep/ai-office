@@ -64,11 +64,22 @@ class QuickLauncherTests(unittest.TestCase):
             rows = [(uuid.uuid4().hex, f'항목 {i}', 'web', 'https://example.com', '🌐', b'old-image', i) for i in range(29)]
             c.executemany('INSERT INTO launcher_items VALUES (?,?,?,?,?,?,?)', rows)
         overview = QuickLauncher(self.db).overview()
-        self.assertEqual([item['page'] for item in overview['items']], [i // 9 + 1 for i in range(29)])
-        self.assertEqual(overview['pages'], [{'id': i, 'title': f'{i}페이지'} for i in range(1, 5)])
+        self.assertEqual([item['page'] for item in overview['items']], [i // 12 + 1 for i in range(29)])
+        self.assertEqual(overview['pages'], [{'id': i, 'title': f'{i}페이지'} for i in range(1, 4)])
         with sqlite3.connect(self.db) as c:
             self.assertEqual(c.execute('SELECT * FROM launcher_items ORDER BY position').fetchall(), rows)
             self.assertEqual(len(c.execute('PRAGMA table_info(launcher_items)').fetchall()), 7)
+
+    def test_existing_nine_item_page_assignments_remain_unchanged(self):
+        with patch('quick_launcher._PAGE_SIZE', 9):
+            ids = [self.save(str(i)) for i in range(14)]
+            before = {item['id']: item['page'] for item in self.service.overview()['items']}
+        service = QuickLauncher(self.db)
+        after = service.overview()
+        self.assertEqual(after['page_size'], 12)
+        self.assertEqual({item['id']: item['page'] for item in after['items']}, before)
+        new_id = service.perform('save', {'request_id': uuid.uuid4().hex, 'title': '추가', 'kind': 'web', 'target': 'https://example.com', 'page': 1})['result']['id']
+        self.assertEqual(next(item['page'] for item in service.overview()['items'] if item['id'] == new_id), 1)
 
     def test_empty_pages_persist_add_page_replays_and_targeted_save_uses_page(self):
         payload = {'request_id': uuid.uuid4().hex}
@@ -94,9 +105,9 @@ class QuickLauncherTests(unittest.TestCase):
         self.assertEqual(self.service.overview()['items'], [])
 
     def test_full_page_spills_without_hidden_items_and_reordering_keeps_mapping(self):
-        ids = [self.save(str(i), page=1) for i in range(11)]
+        ids = [self.save(str(i), page=1) for i in range(14)]
         overview = self.service.overview()
-        self.assertEqual([i['page'] for i in overview['items']], [1] * 9 + [2] * 2)
+        self.assertEqual([i['page'] for i in overview['items']], [1] * 12 + [2] * 2)
         mapping = {item['id']: item['page'] for item in overview['items']}
         updated = self.do('reorder', ids=ids[::-1])
         self.assertEqual([item['id'] for item in updated['items']], ids[::-1])
@@ -104,7 +115,7 @@ class QuickLauncherTests(unittest.TestCase):
         for bad in (0, -1, 3, '1', True, None, [], {}):
             with self.subTest(page=bad), self.assertRaises(ValueError):
                 self.save(page=bad)
-        self.assertEqual(len(self.service.overview()['items']), 11)
+        self.assertEqual(len(self.service.overview()['items']), 14)
 
     def test_appearance_preserves_unavailable_target_and_other_values_with_replay(self):
         target = self.root / 'vanished.exe'

@@ -22,7 +22,7 @@ _LOCKS_GUARD = threading.Lock()
 _FIELDS = {'save': {'id', 'title', 'kind', 'target', 'icon', 'icon_data', 'page'},
            'remove': {'id'}, 'reorder': {'ids'}, 'launch': {'id'},
            'add-page': set(), 'appearance': {'id', 'title', 'icon', 'icon_data'}}
-_PAGE_SIZE = 9
+_PAGE_SIZE = 12
 _MAX_ICON_BYTES = 512 * 1024
 _LAUNCH_FAILURE = '열기 요청을 완료하지 못했습니다. 대상을 확인한 후 다시 요청하세요.'
 _LAUNCH_UNCERTAIN = '이미 처리된 열기 요청입니다. 실행 여부를 확인한 후 새로 요청하세요.'
