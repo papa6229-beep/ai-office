@@ -248,12 +248,11 @@
     selectPage(selectedPage);
     const items = (state?.items || []).filter(item => (item.page || 1) === selectedPage);
     $('workLauncherPages').innerHTML = pages().map(page => `<button type="button" data-launcher-action="page" data-launcher-page="${page.id}" ${page.id === selectedPage ? 'aria-current="page"' : ''}>${esc(page.title)}</button>`).join('')+'<button type="button" data-launcher-action="add-page" aria-label="바로가기 페이지 추가">+ 페이지</button>';
-    const capacity = Math.max(12, Number(state?.page_size) || 12);
+    const capacity = Math.max(15, Number(state?.page_size) || 15);
     const tiles = items.map(item => `<div class="work-launcher-cell"><button type="button" draggable="true" class="work-launcher-tile${item.available === false ? ' is-unavailable' : ''}" data-launcher-action="launch" data-launcher-id="${esc(item.id)}" title="${esc(item.title)} · ${esc(item.target)}" aria-label="${esc(item.title)} 열기${item.available === false ? ' · 경로 확인 필요' : ''}"><span class="work-launcher-icon${item.icon_image ? ' is-image' : ''}" aria-hidden="true">${icon(item)}</span><span class="work-launcher-name">${esc(item.title)}</span></button></div>`).join('');
     const remaining = Math.max(0, capacity - items.length);
     const addTile = remaining ? '<button type="button" class="work-launcher-tile work-launcher-add-tile" data-launcher-action="add" aria-label="이 페이지에 바로가기 추가"><span aria-hidden="true">＋</span><span>추가</span></button>' : '';
-    const slots = Array.from({length:Math.max(0,remaining-1)}, () => '<div class="work-launcher-slot" aria-hidden="true"></div>').join('');
-    $('workLauncherGrid').innerHTML = tiles + addTile + slots;
+    $('workLauncherGrid').innerHTML = tiles + addTile;
     locks();
   }
   async function load(refresh = false) {
@@ -488,7 +487,7 @@
     $('workLauncherIcon').addEventListener('input',()=>{imageData='';imageURL='';imageVersion++;preview();});
     $('workLauncherImage').addEventListener('change',()=>{
       const file=$('workLauncherImage').files[0]; if (!file) return;
-      if (file.size > 512*1024 || !/\.(png|jpe?g|webp|ico)$/i.test(file.name) || (file.type && !/^image\/(png|jpeg|webp|x-icon|vnd\.microsoft\.icon)$/i.test(file.type))) { $('workLauncherFormNotice').textContent='512KB 이하 PNG, JPG, WebP, ICO 이미지를 선택하세요.'; $('workLauncherImage').value=''; return; }
+      if (file.size > 512*1024 || !/\.(png|jpe?g|webp|gif|ico)$/i.test(file.name) || (file.type && !/^image\/(png|jpeg|webp|gif|x-icon|vnd\.microsoft\.icon)$/i.test(file.type))) { $('workLauncherFormNotice').textContent='512KB 이하 PNG, JPG, WebP, GIF, ICO 이미지를 선택하세요.'; $('workLauncherImage').value=''; return; }
       const version=++imageVersion, reader=new FileReader(); imageReading=true; locks();
       reader.onload=()=>{if (version !== imageVersion) return; imageData=String(reader.result);imageURL='';imageReading=false;preview();locks();$('workLauncherFormNotice').textContent='이미지 아이콘을 선택했습니다. 저장하면 적용됩니다.';};
       reader.onerror=()=>{if (version !== imageVersion) return;imageReading=false;locks();$('workLauncherFormNotice').textContent='이미지를 읽지 못했습니다.';}; reader.readAsDataURL(file);

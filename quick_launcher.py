@@ -22,8 +22,10 @@ _LOCKS_GUARD = threading.Lock()
 _FIELDS = {'save': {'id', 'title', 'kind', 'target', 'icon', 'icon_data', 'page'},
            'remove': {'id'}, 'reorder': {'ids'}, 'launch': {'id'},
            'add-page': set(), 'appearance': {'id', 'title', 'icon', 'icon_data'}}
-_PAGE_SIZE = 12
+_PAGE_SIZE = 15
 _MAX_ICON_BYTES = 512 * 1024
+_MAX_GIF_FRAMES = 300
+_MAX_GIF_PIXELS = 32_000_000
 _LAUNCH_FAILURE = '열기 요청을 완료하지 못했습니다. 대상을 확인한 후 다시 요청하세요.'
 _LAUNCH_UNCERTAIN = '이미 처리된 열기 요청입니다. 실행 여부를 확인한 후 새로 요청하세요.'
 
@@ -85,9 +87,9 @@ def _icon_image(value):
         return None
     if len(value) > (_MAX_ICON_BYTES + 2) // 3 * 4 + 100:
         raise ValueError('아이콘 이미지는 512KB 이하여야 합니다.')
-    match = re.fullmatch(r'data:image/(png|jpeg|webp|x-icon|vnd.microsoft.icon);base64,([A-Za-z0-9+/=]+)', value)
+    match = re.fullmatch(r'data:image/(png|jpeg|webp|gif|x-icon|vnd.microsoft.icon);base64,([A-Za-z0-9+/=]+)', value)
     if not match:
-        raise ValueError('PNG, JPEG, WebP 또는 ICO 이미지를 선택하세요.')
+        raise ValueError('PNG, JPEG, WebP, GIF 또는 ICO 이미지를 선택하세요.')
     try:
         from PIL import Image
     except ImportError:
@@ -99,9 +101,27 @@ def _icon_image(value):
         with warnings.catch_warnings():
             warnings.simplefilter('error', Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(raw)) as source:
-                expected = {'png': 'PNG', 'jpeg': 'JPEG', 'webp': 'WEBP', 'x-icon': 'ICO', 'vnd.microsoft.icon': 'ICO'}[match[1]]
+                expected = {'png': 'PNG', 'jpeg': 'JPEG', 'webp': 'WEBP', 'gif': 'GIF', 'x-icon': 'ICO', 'vnd.microsoft.icon': 'ICO'}[match[1]]
                 if source.format != expected or max(source.size) > 1024 or min(source.size) < 1:
                     raise ValueError()
+                if expected == 'GIF':
+                    # Retain original frames, timing, transparency and loop metadata.
+                    # Decode every frame before storing, with a bounded work budget.
+                    if not raw.endswith(b';'):
+                        raise ValueError()
+                    frames = source.n_frames
+                    if frames > _MAX_GIF_FRAMES or source.width * source.height * frames > _MAX_GIF_PIXELS:
+                        raise ValueError()
+                    pixels = 0
+                    for index in range(frames):
+                        source.seek(index)
+                        if max(source.size) > 1024 or min(source.size) < 1:
+                            raise ValueError()
+                        pixels += source.width * source.height
+                        if pixels > _MAX_GIF_PIXELS:
+                            raise ValueError()
+                        source.load()
+                    return raw
                 source.load()
                 output = io.BytesIO()
                 source.convert('RGBA').save(output, format='PNG')
@@ -109,7 +129,7 @@ def _icon_image(value):
                 if len(normalized) > _MAX_ICON_BYTES:
                     raise ValueError()
                 return normalized
-    except (OSError, ValueError, binascii.Error, Image.DecompressionBombError, Warning):
+    except (OSError, EOFError, ValueError, binascii.Error, Image.DecompressionBombError, Warning):
         raise ValueError('유효한 1024×1024 이하 아이콘 이미지를 선택하세요.') from None
 
 
@@ -250,7 +270,8 @@ class QuickLauncher:
             row = self._item(c, item_id)
             if row['image'] is None:
                 raise ValueError('등록된 아이콘 이미지가 없습니다.')
-            return bytes(row['image']), 'image/png'
+            raw = bytes(row['image'])
+            return raw, 'image/gif' if raw.startswith((b'GIF87a', b'GIF89a')) else 'image/png'
 
     def _item(self, c, item_id):
         row = c.execute('SELECT * FROM launcher_items WHERE id=?', (_identifier(item_id),)).fetchone()

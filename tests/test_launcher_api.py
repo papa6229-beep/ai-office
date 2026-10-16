@@ -110,6 +110,32 @@ class LauncherApiTests(unittest.TestCase):
             self.assertEqual(self.request('/api/launcher/pick-program',{'token':app.DESK_TOKEN})['path'],str(self.program))
             run.assert_called_once()
 
+    def test_animated_gif_http_round_trip_keeps_animation_and_mime(self):
+        from PIL import Image
+        frames = [Image.new('RGBA', (16, 16), color) for color in ('red', 'blue')]
+        output = io.BytesIO()
+        frames[0].save(output, format='GIF', save_all=True, append_images=frames[1:],
+                       duration=[80, 150], loop=2)
+        raw = output.getvalue()
+        icon = 'data:image/gif;base64,' + base64.b64encode(raw).decode()
+        data = self.write('save', title='GIF 아이콘', kind='web', target='https://example.com', icon_data=icon)
+        self.assertEqual(data['page_size'], 15)
+        item_id = data['items'][0]['id']
+        self.write('appearance', id=item_id, title='이름 수정')
+        with urllib.request.urlopen(self.base + '/api/launcher/icon?id=' + item_id, timeout=5) as response:
+            self.assertEqual(response.headers.get_content_type(), 'image/gif')
+            returned = response.read()
+        self.assertEqual(returned, raw)
+        with Image.open(io.BytesIO(returned)) as image:
+            self.assertEqual((image.n_frames, image.info['loop']), (2, 2))
+            self.assertEqual(image.info['duration'], 80)
+            image.seek(1)
+            self.assertEqual(image.info['duration'], 150)
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.write('appearance', id=item_id, title='잘못된 GIF',
+                       icon_data='data:image/gif;base64,' + base64.b64encode(raw[:-1]).decode())
+        self.assertEqual(error.exception.code, 400)
+
     def test_bookmarks_are_read_only_and_require_explicit_local_request(self):
         expected = {'items': [{'title': '업무 사이트', 'kind': 'web',
                               'target': 'https://example.com/work', 'browser': 'Chrome',

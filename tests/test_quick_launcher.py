@@ -64,8 +64,8 @@ class QuickLauncherTests(unittest.TestCase):
             rows = [(uuid.uuid4().hex, f'항목 {i}', 'web', 'https://example.com', '🌐', b'old-image', i) for i in range(29)]
             c.executemany('INSERT INTO launcher_items VALUES (?,?,?,?,?,?,?)', rows)
         overview = QuickLauncher(self.db).overview()
-        self.assertEqual([item['page'] for item in overview['items']], [i // 12 + 1 for i in range(29)])
-        self.assertEqual(overview['pages'], [{'id': i, 'title': f'{i}페이지'} for i in range(1, 4)])
+        self.assertEqual([item['page'] for item in overview['items']], [i // 15 + 1 for i in range(29)])
+        self.assertEqual(overview['pages'], [{'id': i, 'title': f'{i}페이지'} for i in range(1, 3)])
         with sqlite3.connect(self.db) as c:
             self.assertEqual(c.execute('SELECT * FROM launcher_items ORDER BY position').fetchall(), rows)
             self.assertEqual(len(c.execute('PRAGMA table_info(launcher_items)').fetchall()), 7)
@@ -76,7 +76,7 @@ class QuickLauncherTests(unittest.TestCase):
             before = {item['id']: item['page'] for item in self.service.overview()['items']}
         service = QuickLauncher(self.db)
         after = service.overview()
-        self.assertEqual(after['page_size'], 12)
+        self.assertEqual(after['page_size'], 15)
         self.assertEqual({item['id']: item['page'] for item in after['items']}, before)
         new_id = service.perform('save', {'request_id': uuid.uuid4().hex, 'title': '추가', 'kind': 'web', 'target': 'https://example.com', 'page': 1})['result']['id']
         self.assertEqual(next(item['page'] for item in service.overview()['items'] if item['id'] == new_id), 1)
@@ -95,6 +95,15 @@ class QuickLauncherTests(unittest.TestCase):
         with sqlite3.connect(self.db) as c:
             self.assertEqual(c.execute('SELECT * FROM launcher_item_pages').fetchall(), [])
 
+    def test_existing_twelve_item_pages_are_not_reflowed(self):
+        with patch('quick_launcher._PAGE_SIZE', 12):
+            for index in range(29):
+                self.save(str(index))
+            before = {item['id']: item['page'] for item in self.service.overview()['items']}
+        after = QuickLauncher(self.db).overview()
+        self.assertEqual(after['page_size'], 15)
+        self.assertEqual({item['id']: item['page'] for item in after['items']}, before)
+
     def test_legacy_request_receipt_remains_exact_on_replay(self):
         payload = {'request_id': uuid.uuid4().hex, 'title': '과거', 'kind': 'web', 'target': 'https://example.com'}
         receipt = {'items': [], 'result': {'message': '과거 응답'}}
@@ -105,9 +114,9 @@ class QuickLauncherTests(unittest.TestCase):
         self.assertEqual(self.service.overview()['items'], [])
 
     def test_full_page_spills_without_hidden_items_and_reordering_keeps_mapping(self):
-        ids = [self.save(str(i), page=1) for i in range(14)]
+        ids = [self.save(str(i), page=1) for i in range(17)]
         overview = self.service.overview()
-        self.assertEqual([i['page'] for i in overview['items']], [1] * 12 + [2] * 2)
+        self.assertEqual([i['page'] for i in overview['items']], [1] * 15 + [2] * 2)
         mapping = {item['id']: item['page'] for item in overview['items']}
         updated = self.do('reorder', ids=ids[::-1])
         self.assertEqual([item['id'] for item in updated['items']], ids[::-1])
@@ -115,7 +124,7 @@ class QuickLauncherTests(unittest.TestCase):
         for bad in (0, -1, 3, '1', True, None, [], {}):
             with self.subTest(page=bad), self.assertRaises(ValueError):
                 self.save(page=bad)
-        self.assertEqual(len(self.service.overview()['items']), 14)
+        self.assertEqual(len(self.service.overview()['items']), 17)
 
     def test_appearance_preserves_unavailable_target_and_other_values_with_replay(self):
         target = self.root / 'vanished.exe'
@@ -280,6 +289,66 @@ class QuickLauncherTests(unittest.TestCase):
         Image.new('RGB', (1025, 1)).save(out, format='PNG')
         with self.assertRaises(ValueError):
             self.save(icon_data='data:image/png;base64,' + base64.b64encode(out.getvalue()).decode())
+
+    def gif_bytes(self, count=2, size=(16, 16)):
+        from PIL import Image
+        frames = [Image.new('P', size, index % 2 + 1) for index in range(count)]
+        palette = [0, 0, 0, 255, 0, 0, 0, 255, 0] + [0] * (768 - 9)
+        for frame in frames:
+            frame.putpalette(palette)
+        out = io.BytesIO()
+        frames[0].save(out, format='GIF', save_all=True, append_images=frames[1:],
+                       duration=[80 + index % 2 * 90 for index in range(count)],
+                       loop=3, transparency=0, disposal=2, optimize=False)
+        return out.getvalue()
+
+    def test_animated_gif_preserves_original_frames_metadata_and_edits(self):
+        from PIL import Image
+        raw = self.gif_bytes()
+        data = 'data:image/gif;base64,' + base64.b64encode(raw).decode()
+        payload = {'request_id': uuid.uuid4().hex, 'title': '움직이는 아이콘', 'kind': 'web',
+                   'target': 'https://example.com', 'icon_data': data}
+        response = self.service.perform('save', payload)
+        self.assertEqual(QuickLauncher(self.db).perform('save', payload), response)
+        item_id = response['result']['id']
+        self.assertEqual(QuickLauncher(self.db).icon_bytes(item_id), (raw, 'image/gif'))
+        with Image.open(io.BytesIO(raw)) as image:
+            self.assertEqual((image.n_frames, image.info['loop'], image.info['transparency']), (2, 3, 0))
+            colors, durations = [], []
+            for index in range(image.n_frames):
+                image.seek(index)
+                colors.append(image.convert('RGB').getpixel((0, 0)))
+                durations.append(image.info['duration'])
+            self.assertNotEqual(colors[0], colors[1])
+            self.assertEqual(durations, [80, 170])
+        self.do('appearance', id=item_id, title='이름 수정')
+        self.do('save', id=item_id, title='주소 수정', kind='web', target='https://example.com/new')
+        self.assertEqual(self.service.icon_bytes(item_id), (raw, 'image/gif'))
+        self.do('appearance', id=item_id, title='재등록', icon_data=data)
+        self.assertEqual(self.service.icon_bytes(item_id), (raw, 'image/gif'))
+        self.do('appearance', id=item_id, title='제거', icon_data='')
+        with self.assertRaises(ValueError):
+            self.service.icon_bytes(item_id)
+
+    def test_static_gif_is_preserved_and_wrong_mime_or_truncation_rejected(self):
+        from PIL import Image
+        raw = self.gif_bytes(count=1)
+        item_id = self.save(icon_data='data:image/gif;base64,' + base64.b64encode(raw).decode())
+        self.assertEqual(self.service.icon_bytes(item_id), (raw, 'image/gif'))
+        png = io.BytesIO()
+        Image.new('RGB', (8, 8)).save(png, format='PNG')
+        invalid = [('gif', png.getvalue()), ('png', raw), ('gif', b'GIF89a-corrupt;'),
+                   ('gif', raw[:-1]), ('gif', self.gif_bytes()[:-25] + b';'),
+                   ('gif', self.gif_bytes(size=(1025, 1))), ('gif', b'A' * (512 * 1024 + 1))]
+        for mime, value in invalid:
+            with self.subTest(mime=mime, size=len(value)), self.assertRaises(ValueError):
+                self.save(icon_data=f'data:image/{mime};base64,' + base64.b64encode(value).decode())
+
+    def test_gif_frame_and_decoded_pixel_limits_are_enforced(self):
+        for raw in (self.gif_bytes(count=301), self.gif_bytes(count=31, size=(1024, 1024))):
+            self.assertLess(len(raw), 512 * 1024)
+            with self.subTest(size=len(raw)), self.assertRaises(ValueError):
+                self.save(icon_data='data:image/gif;base64,' + base64.b64encode(raw).decode())
 
     def test_suggestions_are_bounded_read_only_and_do_not_read_shortcut_contents(self):
         for index in range(60):

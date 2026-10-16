@@ -5,20 +5,20 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '..', 'workdesk.js'), 'utf8');
 async function surface({date, savePage, fullPage = false, imageIcon = false} = {}) {
   const elements = new Map(), ready = [], posts = [], controls = {};
-  const state = {action_token:'fixture', page_size:12, pages:[{id:1,title:'1페이지'},{id:2,title:'2페이지'}], items:Array.from({length:12},(_,i)=>({id:'item'+i,title:'앱'+i,kind:'app',target:'missing.exe',available:false,icon_image:imageIcon && i===0,page:(fullPage || i<9)?1:2}))};
+  const state = {action_token:'fixture', page_size:15, pages:[{id:1,title:'1페이지'},{id:2,title:'2페이지'}], items:Array.from({length:fullPage ? 15 : 12},(_,i)=>({id:'item'+i,title:'앱'+i,kind:'app',target:'missing.exe',available:false,icon_image:imageIcon && i===0,page:(fullPage || i<9)?1:2}))};
   const element = id => {
     if (!elements.has(id)) {
       const handlers = new Map();
       elements.set(id, {id,value:'',dataset:{},disabled:false,hidden:false,open:false,innerHTML:'',textContent:'',classList:{toggle(){},add(){},remove(){}},
         addEventListener(name, fn){handlers.set(name,fn);}, fire(name,event){return handlers.get(name)?.(event);},
-        contains(){return false;},querySelectorAll(){return [];},querySelector(){return {textContent:'',setAttribute(){}};},setAttribute(){},replaceChildren(){},focus(){},reset(){},
+        contains(){return false;},querySelectorAll(){return [];},querySelector(){return {textContent:'',setAttribute(){}};},setAttribute(){},replaceChildren(){this.children=[];},append(node){(this.children ||= []).push(node);},focus(){},reset(){},
         showModal(){this.open=true;}, close(){this.open=false;}
       });
     }
     return elements.get(id);
   };
   const Clock=date ? class extends Date {constructor(...args){super(...(args.length ? args : [date]));}} : Date;
-  const context={document:{getElementById:element,addEventListener(name,fn){if(name==='DOMContentLoaded')ready.push(fn);},querySelectorAll(){return [];}},window:{},Date:Clock,Intl,Map,Uint8Array,URL,
+  const context={FileReader:class {readAsDataURL(file){this.result=file.data;this.onload?.();}},document:{createElement(tag){return {tag};},getElementById:element,addEventListener(name,fn){if(name==='DOMContentLoaded')ready.push(fn);},querySelectorAll(){return [];}},window:{},Date:Clock,Intl,Map,Uint8Array,URL,
     localStorage:{getItem(){return null;},setItem(){}},crypto:{getRandomValues(bytes){bytes.fill(2);return bytes;}},
     fetch:async(url,options)=>{let result; if(options?.method==='POST'){const body=JSON.parse(options.body);posts.push({url,body});if(controls.hold) await new Promise(resolve=>controls.release=resolve);if(controls.fail){controls.fail=false;throw Error('network');}if(url.endsWith('reorder')){state.items=body.ids.map(id=>state.items.find(item=>item.id===id));}if(url.endsWith('remove')){state.items=state.items.filter(item=>item.id!==body.id);}if(url.endsWith('add-page')){state.pages.push({id:3,title:'3페이지'});result={page:3};}else result={page:savePage||body.page||1};}return {ok:true,status:200,json:async()=>({...state,result})};}};
   vm.runInNewContext(source,context); ready[1](); ready[2](); await new Promise(setImmediate);
@@ -30,7 +30,7 @@ test('launcher shows nine items and navigates persistent empty pages',async()=>{
   await s.click('page',{launcherPage:'2'}); assert.match(s.element('workLauncherGrid').innerHTML,/앱9/); assert.doesNotMatch(s.element('workLauncherGrid').innerHTML,/앱0</);
   await s.click('add-page'); assert.equal(s.posts[0].url,'/api/launcher/add-page'); assert.match(s.element('workLauncherPages').innerHTML,/aria-current="page"[^>]*>3페이지/);
   assert.equal((s.element('workLauncherGrid').innerHTML.match(/work-launcher-add-tile/g)||[]).length,1);
-  assert.equal((s.element('workLauncherGrid').innerHTML.match(/class="work-launcher-slot" aria-hidden="true"/g)||[]).length,11);
+  assert.equal((s.element('workLauncherGrid').innerHTML.match(/class="work-launcher-slot" aria-hidden="true"/g)||[]).length,0);
 });
 test('right click opens full fields and appearance-only edits preserve broken target',async()=>{
   const s=await surface(); let prevented=false;
@@ -78,9 +78,9 @@ test('calendar controls remain enabled and work without launcher network',async(
 });
 
 
-test('twelve-item page is fully reachable without an extra add tile', async()=>{
+test('fifteen-item page is fully reachable without an extra add tile', async()=>{
   const s=await surface({fullPage:true}); const html=s.element('workLauncherGrid').innerHTML;
-  assert.equal((html.match(/data-launcher-action="launch"/g)||[]).length,12);
+  assert.equal((html.match(/data-launcher-action="launch"/g)||[]).length,15);
   assert.doesNotMatch(html,/work-launcher-add-tile|work-launcher-slot/);
 });
 
@@ -91,10 +91,10 @@ test('launcher omits type captions and uses image badges while retaining unavail
   assert.match(html,/aria-label="앱0 열기 · 경로 확인 필요"/);
   assert.equal((html.match(/work-launcher-icon is-image/g)||[]).length,1);
 });
-test('existing nine-item page retains items plus one real add tile and two decorative slots',async()=>{
+test('existing nine-item page retains items plus one real add tile without decorative boxes',async()=>{
   const s=await surface(), html=s.element('workLauncherGrid').innerHTML;
   assert.equal((html.match(/work-launcher-add-tile/g)||[]).length,1);
-  assert.equal((html.match(/class="work-launcher-slot" aria-hidden="true"/g)||[]).length,2);
+  assert.equal((html.match(/class="work-launcher-slot" aria-hidden="true"/g)||[]).length,0);
   await s.click('page',{launcherPage:'2'});await s.click('add');
   s.element('workLauncherName').value='새 도구';s.element('workLauncherKind').value='web';s.element('workLauncherTarget').value='https://example.com';
   await s.element('work').fire('submit',{target:{id:'workLauncherForm'},preventDefault(){}});
@@ -164,4 +164,25 @@ test('reorder preserves interleaved other-page positions rather than flattening 
 });
 test('cancelled native drag suppresses launch and cannot later accept an external drop',async()=>{
   const s=await surface(),d=drag(s);d.end();await s.click('launch',{launcherId:'item0'});await d.drop();assert.equal(s.posts.length,0);
+});
+
+test('GIF upload keeps raw image data in preview and appearance payload',async()=>{
+  const s=await surface();edit(s);const data='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  s.element('workLauncherImage').files=[{name:'animated.GIF',type:'image/gif',size:42,data}];
+  s.element('workLauncherImage').fire('change');
+  assert.equal(s.element('workLauncherIconPreview').children[0].src,data);
+  await s.element('work').fire('submit',{target:{id:'workLauncherForm'},preventDefault(){}});
+  assert.equal(s.posts[0].body.icon_data,data);assert.equal(s.posts[0].url,'/api/launcher/appearance');
+});
+test('GIF upload keeps the same 512KB boundary and rejects mismatched MIME',async()=>{
+  for(const file of [{name:'large.gif',type:'image/gif',size:512*1024+1},{name:'script.gif',type:'application/javascript',size:10}]){
+    const s=await surface();edit(s);s.element('workLauncherImage').files=[file];s.element('workLauncherImage').fire('change');
+    assert.match(s.element('workLauncherFormNotice').textContent,/512KB.*GIF/);assert.equal(s.posts.length,0);
+  }
+  const html=fs.readFileSync(require('node:path').join(__dirname,'..','workdesk.html'),'utf8');assert.match(html,/accept="[^"]*image\/gif/);
+});
+test('floating launcher has five desktop columns and no decorative slot markup',()=>{
+  const css=fs.readFileSync(require('node:path').join(__dirname,'..','workdesk.css'),'utf8');
+  assert.match(css,/work-launcher-grid\{[^}]*repeat\(5/);assert.doesNotMatch(source,/class="work-launcher-slot"/);
+  assert.match(css,/work-launcher-tile\{[^}]*background:transparent;border:0/);
 });
