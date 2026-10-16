@@ -143,7 +143,7 @@ def _validate(value, schema):
 class AssistantRuntime:
     MAX_ROUNDS = 6
     MAX_CALLS = 12
-    MAX_SOURCE_CALLS = 24
+    MAX_SOURCE_CALLS = 48
     SOURCE_TOOLS = frozenset({
         "office_source_list", "office_source_read", "office_source_apply",
         "office_source_history", "office_source_rollback",
@@ -350,7 +350,8 @@ class AssistantRuntime:
             if calls_used >= self.MAX_SOURCE_CALLS:
                 receipts.append({'status': 'error', 'message':
                     '한 번의 앱 원본 작업 한도에 도달했습니다. 완료된 실행 기록을 확인하세요.'})
-                raise ValueError('앱 원본 작업 호출 한도에 도달했습니다.')
+                import codex_bridge
+                raise codex_bridge.CodexFailure('tool_limit')
             calls_used += 1
             effect = 'invalid'
             try:

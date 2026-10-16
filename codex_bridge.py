@@ -50,7 +50,8 @@ class CodexFailure(ValueError):
     MESSAGES={'timeout':'AI 답변 대기시간을 넘겼어. 완료된 작업은 실제 실행 기록을 확인해줘.',
               'provider_error':'Codex 모델의 응답이 완료되지 않았어. 완료된 작업은 실제 실행 기록을 확인해줘.',
               'invalid_output':'Codex의 작업 응답 형식을 읽지 못했어. 완료된 작업은 실제 실행 기록을 확인해줘.',
-              'connection_closed':'Codex 연결이 종료됐어. 로그인과 연결 상태를 확인해줘.'}
+              'connection_closed':'Codex 연결이 종료됐어. 로그인과 연결 상태를 확인해줘.',
+              'tool_limit':'한 번의 앱 수정 작업 한도에 도달했어. 저장된 변경과 남은 작업은 실행 기록에서 확인해줘.'}
 
     def __init__(self,code):
         self.code=code if code in self.MESSAGES else 'provider_error'
@@ -837,8 +838,8 @@ def run_source(messages, tools, settings, dispatch):
                         response = {'success': receipt.get('status') == 'ok',
                                     'contentItems': [{'type': 'inputText', 'text': text}]}
                         handled[call_id] = (signature, response)
-                        if len(handled) > 24:
-                            raise ValueError('앱 원본 작업의 호출 한도에 도달했어요.')
+                        if len(handled) > 48:
+                            raise CodexFailure('tool_limit')
                     client.send({'id': event['id'], 'result': response})
                     continue
                 if params.get('threadId') != thread_id:
