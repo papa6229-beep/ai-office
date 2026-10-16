@@ -78,7 +78,7 @@
 #work .work-launcher-notice{font-size:11px;color:#99d8df;line-height:1.7;overflow-wrap:anywhere}
 #work .work-launcher-notice:not(:empty){padding:10px 0}
 #work .work-launcher-notice.is-error{color:#ffab99}
-#work .work-launcher-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:10px;min-height:176px;align-content:start}
+#work .work-launcher-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:10px;min-height:268px;align-content:start}
 #work .work-launcher-cell{min-width:0}
 #work .work-launcher-tile{position:relative;width:100%;min-width:0;box-sizing:border-box;height:84px;padding:6px 6px 4px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;background:transparent;border:0;border-radius:10px;color:#f3f0e6;box-shadow:none;transition:transform .12s}
 #work .work-launcher-tile:hover:not(:disabled){filter:none;background:transparent;transform:translateY(-2px)}
@@ -287,3 +287,13 @@
 #work .work-inbox-limit{font-size:11px;color:#a2aa98;padding-top:9px}
 @media(max-width:1150px){#work .work-companion-rail{position:static;display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:12px;align-items:center}#work .work-companion-rail .work-calendar{margin-top:0}#work .work-companion-rail .work-companion{display:block;text-align:center}#work .work-companion-rail .work-companion-caption{padding:5px 8px}}
 @media(max-width:600px){#work .work-companion-rail{gap:8px;grid-template-columns:minmax(0,1fr) 166px}#work .work-companion-rail .work-companion-stage,#work .work-companion-rail .work-companion-stage img{width:80px;height:80px}#work .work-inbox{padding:15px 13px}#work .work-inbox>.work-panel-heading>.work-muted{display:none}}
+
+#work .work-launcher-item-actions{flex-direction:column;align-items:stretch}
+#work .work-launcher-item-actions>.work-launcher-page-move{display:block}
+#work .work-launcher-page-move>label{margin:0 0 6px}
+#work .work-launcher-page-move>div{display:flex;gap:8px;align-items:center}
+#work .work-launcher-page-move select{flex:1;min-width:0;padding:8px 10px}
+#work .work-launcher-page-move button{flex-shrink:0}
+#work .work-launcher-page-move>.work-muted{font-size:11px;margin-top:7px;line-height:1.65}
+#work .work-launcher-order-actions{display:flex;justify-content:space-between;align-items:center;gap:8px}
+#work .work-launcher-order-actions>div{display:flex;gap:6px}

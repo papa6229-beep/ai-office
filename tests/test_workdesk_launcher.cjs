@@ -20,7 +20,7 @@ async function surface({date, savePage, fullPage = false, imageIcon = false} = {
   const Clock=date ? class extends Date {constructor(...args){super(...(args.length ? args : [date]));}} : Date;
   const context={FileReader:class {readAsDataURL(file){this.result=file.data;this.onload?.();}},document:{createElement(tag){return {tag};},getElementById:element,addEventListener(name,fn){if(name==='DOMContentLoaded')ready.push(fn);},querySelectorAll(){return [];}},window:{},Date:Clock,Intl,Map,Uint8Array,URL,
     localStorage:{getItem(){return null;},setItem(){}},crypto:{getRandomValues(bytes){bytes.fill(2);return bytes;}},
-    fetch:async(url,options)=>{let result; if(options?.method==='POST'){const body=JSON.parse(options.body);posts.push({url,body});if(controls.hold) await new Promise(resolve=>controls.release=resolve);if(controls.fail){controls.fail=false;throw Error('network');}if(url.endsWith('reorder')){state.items=body.ids.map(id=>state.items.find(item=>item.id===id));}if(url.endsWith('remove')){state.items=state.items.filter(item=>item.id!==body.id);}if(url.endsWith('add-page')){state.pages.push({id:3,title:'3페이지'});result={page:3};}else result={page:savePage||body.page||1};}return {ok:true,status:200,json:async()=>({...state,result})};}};
+    fetch:async(url,options)=>{let result; if(options?.method==='POST'){const body=JSON.parse(options.body);posts.push({url,body});if(controls.hold) await new Promise(resolve=>controls.release=resolve);if(controls.fail){controls.fail=false;throw Error('network');}if(controls.responseError){const error=controls.responseError;controls.responseError=null;return {ok:false,status:400,json:async()=>({error})};}if(url.endsWith('move-page')){state.items=state.items.map(item=>item.id===body.id?{...item,page:body.page}:item);}if(url.endsWith('reorder')){state.items=body.ids.map(id=>state.items.find(item=>item.id===id));}if(url.endsWith('remove')){state.items=state.items.filter(item=>item.id!==body.id);}if(url.endsWith('add-page')){state.pages.push({id:3,title:'3페이지'});result={page:3};}else result={page:savePage||body.page||1};}return {ok:true,status:200,json:async()=>({...state,result})};}};
   vm.runInNewContext(source,context); ready[1](); ready[2](); await new Promise(setImmediate);
   const click=async(action,extra={})=>{const button={dataset:{launcherAction:action,...extra},disabled:false};await element('work').fire('click',{target:{closest:()=>button}});};
   return {element,click,posts,state,controls};
@@ -194,4 +194,33 @@ test('icon blob revisions refresh tile and editor URLs without a page reload',as
   s.state.items[0].icon_revision='revision-two';await s.click('reload');
   assert.match(s.element('workLauncherGrid').innerHTML,/icon\?id=item0&v=revision-two/);assert.doesNotMatch(s.element('workLauncherGrid').innerHTML,/revision-one/);
   s.state.items[0].title='새 이름';await s.click('reload');assert.match(s.element('workLauncherGrid').innerHTML,/icon\?id=item0&v=revision-two/);
+});
+
+test('editor preselects saved page and moves the original item without saving draft fields',async()=>{
+  const s=await surface({imageIcon:true});await s.click('page',{launcherPage:'2'});edit(s,'item9');
+  assert.equal(s.element('workLauncherMovePage').value,'2');assert.equal(s.element('workLauncherMovePageButton').disabled,true);
+  assert.match(s.element('workLauncherMovePage').innerHTML,/>1페이지 · 9\/15/);
+  s.element('workLauncherName').value='UNSAVED';s.element('workLauncherTarget').value='UNSAVED-PATH';s.element('workLauncherKind').value='web';
+  s.element('workLauncherMovePage').value='1';s.element('workLauncherMovePage').fire('change');assert.equal(s.element('workLauncherMovePageButton').disabled,false);
+  await s.click('move-page',{launcherId:s.element('workLauncherMovePageButton').dataset.launcherId});
+  assert.equal(s.posts[0].url,'/api/launcher/move-page');assert.deepEqual(Object.keys(s.posts[0].body).sort(),['id','page','request_id','token']);assert.equal(s.posts[0].body.id,'item9');assert.equal(s.posts[0].body.page,1);
+  assert.equal(s.element('workLauncherDialog').open,false);assert.match(s.element('workLauncherPages').innerHTML,/aria-current="page"[^>]*>1페이지/);assert.match(s.element('workLauncherGrid').innerHTML,/앱9/);
+  assert.equal(s.state.items.find(x=>x.id==='item9').title,'앱9');assert.equal(s.state.items.find(x=>x.id==='item9').target,'missing.exe');
+});
+test('same page or invalid destination sends no move request',async()=>{
+  const s=await surface();edit(s,'item0');await s.click('move-page',{launcherId:'item0'});s.element('workLauncherMovePage').value='999';s.element('workLauncherMovePage').fire('change');assert.equal(s.element('workLauncherMovePageButton').disabled,true);await s.click('move-page',{launcherId:'item0'});assert.equal(s.posts.length,0);
+});
+test('filled destination rejection retains original page and editor with an actual error',async()=>{
+  const s=await surface({fullPage:true});s.state.items.push({id:'other',page:2,title:'다른 페이지 앱',kind:'app',target:'broken.exe',available:false});await s.click('page',{launcherPage:'2'});edit(s,'other');
+  assert.match(s.element('workLauncherMovePage').innerHTML,/value="1"[^>]*disabled[^>]*>1페이지 · 15\/15 가득 참/);
+  s.element('workLauncherMovePage').value='1';s.controls.responseError='선택한 페이지가 가득 찼습니다.';await s.click('move-page',{launcherId:'other'});
+  assert.equal(s.element('workLauncherDialog').open,true);assert.match(s.element('workLauncherFormNotice').textContent,/가득 찼습니다/);assert.match(s.element('workLauncherPages').innerHTML,/aria-current="page"[^>]*>2페이지/);assert.equal(s.state.items.find(x=>x.id==='other').page,2);
+});
+test('uncertain move retries the same idempotent request and selects confirmed destination',async()=>{
+  const s=await surface();await s.click('page',{launcherPage:'2'});edit(s,'item9');s.element('workLauncherMovePage').value='1';s.controls.fail=true;await s.click('move-page',{launcherId:'item9'});
+  assert.equal(s.element('workLauncherDialog').open,true);assert.match(s.element('workLauncherPages').innerHTML,/aria-current="page"[^>]*>2페이지/);const request=s.posts[0].body;
+  await s.click('retry');assert.equal(s.posts[1].url,'/api/launcher/move-page');assert.equal(s.posts[1].body.request_id,request.request_id);assert.equal(s.posts[1].body.id,'item9');assert.equal(s.element('workLauncherDialog').open,false);assert.match(s.element('workLauncherPages').innerHTML,/aria-current="page"[^>]*>1페이지/);
+});
+test('launcher reserves five by three rows without adding ghost item markup',()=>{
+  const css=fs.readFileSync(require('node:path').join(__dirname,'..','workdesk.css'),'utf8');assert.match(css,/work-launcher-grid\{[^}]*repeat\(5[^}]*min-height:268px/);assert.doesNotMatch(source,/class="work-launcher-slot"/);
 });

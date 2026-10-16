@@ -42,7 +42,7 @@ class LauncherApiTests(unittest.TestCase):
 
     def test_auth_and_foreign_host_are_rejected(self):
         self.assertEqual(self.request()['action_token'],app.DESK_TOKEN)
-        for action in ('save','remove','reorder','launch','pick-program','bookmarks','refresh','add-page','appearance'):
+        for action in ('save','remove','reorder','launch','pick-program','bookmarks','refresh','add-page','appearance','move-page'):
             with self.subTest(action=action), self.assertRaises(urllib.error.HTTPError) as error:
                 self.request('/api/launcher/'+action,{})
             self.assertEqual(error.exception.code,403)
@@ -71,6 +71,24 @@ class LauncherApiTests(unittest.TestCase):
         self.write('remove',id=item_id)
         self.assertEqual(self.request()['items'],[])
         self.assertEqual(self.program.read_bytes(),b'MZ-fixture-only')
+
+    def test_move_page_http_round_trip_and_authentication(self):
+        self.write('add-page')
+        initial = self.write('save', title='옮길 항목', kind='web', target='https://example.com', page=2)['items'][0]
+        payload = {'token': app.DESK_TOKEN, 'request_id': uuid.uuid4().hex, 'id': initial['id'], 'page': 1}
+        for headers in ({'Origin': 'https://outside.example'}, {'Host': 'outside.example'}):
+            with self.subTest(headers=headers), self.assertRaises(urllib.error.HTTPError) as error:
+                self.request('/api/launcher/move-page', payload, headers)
+            self.assertEqual(error.exception.code, 403)
+        self.assertEqual(self.request()['items'][0]['page'], 2)
+        moved = self.request('/api/launcher/move-page', payload)
+        self.assertEqual(moved['result']['page'], 1)
+        self.assertEqual(moved['result']['item_id'], initial['id'])
+        self.assertEqual(moved, self.request('/api/launcher/move-page', payload))
+        self.assertEqual(moved['items'][0]['target'], initial['target'])
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.write('move-page', id=initial['id'], page=True)
+        self.assertEqual(error.exception.code, 400)
 
     def test_web_launch_and_unsafe_schemes(self):
         with patch.object(app,'open_managed_web',return_value={'tab_id':'fixture-tab','title':'업무 웹','url':'https://example.com/work'}) as opened:

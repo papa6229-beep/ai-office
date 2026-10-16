@@ -305,6 +305,8 @@
     const current = (state?.items || []).find(x => x.id === editing);
     const samePage = (state?.items || []).filter(x => (x.page || 1) === (current?.page || 1));
     const index = samePage.findIndex(x => x.id === editing);
+    const movePage=Number($('workLauncherMovePage').value);
+    $('workLauncherMovePageButton').disabled=busy || loading || !!pending || !state?.action_token || imageReading || bookmarkLoading || !current || !pages().some(page=>page.id===movePage) || movePage===(current.page || 1);
     for (const [name, unavailable] of [['workLauncherMoveUp',index <= 0],['workLauncherMoveDown',index < 0 || index >= samePage.length-1]]) {
       $(name).disabled = $(name).disabled || unavailable;
     }
@@ -353,7 +355,7 @@
       confirmed = !unresolved;
       if (unresolved || !response.ok || data.error) throw Error(data.error || '요청을 처리하지 못했습니다.');
       pending = null; state = data;
-      if (data.result?.page && ['save','add-page'].includes(request.endpoint)) selectPage(data.result.page);
+      if (data.result?.page && ['save','add-page','move-page'].includes(request.endpoint)) selectPage(data.result.page);
       request.cleanup?.(); render(); message(data.result?.message || (request.endpoint === 'launch' ? '열기 요청을 전달했습니다.' : '바로가기를 저장했습니다.'));
     } catch (e) {
       if (!confirmed) pending = request; else pending = null;
@@ -408,7 +410,10 @@
     editing = item?.id || null; imageData = undefined; imageURL = item?.icon_image ? iconURL(item) : ''; imageVersion++; imageReading=false;
     $('workLauncherForm').reset(); $('workLauncherDialogTitle').textContent = editing ? '바로가기 수정' : '바로가기 추가';
     $('workLauncherItemActions').hidden = !editing;
-    ['workLauncherRemove','workLauncherMoveUp','workLauncherMoveDown'].forEach(name => {$(name).dataset.launcherId = editing || '';});
+    const capacity=Math.max(15,Number(state?.page_size) || 15);
+    $('workLauncherMovePage').innerHTML=pages().map(page=>{const count=(state?.items || []).filter(entry=>(entry.page || 1)===page.id).length;return `<option value="${page.id}" ${page.id === (item?.page || selectedPage) ? 'selected' : ''} ${count >= capacity && page.id !== (item?.page || selectedPage) ? 'disabled' : ''}>${esc(page.title)} · ${count}/${capacity}${count >= capacity ? ' 가득 참' : ''}</option>`;}).join('');
+    $('workLauncherMovePage').value=String(item?.page || selectedPage);
+    ['workLauncherRemove','workLauncherMoveUp','workLauncherMoveDown','workLauncherMovePageButton'].forEach(name => {$(name).dataset.launcherId = editing || '';});
     $('workLauncherName').value = item?.title || ''; $('workLauncherKind').value = item?.kind || 'app'; $('workLauncherTarget').value = selectedApp ? '' : item?.target || ''; $('workLauncherIcon').value = item?.icon || '✦'; $('workLauncherFormNotice').textContent='';
     $('workLauncherBookmarkPicker').hidden=!bookmarks; $('workLauncherBookmarkNotice').textContent=(bookmarks?.warnings || []).join(' ');
     appResults(); if (bookmarks) bookmarkResults();
@@ -423,6 +428,11 @@
     if (action === 'page') { selectPage(button.dataset.launcherPage); render(); return; }
     if (action === 'add-page') { await write('add-page',{}); return; }
     if (action === 'add') { open(); return; }
+    if (action === 'move-page') {
+      const page=Number($('workLauncherMovePage').value);
+      if (!item || !Number.isInteger(page) || !pages().some(entry=>entry.id===page) || page===(item.page || 1)) return;
+      await write('move-page',{id:item.id,page},()=>{$('workLauncherDialog').close();});return;
+    }
     if (action === 'edit') { if (item) open(item); return; }
     if (action === 'launch') { if (Date.now() < suppressLaunchUntil || dragItem) return; if (item) await write(action,{id:item.id}); return; }
     if (action === 'remove') {
@@ -546,6 +556,7 @@
     $('workLauncherGrid').addEventListener('keydown',event=>{
       if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) editShortcut(event);
     });
+    $('workLauncherMovePage').addEventListener('change',locks);
     $('workLauncherKind').addEventListener('change',()=>{selectedApp=null;$('workLauncherTarget').value='';$('workLauncherFormNotice').textContent='';kindFields();});
     $('workLauncherAppSearch').addEventListener('input',appResults);
     $('workLauncherBookmarkSearch').addEventListener('input',bookmarkResults);

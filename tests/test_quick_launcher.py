@@ -105,6 +105,79 @@ class QuickLauncherTests(unittest.TestCase):
         self.assertEqual(after['page_size'], 15)
         self.assertEqual({item['id']: item['page'] for item in after['items']}, before)
 
+    def test_move_page_preserves_unavailable_target_and_png_or_gif_images(self):
+        from PIL import Image
+        png = io.BytesIO()
+        Image.new('RGB', (8, 8), 'red').save(png, format='PNG')
+        self.do('add-page')
+        for extension, raw in [('png', png.getvalue()), ('gif', self.gif_bytes())]:
+            with self.subTest(extension=extension):
+                target = self.root / f'{extension}.exe'
+                target.write_bytes(b'fixture-only')
+                item_id = self.do('save', title=extension, kind='app', target=str(target), page=2,
+                                   icon='🎨', icon_data=f'data:image/{extension};base64,' + base64.b64encode(raw).decode())['result']['id']
+                target.unlink()
+                before = next(item for item in self.service.overview()['items'] if item['id'] == item_id)
+                image = self.service.icon_bytes(item_id)
+                after = self.do('move-page', id=item_id, page=1)
+                item = next(item for item in after['items'] if item['id'] == item_id)
+                self.assertEqual(after['result']['page'], 1)
+                self.assertFalse(item['available'])
+                for key in ('id', 'title', 'kind', 'target', 'icon', 'icon_image', 'icon_revision', 'available'):
+                    self.assertEqual(item[key], before[key])
+                self.assertEqual(self.service.icon_bytes(item_id), image)
+
+    def test_move_page_appends_only_moving_item_and_persists_empty_page(self):
+        self.do('add-page')
+        moving = self.save('옮길 항목', page=2)
+        others = [self.save(str(index), page=1) for index in range(3)]
+        with sqlite3.connect(self.db) as c:
+            original = c.execute('SELECT * FROM launcher_items WHERE id!=? ORDER BY position', (moving,)).fetchall()
+        result = self.do('move-page', id=moving, page=1)
+        self.assertEqual([item['id'] for item in result['items']], others + [moving])
+        self.assertTrue(all(item['page'] == 1 for item in result['items']))
+        self.assertEqual(len(QuickLauncher(self.db).overview()['pages']), 2)
+        with sqlite3.connect(self.db) as c:
+            self.assertEqual(c.execute('SELECT * FROM launcher_items WHERE id!=? ORDER BY position', (moving,)).fetchall(), original)
+            self.assertEqual(c.execute('SELECT COUNT(*) FROM launcher_item_pages WHERE page_id=2').fetchone()[0], 0)
+
+    def test_move_page_same_page_and_receipt_replay_are_noops(self):
+        item_id = self.save()
+        other = self.save('다른 항목')
+        before = self.service.overview()['items']
+        payload = {'request_id': uuid.uuid4().hex, 'id': item_id, 'page': 1}
+        response = self.service.perform('move-page', payload)
+        self.assertEqual(response['items'], before)
+        self.assertEqual(QuickLauncher(self.db).perform('move-page', payload), response)
+        self.do('add-page')
+        payload = {'request_id': uuid.uuid4().hex, 'id': item_id, 'page': 2}
+        moved = self.service.perform('move-page', payload)
+        self.assertEqual(QuickLauncher(self.db).perform('move-page', payload), moved)
+        self.assertEqual([item['id'] for item in moved['items']], [other, item_id])
+
+    def test_move_page_full_or_invalid_destination_is_atomic(self):
+        self.do('add-page')
+        for index in range(15):
+            self.save(str(index), page=1)
+        moving = self.save('옮길 항목', page=2)
+        def snapshot():
+            with sqlite3.connect(self.db) as c:
+                return {table: c.execute(f'SELECT * FROM {table} ORDER BY 1').fetchall()
+                        for table in ('launcher_items', 'launcher_item_pages', 'launcher_pages', 'launcher_requests')}
+        before = snapshot()
+        with self.assertRaisesRegex(ValueError, '가득 찼습니다'):
+            self.do('move-page', id=moving, page=1)
+        self.assertEqual(snapshot(), before)
+        for page in (True, False, 0, -1, 3, '1', None, [], {}, 1.5, '1; DROP TABLE launcher_items'):
+            with self.subTest(page=page), self.assertRaises(ValueError):
+                self.do('move-page', id=moving, page=page)
+        for item_id in (None, [], {}, 1, 'missing', 'f' * 32):
+            with self.subTest(item_id=item_id), self.assertRaises(ValueError):
+                self.do('move-page', id=item_id, page=2)
+        with self.assertRaises(ValueError):
+            self.do('move-page', id=moving, page=2, target='https://other.example')
+        self.assertEqual(snapshot(), before)
+
     def test_legacy_request_receipt_remains_exact_on_replay(self):
         payload = {'request_id': uuid.uuid4().hex, 'title': '과거', 'kind': 'web', 'target': 'https://example.com'}
         receipt = {'items': [], 'result': {'message': '과거 응답'}}

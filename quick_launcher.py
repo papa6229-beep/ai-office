@@ -22,7 +22,8 @@ _LOCKS = {}
 _LOCKS_GUARD = threading.Lock()
 _FIELDS = {'save': {'id', 'title', 'kind', 'target', 'icon', 'icon_data', 'page'},
            'remove': {'id'}, 'reorder': {'ids'}, 'launch': {'id'},
-           'add-page': set(), 'appearance': {'id', 'title', 'icon', 'icon_data'}}
+           'add-page': set(), 'appearance': {'id', 'title', 'icon', 'icon_data'},
+           'move-page': {'id', 'page'}}
 _PAGE_SIZE = 15
 _MAX_ICON_BYTES = 512 * 1024
 _MAX_GIF_FRAMES = 300
@@ -349,6 +350,20 @@ class QuickLauncher:
         self._sync_pages(c)
         if action == 'add-page':
             return {'page': self._new_page(c), 'message': '바로가기 페이지를 추가했습니다.'}
+        if action == 'move-page':
+            old = self._item(c, payload.get('id'))
+            page = payload.get('page')
+            if type(page) is not int or page < 1 or not c.execute('SELECT 1 FROM launcher_pages WHERE id=?', (page,)).fetchone():
+                raise ValueError('등록된 바로가기 페이지를 선택하세요.')
+            current = c.execute('SELECT page_id FROM launcher_item_pages WHERE item_id=?', (old['id'],)).fetchone()[0]
+            if page != current:
+                count = c.execute('SELECT COUNT(*) FROM launcher_item_pages WHERE page_id=?', (page,)).fetchone()[0]
+                if count >= _PAGE_SIZE:
+                    raise ValueError('선택한 페이지가 가득 찼습니다. 다른 페이지를 선택하거나 새 페이지를 추가하세요.')
+                position = c.execute('SELECT COALESCE(MAX(position),-1)+1 FROM launcher_items').fetchone()[0]
+                c.execute('UPDATE launcher_items SET position=? WHERE id=?', (position, old['id']))
+                c.execute('UPDATE launcher_item_pages SET page_id=? WHERE item_id=?', (page, old['id']))
+            return {'id': old['id'], 'item_id': old['id'], 'page': page, 'message': '바로가기 페이지를 옮겼습니다.' if page != current else '현재 페이지를 유지했습니다.'}
         if action == 'appearance':
             old = self._item(c, payload.get('id'))
             title = _text(payload.get('title'), 120, '이름')
