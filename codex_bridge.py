@@ -31,7 +31,7 @@ _shared_client = None
 _stream_local = threading.local()
 _METADATA_TTL = 60
 _MAX_CLIENT_TURNS = 32
-_INSTRUCTIONS = '''You are the AI OFFICE structured planner, not a coding agent or executor.
+_INSTRUCTIONS = '''You are the AI OFFICE task and source-edit planner.
 Only the application executes its registered tools after validating your proposal.
 Never run shell commands, use built-in tools, access files, browse, call MCP, or delegate.
 Return only the required JSON envelope. content is the user's Korean answer;
@@ -43,6 +43,24 @@ The supplied system messages define the application behavior and Aemeath's voice
 There are no executable Codex tools. Do not describe missing Codex tools as missing
 application permissions: propose an appropriate registered application tool instead.
 '''
+
+
+class CodexFailure(ValueError):
+    """Safe failure metadata, with no prompts, credentials or provider payloads."""
+    MESSAGES={'timeout':'AI 답변 대기시간을 넘겼어. 완료된 작업은 실제 실행 기록을 확인해줘.',
+              'provider_error':'Codex 모델의 응답이 완료되지 않았어. 완료된 작업은 실제 실행 기록을 확인해줘.',
+              'invalid_output':'Codex의 작업 응답 형식을 읽지 못했어. 완료된 작업은 실제 실행 기록을 확인해줘.',
+              'connection_closed':'Codex 연결이 종료됐어. 로그인과 연결 상태를 확인해줘.'}
+
+    def __init__(self,code):
+        self.code=code if code in self.MESSAGES else 'provider_error'
+        self.stage='connection';self.elapsed_seconds=0
+        super().__init__(self.MESSAGES[self.code])
+
+
+def failure_details(error):
+    if not isinstance(error,CodexFailure):return None
+    return {'code':error.code,'stage':error.stage,'elapsed_seconds':error.elapsed_seconds}
 
 
 def _cli():
@@ -163,12 +181,12 @@ class _Client:
         while True:
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
-                raise ValueError('Codex 응답 시간이 초과됐어요. 실행 기록을 확인한 뒤 다시 요청해 주세요.')
+                raise CodexFailure('timeout')
             try:
                 event = self.pending.popleft() if self.pending else self.events.get(timeout=min(remaining, 0.5))
             except queue.Empty:
                 if self.failed.is_set():
-                    raise ValueError('Codex 연결이 종료됐어요. Codex 앱의 로그인 상태를 확인해 주세요.') from None
+                    raise CodexFailure('connection_closed') from None
                 continue
             if 'method' in event and 'id' in event:
                 # No approvals, dynamic tool calls, or other server requests are
@@ -484,10 +502,10 @@ def _normalize(text, names, output_schema):
         if not isinstance(call, dict) or set(call) != {'name', 'arguments_json'} or call['name'] not in names:
             raise ValueError()
         raw = call['arguments_json']
-        if not isinstance(raw, str) or len(raw) > _MAX_ARGUMENTS:
+        if not isinstance(raw, str) or len(raw) > 6 * _MAX_ARGUMENTS:
             raise ValueError()
         arguments = json.loads(raw)
-        if not isinstance(arguments, dict) or len(json.dumps(arguments)) > _MAX_ARGUMENTS:
+        if not isinstance(arguments, dict) or len(json.dumps(arguments,ensure_ascii=False)) > _MAX_ARGUMENTS:
             raise ValueError()
         normalized.append({'id': 'call_' + uuid.uuid4().hex,
                            'name': call['name'], 'arguments': arguments})
@@ -523,11 +541,14 @@ def call(messages, tools, settings, *, output_schema=None, image_data_url=None, 
         input_items.append({'type': 'image', 'url': image_data_url})
     with model_requests.request_slot(background=background or settings.get('_judgment_background') is True), _client_lock:
         client = None
+        started_at=time.monotonic();phase='connection'
         try:
-            client = _connection(max(15, min(180, int(settings.get('timeout', 90)))))
+            timeout=max(int(settings.get('timeout',90)),int(settings.get('_source_edit_timeout',0)))
+            client = _connection(max(15, min(180,timeout)))
             metadata, model = _catalog(client, settings)
             if image_data_url and 'image' not in model.get('inputModalities', []):
                 raise ValueError('선택한 Codex 모델이 이미지를 지원하지 않아요.')
+            phase='thread_start'
             started = client.rpc('thread/start', {'model': metadata['selected_model'],
                 'modelProvider': 'openai', 'cwd': str(_WORKSPACE), 'ephemeral': True,
                 'approvalPolicy': 'never', 'sandbox': 'read-only',
@@ -537,10 +558,12 @@ def call(messages, tools, settings, *, output_schema=None, image_data_url=None, 
                     or started.get('serviceTier') not in {None, 'default'}):
                 raise ValueError('Codex 모델 또는 기본 속도 설정이 달라 실행을 중단했어요.')
             thread_id = started['thread']['id']
+            phase='turn_start'
             turn = client.rpc('turn/start', {'threadId': thread_id, 'input': input_items,
                 'model': MODEL, 'effort': EFFORT, 'serviceTierForTurn': 'default',
                 'approvalPolicy': 'never', 'outputSchema': schema})
             turn_id = turn['turn']['id']
+            phase='model_response'
             final = None
             drafts = {}
             visible = ''
@@ -569,11 +592,11 @@ def call(messages, tools, settings, *, output_schema=None, image_data_url=None, 
                         final = item.get('text')
                 if event.get('method') == 'turn/completed' and params.get('turn', {}).get('id') == turn_id:
                     if params['turn'].get('status') != 'completed' or not isinstance(final, str):
-                        raise ValueError('Codex 답변이 완료되지 않았어요. 실행 기록을 확인해 주세요.')
+                        raise CodexFailure('provider_error')
                     try:
                         result = _normalize(final, names, output_schema)
                     except (ValueError, TypeError, KeyError, RecursionError):
-                        raise ValueError('Codex의 구조화 답변 형식을 확인하지 못했어요. 실행은 시작하지 않았어요.') from None
+                        raise CodexFailure('invalid_output') from None
                     _emit_draft('' if result['tool_calls'] else _visible_draft(final, output_schema))
                     # A bounded non-inference RPC removes the event subscription.
                     # Failure discards the child, but never repeats completed inference.
@@ -587,6 +610,8 @@ def call(messages, tools, settings, *, output_schema=None, image_data_url=None, 
         except Exception as exc:
             _emit_draft('')
             _discard(client)
+            if isinstance(exc,CodexFailure):
+                exc.stage=phase;exc.elapsed_seconds=round(time.monotonic()-started_at,3)
             if isinstance(exc, ValueError):
                 raise
             raise ValueError('Codex 응답을 확인하지 못했어요. 실행 기록을 확인한 뒤 다시 요청해 주세요.') from None

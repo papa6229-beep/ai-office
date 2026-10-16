@@ -47,6 +47,14 @@ def _now():
     return datetime.datetime.now().astimezone().isoformat(timespec='microseconds')
 
 
+def _failure_receipt(error, fallback):
+    import codex_bridge
+    detail=codex_bridge.failure_details(error)
+    if detail:
+        return {'status':'error','message':str(error),'data':{'model_failure':detail}}
+    return {'status':'error','message':fallback}
+
+
 def _read_explanation(text):
     """Output guard only; never used to classify or execute user intent."""
     if not isinstance(text, str):
@@ -226,9 +234,9 @@ class AssistantRuntime:
                         final_answer=self._conversation(registry,context,receipts)
             else:
                 final_answer = self._conversation(registry, context, receipts)
-        except Exception:
+        except Exception as error:
             # Never echo provider exceptions: they can contain credentials or private transport data.
-            receipts.append({'status': 'error', 'message': 'AI 연결 또는 작업 처리에 실패했습니다. 완료된 작업은 아래 실제 실행 결과를 확인하세요.'})
+            receipts.append(_failure_receipt(error,'AI 연결 또는 작업 처리에 실패했습니다. 완료된 작업은 아래 실제 실행 결과를 확인하세요.'))
         for result in receipts:
             if result.get('pending'):
                 p = dict(result['pending'])
@@ -397,9 +405,9 @@ class AssistantRuntime:
                 _validate(arguments, schemas[name])
                 initial_output = {'content': '', 'tool_calls': [
                     {'id': uuid.uuid4().hex, 'name': name, 'arguments': arguments}]}
-            except Exception:
-                receipts.append({'status': 'error', 'message':
-                    '요청을 실행할 방법을 확인하지 못해 아직 시도하지 않았습니다. 권한 부족이나 완료 여부는 확인되지 않았습니다.'})
+            except Exception as error:
+                receipts.append(_failure_receipt(error,
+                    '요청을 실행할 방법을 확인하지 못해 아직 시도하지 않았습니다. 권한 부족이나 완료 여부는 확인되지 않았습니다.'))
                 return
         # The initial read counts toward MAX_CALLS, not native model rounds.
         for round_index in range(-1 if initial_output is not None else rounds_used, self.MAX_ROUNDS):

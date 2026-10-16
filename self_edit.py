@@ -85,30 +85,61 @@ def _load(name):
     return path, raw, text
 
 
+def _query_terms(query):
+    # Queries describe UI features in Korean as well as literal source symbols.
+    # Match independent terms; an entire sentence is rarely a source filename.
+    return list(dict.fromkeys(re.findall(r'[\w.-]{2,}', query.casefold())))[:24]
+
+
+def _source_summary(text):
+    lines = [line.strip() for line in text.lstrip('\ufeff').splitlines()[:8] if line.strip()]
+    return ' '.join(lines)[:120]
+
+
 def catalog(query=''):
     with LOCK:
         rows = []
+        terms = _query_terms(query)
         for name in sorted(ALLOWED):
-            if query and query.casefold() not in name.casefold(): continue
             if not (ROOT / name).exists(): continue
-            _, raw, _ = _load(name)
+            _, raw, text = _load(name)
+            folded = text.casefold()
+            matches = [term for term in terms if term in name.casefold() or term in folded]
+            score = sum(12 if term in name.casefold() else 1 + min(3, folded.count(term)) for term in matches)
             rows.append({'path':name, 'size':len(raw), 'sha256':_hash(raw),
-                         'kind':'backend' if name.endswith('.py') else 'frontend'})
-        return rows
+                         'kind':'backend' if name.endswith('.py') else 'frontend',
+                         'summary':_source_summary(text), 'matched_terms':matches,
+                         'match_score':score})
+        matched = [row for row in rows if row['match_score']]
+        # No lexical match means the query vocabulary differs, not that the
+        # installation has no editable sources. Keep real references available.
+        chosen = matched if matched else rows
+        return sorted(chosen, key=lambda row:(-row['match_score'], row['path']))
 
 
 def read(selection, query='', offset=0):
     with LOCK:
         _, raw, text = _load(selection['path'])
         start = offset
+        matched_term = ''
         if query:
             match = text.casefold().find(query.casefold(), offset)
+            if match >= 0:
+                matched_term = query
+            else:
+                # Preserve exact-query behavior first, then locate a real term
+                # from a natural-language query instead of silently reading 0.
+                candidates = [(text.casefold().find(term, offset), term) for term in _query_terms(query)]
+                candidates = [(pos, term) for pos, term in candidates if pos >= 0]
+                if candidates:
+                    match, matched_term = min(candidates)
             start = max(0, match - 1500) if match >= 0 else offset
         end = min(len(text), start + MAX_TEXT)
         return {'path':selection['path'], 'sha256':_hash(raw), 'size':len(raw),
                 'offset':start, 'next_offset':end, 'total_chars':len(text),
                 'text':text[start:end], 'truncated':end < len(text),
-                'query_found':not query or text.casefold().find(query.casefold(), offset) >= 0}
+                'query_found':not query or bool(matched_term), 'matched_term':matched_term,
+                'hint':'검색어가 없으면 offset/next_offset으로 계속 읽거나 실제 소스의 식별자로 검색하세요.' if query and not matched_term else ''}
 
 
 def _backup_root():

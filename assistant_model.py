@@ -48,6 +48,17 @@ def _messages(messages, kind):
 
 def call(messages, tools, settings, *, output_schema=None):
     """Return normalized tool calls; this function never executes a tool."""
+    source_steps=[message for message in messages if message.get('role')=='tool'
+                  and str(message.get('tool_name','')).startswith('office_source_')]
+    if source_steps:
+        settings=dict(settings,_source_edit_timeout=180)
+        last_tool=next((message for message in reversed(messages) if message.get('role')=='tool'),{})
+        if last_tool.get('tool_name') in {'office_source_list','office_source_read','office_source_history'}:
+            # This is an observed source-edit phase, not a keyword intent rule.
+            # Restore the full registry after a write so other requested work can continue.
+            selected={'stage_publish','office_capabilities','attachments_list','attachment_read','attachment_preview'}
+            tools=[tool for tool in tools if tool['function']['name'].startswith('office_source_')
+                   or tool['function']['name'] in selected]
     if settings.get('api_type') == 'codex':
         import codex_bridge
         return codex_bridge.call(messages, tools, settings, output_schema=output_schema)
@@ -110,10 +121,10 @@ def call(messages, tools, settings, *, output_schema=None):
             if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', name):
                 raise ValueError()
             if isinstance(arguments, str):
-                if len(arguments) > _MAX_ARGUMENTS:
+                if len(arguments) > 6 * _MAX_ARGUMENTS:
                     raise ValueError()
                 arguments = json.loads(arguments)
-            if not isinstance(arguments, dict) or len(json.dumps(arguments)) > _MAX_ARGUMENTS:
+            if not isinstance(arguments, dict) or len(json.dumps(arguments,ensure_ascii=False)) > _MAX_ARGUMENTS:
                 raise ValueError()
             call_id = item.get('id')
             if not isinstance(call_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,120}', call_id):
