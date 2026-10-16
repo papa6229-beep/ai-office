@@ -211,6 +211,7 @@ def start(force=False):
             if _supplier is None:
                 raise ValueError()
             settings = copy.deepcopy(_supplier())
+            settings['_judgment_background'] = True
             validate_endpoint(settings.get('gemma_url', ''))
             engine_settings = {k: settings.get(k) for k in ('gemma_url', 'gemma_model', 'api_type')}
             engine_settings['vision_model'] = str(settings.get('vision_model') or '').strip() or settings.get('gemma_model', '')

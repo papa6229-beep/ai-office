@@ -17,6 +17,7 @@ import quick_launcher
 import browser_bookmarks
 import assistant_model
 import lmstudio_runtime
+import model_requests
 import browser_workspace
 import windows_workspace
 import capabilities
@@ -68,7 +69,8 @@ def call_gemma(prompt,settings=None):
     req=urllib.request.Request(u,data=json.dumps(payload).encode(),headers=headers,method='POST')
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs):return None
-    with urllib.request.build_opener(NoRedirect).open(req,timeout=t) as r:response=json.load(r)
+    with model_requests.request_slot(background=s.get('_judgment_background') is True):
+        with urllib.request.build_opener(NoRedirect).open(req,timeout=t) as r:response=json.load(r)
     if s['api_type']=='openai':return response['choices'][0]['message']['content']
     return response['message']['content']
 def call_gemma_vision(prompt,image_b64,settings=None):
@@ -95,7 +97,8 @@ def call_gemma_vision(prompt,image_b64,settings=None):
     req=urllib.request.Request(base+route,data=json.dumps(payload).encode(),headers=headers,method='POST')
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs):return None
-    with urllib.request.build_opener(NoRedirect).open(req,timeout=t) as r:response=json.load(r)
+    with model_requests.request_slot(background=s.get('_judgment_background') is True):
+        with urllib.request.build_opener(NoRedirect).open(req,timeout=t) as r:response=json.load(r)
     return response['choices'][0]['message']['content'] if managed else response['message']['content']
 def runlog(kind,status,summary,detail=''):
     with db() as c:c.execute('INSERT INTO runs VALUES (?,?,?,?,?,?)',(uuid.uuid4().hex,kind,status,summary,detail,now()))

@@ -7,6 +7,7 @@ import re
 import sqlite3
 import uuid
 import assistant_voice
+import model_requests
 
 
 SYSTEM = assistant_voice.INSTRUCTION + '\n' + '''당신은 AI OFFICE 업무 비서입니다. 사용자의 자연어 의도를 이해해 제공된 도구를 직접 호출하세요.
@@ -299,6 +300,10 @@ class AssistantRuntime:
         return result
 
     def _conversation(self, registry, context, receipts):
+        with model_requests.foreground_scope():
+            return self._conversation_in_scope(registry, context, receipts)
+
+    def _conversation_in_scope(self, registry, context, receipts):
         definitions = registry.definitions()
         schemas = {d['function']['name']: d['function'].get('parameters', {}) for d in definitions}
         with _connect(self.db_path) as c:
@@ -307,24 +312,33 @@ class AssistantRuntime:
                 '(SELECT rowid seq,role,content FROM work_messages WHERE rowid<=? ORDER BY rowid DESC LIMIT 12) '
                 'ORDER BY seq', (current[0],))]
         today = datetime.datetime.now().astimezone().date().isoformat()
-        messages = [{'role': 'system', 'content': SYSTEM + '\n사용자 PC의 오늘 날짜: ' + today + '. 오늘·내일·다음 주는 이 날짜를 기준으로 해석하세요.'}]
+        messages = [{'role': 'system', 'content': SYSTEM},
+                    {'role': 'system', 'content': '사용자 PC의 오늘 날짜: ' + today + '. 오늘·내일·다음 주는 이 날짜를 기준으로 해석하세요.'}]
         if callable(getattr(registry,'runtime_context',None)):
             facts=registry.runtime_context()
             messages.append({'role':'system','content':'서버가 확인한 현재 실행 환경입니다. 과거 대화의 기능 설명보다 우선합니다.\n'+_json(facts)})
         if context.get('task_id'):
             messages.append({'role': 'system', 'content': '사용자가 현재 선택한 업무 ID: ' + context['task_id']})
-        messages.extend({'role': m['role'], 'content': m['content'][:4000]} for m in recent)
+        messages.extend({'role': m['role'], 'content': m['content'][:4000]} for m in recent[:-1])
+        messages.append({'role': 'system', 'content':
+            '다음 사용자 메시지가 이번 요청의 유일한 실행 권한입니다. 이전 대화는 참고 자료입니다. '
+            '최신 요청이 이전 대상·후보·작업을 명시적으로 이어갈 때만 그 문맥을 사용하세요. '
+            '인사나 새 주제로 바뀌면 과거 미완료 명령을 재개하지 마세요.'})
+        messages.append({'role': 'user', 'content': recent[-1]['content']})
         resumed=context.pop('resume_receipt',None)
         saved=context.pop('continuation',None)
         count, effects, rounds_used = 0, {}, 0
         if resumed:
             if not isinstance(saved,dict) or not isinstance(saved.get('messages'),list):
                 raise ValueError('이전 실행 기록을 복원하지 못했습니다. 완료된 작업을 확인하세요.')
-            fresh_system=messages[0]
+            fresh_system=dict(messages[0], content=SYSTEM + '\n' + messages[1]['content'])
             messages=json.loads(_json(saved['messages']))
             if not messages or messages[-1].get('role')!='tool' or messages[-1].get('tool_name')!=resumed['name']:
                 raise ValueError('승인한 실행 기록이 변경되었습니다.')
             messages[0]=fresh_system
+            for message in messages[1:]:
+                if message.get('role') == 'system' and str(message.get('content', '')).startswith('사용자 PC의 오늘 날짜:'):
+                    message['content'] = '사용자 PC의 오늘 날짜: ' + today + '. 오늘·내일·다음 주는 이 날짜를 기준으로 해석하세요.'
             result={k:v for k,v in resumed['result'].items() if k in ('status','message','data','refresh')}
             messages[-1]['content']=_json(result)
             count=saved.get('count',0)
@@ -333,50 +347,50 @@ class AssistantRuntime:
             effects[_json({'name':resumed['name'],'arguments':resumed['arguments']})]=resumed['result']
             if type(count) is not int or type(rounds_used) is not int or not 0<=count<=self.MAX_CALLS or not 0<=rounds_used<=self.MAX_ROUNDS:
                 raise ValueError('실행 한도 기록을 확인하지 못했습니다.')
-        for round_index in range(rounds_used,self.MAX_ROUNDS):
-            output = self.model_call(messages, definitions)
+        initial_output = None
+        if not resumed and callable(self.intent_call):
+            # Classify the current request before a native tool-capable call.
+            # Only a registered read can enter the audited execution loop here.
+            try:
+                observations = [d for d in definitions
+                                if registry.effect(d['function']['name']) == 'read']
+                decision = self.intent_call(json.loads(_json(messages)), observations)
+                if not isinstance(decision, dict) or set(decision) != {'decision', 'observation', 'message'}:
+                    raise ValueError('Invalid execution decision')
+                kind = decision.get('decision')
+                if kind not in ('execute', 'answer', 'clarify', 'cancel'):
+                    raise ValueError('Invalid execution decision')
+                if not isinstance(decision.get('message'), str) or len(decision['message']) > 6000:
+                    raise ValueError('Invalid execution explanation')
+                observation = decision.get('observation')
+                if kind != 'execute':
+                    if observation is not None or not decision['message'].strip():
+                        raise ValueError('Invalid non-execution decision')
+                    return decision['message']
+                if not isinstance(observation, dict) or set(observation) != {'name', 'arguments'}:
+                    raise ValueError('Invalid observation')
+                name, arguments = observation['name'], observation['arguments']
+                if not isinstance(name, str) or name not in schemas or registry.effect(name) != 'read':
+                    raise ValueError('Observation must be a registered read tool')
+                if not isinstance(arguments, dict):
+                    raise ValueError('Invalid observation arguments')
+                _validate(arguments, schemas[name])
+                initial_output = {'content': '', 'tool_calls': [
+                    {'id': uuid.uuid4().hex, 'name': name, 'arguments': arguments}]}
+            except Exception:
+                receipts.append({'status': 'error', 'message':
+                    '요청을 실행할 방법을 확인하지 못해 아직 시도하지 않았습니다. 권한 부족이나 완료 여부는 확인되지 않았습니다.'})
+                return
+        # The initial read counts toward MAX_CALLS, not native model rounds.
+        for round_index in range(-1 if initial_output is not None else rounds_used, self.MAX_ROUNDS):
+            output = initial_output if round_index == -1 else self.model_call(messages, definitions)
             if not isinstance(output, dict):
                 raise ValueError('모델 응답을 확인할 수 없습니다.')
             calls = output.get('tool_calls') or []
             if not isinstance(calls, list) or len(calls) > self.MAX_CALLS:
                 raise ValueError('도구 호출 수를 확인할 수 없습니다.')
             if not calls:
-                if not receipts and count == 0 and callable(self.intent_call):
-                    # Reassess an unattempted answer semantically. The assessor
-                    # can select only a registered observation, never an effect.
-                    # Its selection enters the same audited tool path below.
-                    try:
-                        observations = [d for d in definitions
-                                        if registry.effect(d['function']['name']) == 'read']
-                        decision = self.intent_call(json.loads(_json(messages)), observations)
-                        if not isinstance(decision, dict) or set(decision) - {'decision', 'observation', 'message'}:
-                            raise ValueError('Invalid execution decision')
-                        kind = decision.get('decision')
-                        if kind not in ('execute', 'answer', 'clarify', 'cancel'):
-                            raise ValueError('Invalid execution decision')
-                        if not isinstance(decision.get('message'), str) or len(decision['message']) > 6000:
-                            raise ValueError('Invalid execution explanation')
-                        observation = decision.get('observation')
-                        if kind != 'execute':
-                            if observation is not None or not decision['message'].strip():
-                                raise ValueError('Invalid non-execution decision')
-                            return decision['message']
-                        if not isinstance(observation, dict) or set(observation) != {'name', 'arguments'}:
-                            raise ValueError('Invalid observation')
-                        name, arguments = observation['name'], observation['arguments']
-                        if not isinstance(name, str) or name not in schemas or registry.effect(name) != 'read':
-                            raise ValueError('Observation must be a registered read tool')
-                        if not isinstance(arguments, dict):
-                            raise ValueError('Invalid observation arguments')
-                        _validate(arguments, schemas[name])
-                        calls = [{'id': uuid.uuid4().hex, 'name': name, 'arguments': arguments}]
-                        output = {'content': ''}
-                    except Exception:
-                        receipts.append({'status': 'error', 'message':
-                            '요청을 실행할 방법을 확인하지 못해 아직 시도하지 않았습니다. 권한 부족이나 완료 여부는 확인되지 않았습니다.'})
-                        return
-                else:
-                    return str(output.get('content') or '')[:6000]
+                return str(output.get('content') or '')[:6000]
             normalized = []
             for call in calls:
                 if not isinstance(call, dict) or not isinstance(call.get('name'), str) or not isinstance(call.get('arguments'), dict):
