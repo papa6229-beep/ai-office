@@ -271,15 +271,42 @@
   let state = null, busy = false, loading = false, pending = null, editing = null, imageData, imageReading = false, imageVersion = 0, imageURL = '';
   let selectedApp = null, bookmarks = null, bookmarkLoading = false, dialogVersion = 0;
   let launcherRefreshQueued = false;
-  let selectedPage = 1, dragItem = null, suppressLaunchUntil = 0;
-  const pageStorageKey = 'ai-office.launcher.selected-page';
-  try { selectedPage = Math.max(1, Number(localStorage.getItem(pageStorageKey)) || 1); } catch (_) {}
-  function pages() {
-    return state?.pages?.length ? state.pages : [{id:1,title:'1페이지'}];
+  let dragItem = null, suppressLaunchUntil = 0, coverData, coverURL = '', coverReading = false, coverVersion = 0;
+  let boardLayoutQueued=false, boardLayoutObserver=null;
+  function measureBoard() {
+    boardLayoutQueued=false;
+    $('workLauncherGrid').querySelectorAll('.work-launcher-cell,.work-launcher-add-tile').forEach(cell=>{
+      const tile=cell.matches?.('.work-launcher-add-tile') ? cell : cell.querySelector('.work-launcher-tile');
+      const height=tile?.getBoundingClientRect?.().height;
+      if (!height || !cell.style) return;
+      // Eight-pixel tracks plus ten-pixel gutters keep the DOM order intact.
+      const span='span '+Math.max(1,Math.ceil((height+10)/18));
+      if (cell.style.gridRowEnd !== span) cell.style.gridRowEnd=span;
+    });
   }
-  function selectPage(page) {
-    selectedPage = pages().some(p => p.id === Number(page)) ? Number(page) : pages()[0].id;
-    try { localStorage.setItem(pageStorageKey, String(selectedPage)); } catch (_) {}
+  function scheduleBoardLayout() {
+    if (boardLayoutQueued) return;
+    boardLayoutQueued=true;
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(measureBoard);
+    else measureBoard();
+  }
+  function observeBoardLayout() {
+    boardLayoutObserver?.disconnect();
+    if (typeof ResizeObserver === 'function') {
+      boardLayoutObserver ||= new ResizeObserver(scheduleBoardLayout);
+      boardLayoutObserver.observe($('workLauncherBoard'));
+      $('workLauncherGrid').querySelectorAll('.work-launcher-tile').forEach(tile=>boardLayoutObserver.observe(tile));
+    }
+    scheduleBoardLayout();
+  }
+  function boardItems() {
+    const items = state?.items || [], known = new Map(items.map(item => [item.id,item]));
+    const ordered = [], seen = new Set();
+    for (const itemID of state?.board_order || []) {
+      if (known.has(itemID) && !seen.has(itemID)) {ordered.push(known.get(itemID));seen.add(itemID);}
+    }
+    for (const item of items) if (!seen.has(item.id)) {ordered.push(item);seen.add(item.id);}
+    return ordered;
   }
   function drainChatRefresh() {
     if (!launcherRefreshQueued || busy || loading || pending || $('workLauncherDialog').open) return;
@@ -293,37 +320,32 @@
     if ($('workLauncherDialog').open) $('workLauncherFormNotice').textContent = text;
   }
   function locks() {
-    document.querySelectorAll('#workLauncher button,#workLauncherDialog button,#workLauncherDialog input,#workLauncherDialog select').forEach(el => {
+    document.querySelectorAll('#workLauncher button,#workLauncherDialog button,#workLauncherDialog input,#workLauncherDialog select,#workLauncherDialog textarea').forEach(el => {
       const action = el.dataset.launcherAction;
-      el.disabled = action === 'close' ? false : action === 'retry' ? busy : action === 'reload' ? busy || loading || !!pending : busy || loading || !!pending || !state?.action_token || imageReading || bookmarkLoading;
+      el.disabled = action === 'close' ? false : action === 'retry' ? busy : action === 'reload' ? busy || loading || !!pending : busy || loading || !!pending || !state?.action_token || imageReading || coverReading || bookmarkLoading;
     });
     $('workLauncherRetry').hidden = !pending;
     $('workLauncherDialogRetry').hidden = !pending;
-    $('workLauncherSave').textContent = busy ? '저장 중…' : imageReading ? '이미지 읽는 중…' : '바로가기 저장';
+    $('workLauncherSave').textContent = busy ? '저장 중…' : imageReading || coverReading ? '이미지 읽는 중…' : '바로가기 저장';
     $('workLauncher').classList.toggle('is-busy',busy);
     $('workLauncherGrid').querySelectorAll('[data-launcher-action="launch"]').forEach(tile => {tile.draggable = !dragBlocked();});
-    const current = (state?.items || []).find(x => x.id === editing);
-    const samePage = (state?.items || []).filter(x => (x.page || 1) === (current?.page || 1));
-    const index = samePage.findIndex(x => x.id === editing);
-    const movePage=Number($('workLauncherMovePage').value);
-    $('workLauncherMovePageButton').disabled=busy || loading || !!pending || !state?.action_token || imageReading || bookmarkLoading || !current || !pages().some(page=>page.id===movePage) || movePage===(current.page || 1);
-    for (const [name, unavailable] of [['workLauncherMoveUp',index <= 0],['workLauncherMoveDown',index < 0 || index >= samePage.length-1]]) {
+    const items = boardItems(), index = items.findIndex(x => x.id === editing);
+    for (const [name, unavailable] of [['workLauncherMoveUp',index <= 0],['workLauncherMoveDown',index < 0 || index >= items.length-1]]) {
       $(name).disabled = $(name).disabled || unavailable;
     }
   }
   const iconURL = item => '/api/launcher/icon?id='+encodeURIComponent(item.id)+(item.icon_revision ? '&v='+encodeURIComponent(item.icon_revision) : '');
+  const coverURLFor = item => '/api/launcher/cover?id='+encodeURIComponent(item.id)+(item.card_cover_revision ? '&v='+encodeURIComponent(item.card_cover_revision) : '');
   function icon(item) {
     return item.icon_image ? `<img src="${iconURL(item)}" alt="" loading="lazy">` : `<span>${esc(item.icon || Array.from(item.title || '✦').slice(0,2).join(''))}</span>`;
   }
   function render() {
-    selectPage(selectedPage);
-    const items = (state?.items || []).filter(item => (item.page || 1) === selectedPage);
-    $('workLauncherPages').innerHTML = pages().map(page => `<button type="button" data-launcher-action="page" data-launcher-page="${page.id}" ${page.id === selectedPage ? 'aria-current="page"' : ''}>${esc(page.title)}</button>`).join('')+'<button type="button" data-launcher-action="add-page" aria-label="바로가기 페이지 추가">+ 페이지</button>';
-    const capacity = Math.max(15, Number(state?.page_size) || 15);
-    const tiles = items.map(item => `<div class="work-launcher-cell"><button type="button" draggable="true" class="work-launcher-tile${item.available === false ? ' is-unavailable' : ''}" data-launcher-action="launch" data-launcher-id="${esc(item.id)}" title="${esc(item.title)} · ${esc(item.target)}" aria-label="${esc(item.title)} 열기${item.available === false ? ' · 경로 확인 필요' : ''}"><span class="work-launcher-icon${item.icon_image ? ' is-image' : ''}" aria-hidden="true">${icon(item)}</span><span class="work-launcher-name">${esc(item.title)}</span></button></div>`).join('');
-    const remaining = Math.max(0, capacity - items.length);
-    const addTile = remaining ? '<button type="button" class="work-launcher-tile work-launcher-add-tile" data-launcher-action="add" aria-label="이 페이지에 바로가기 추가"><span aria-hidden="true">＋</span><span>추가</span></button>' : '';
+    const items = boardItems();
+    const tiles = items.map(item => `<div class="work-launcher-cell"><button type="button" draggable="true" class="work-launcher-tile${item.card_cover ? ' has-cover' : ''}${item.available === false ? ' is-unavailable' : ''}" data-launcher-action="launch" data-launcher-id="${esc(item.id)}" title="${esc(item.title)} · ${esc(item.target)}" aria-label="${esc(item.title)} 열기${item.available === false ? ' · 경로 확인 필요' : ''}">${item.card_cover ? `<span class="work-launcher-cover"><img src="${coverURLFor(item)}" alt="" loading="lazy" draggable="false"></span>` : ''}<span class="work-launcher-card-content"><span class="work-launcher-icon${item.icon_image ? ' is-image' : ''}" aria-hidden="true">${icon(item)}</span><span class="work-launcher-name">${esc(item.title)}</span>${item.card_description ? `<span class="work-launcher-description">${esc(item.card_description)}</span>` : ''}</span></button></div>`).join('');
+    const addTile = '<button type="button" class="work-launcher-tile work-launcher-add-tile" data-launcher-action="add" aria-label="바로가기 카드 추가"><span aria-hidden="true">＋</span><span>새 카드</span></button>';
     $('workLauncherGrid').innerHTML = tiles + addTile;
+    $('workLauncherCount').textContent = `${items.length} CARDS · SCROLL TO EXPLORE`;
+    observeBoardLayout();
     locks();
   }
   async function load(refresh = false) {
@@ -355,7 +377,6 @@
       confirmed = !unresolved;
       if (unresolved || !response.ok || data.error) throw Error(data.error || '요청을 처리하지 못했습니다.');
       pending = null; state = data;
-      if (data.result?.page && ['save','add-page','move-page'].includes(request.endpoint)) selectPage(data.result.page);
       request.cleanup?.(); render(); message(data.result?.message || (request.endpoint === 'launch' ? '열기 요청을 전달했습니다.' : '바로가기를 저장했습니다.'));
     } catch (e) {
       if (!confirmed) pending = request; else pending = null;
@@ -404,20 +425,24 @@
     if (url) { const img = document.createElement('img'); img.src=url; img.alt=''; $('workLauncherIconPreview').append(img); }
     else $('workLauncherIconPreview').textContent = $('workLauncherIcon').value || '✦';
   }
+  function coverPreview() {
+    const container = $('workLauncherCoverPreview'), url = coverData || coverURL;
+    container.replaceChildren(); container.hidden = !url;
+    if (url) {const image=document.createElement('img');image.src=url;image.alt='선택한 카드 커버';container.append(image);}
+  }
   function open(item) {
     clearDrag();
     dialogVersion++; selectedApp=item?.kind === 'app' && String(item.target).startsWith('startapp:') ? item : null;
     editing = item?.id || null; imageData = undefined; imageURL = item?.icon_image ? iconURL(item) : ''; imageVersion++; imageReading=false;
+    coverData=undefined;coverURL=item?.card_cover ? coverURLFor(item) : '';coverVersion++;coverReading=false;
     $('workLauncherForm').reset(); $('workLauncherDialogTitle').textContent = editing ? '바로가기 수정' : '바로가기 추가';
     $('workLauncherItemActions').hidden = !editing;
-    const capacity=Math.max(15,Number(state?.page_size) || 15);
-    $('workLauncherMovePage').innerHTML=pages().map(page=>{const count=(state?.items || []).filter(entry=>(entry.page || 1)===page.id).length;return `<option value="${page.id}" ${page.id === (item?.page || selectedPage) ? 'selected' : ''} ${count >= capacity && page.id !== (item?.page || selectedPage) ? 'disabled' : ''}>${esc(page.title)} · ${count}/${capacity}${count >= capacity ? ' 가득 참' : ''}</option>`;}).join('');
-    $('workLauncherMovePage').value=String(item?.page || selectedPage);
-    ['workLauncherRemove','workLauncherMoveUp','workLauncherMoveDown','workLauncherMovePageButton'].forEach(name => {$(name).dataset.launcherId = editing || '';});
+    ['workLauncherRemove','workLauncherMoveUp','workLauncherMoveDown'].forEach(name => {$(name).dataset.launcherId = editing || '';});
     $('workLauncherName').value = item?.title || ''; $('workLauncherKind').value = item?.kind || 'app'; $('workLauncherTarget').value = selectedApp ? '' : item?.target || ''; $('workLauncherIcon').value = item?.icon || '✦'; $('workLauncherFormNotice').textContent='';
+    $('workLauncherDescription').value=item?.card_description || '';$('workLauncherCover').value='';
     $('workLauncherBookmarkPicker').hidden=!bookmarks; $('workLauncherBookmarkNotice').textContent=(bookmarks?.warnings || []).join(' ');
     appResults(); if (bookmarks) bookmarkResults();
-    kindFields(); preview(); $('workLauncherDialog').showModal(); locks(); $('workLauncherName').focus();
+    kindFields(); preview(); coverPreview(); $('workLauncherDialog').showModal(); locks(); $('workLauncherName').focus();
   }
   async function click(event) {
     const button = event.target.closest('[data-launcher-action]'); if (!button || button.disabled) return;
@@ -425,14 +450,7 @@
     if (action === 'close') { dialogVersion++; $('workLauncherDialog').close(); return; }
     if (action === 'reload') { await load(true); return; }
     if (action === 'retry') { if (pending) await write(null,null,null,pending); return; }
-    if (action === 'page') { selectPage(button.dataset.launcherPage); render(); return; }
-    if (action === 'add-page') { await write('add-page',{}); return; }
     if (action === 'add') { open(); return; }
-    if (action === 'move-page') {
-      const page=Number($('workLauncherMovePage').value);
-      if (!item || !Number.isInteger(page) || !pages().some(entry=>entry.id===page) || page===(item.page || 1)) return;
-      await write('move-page',{id:item.id,page},()=>{$('workLauncherDialog').close();});return;
-    }
     if (action === 'edit') { if (item) open(item); return; }
     if (action === 'launch') { if (Date.now() < suppressLaunchUntil || dragItem) return; if (item) await write(action,{id:item.id}); return; }
     if (action === 'remove') {
@@ -441,10 +459,9 @@
     }
     if (action === 'up' || action === 'down') {
       if (!item) return;
-      const pageItems=state.items.filter(x=>(x.page || 1)===(item.page || 1)), from=pageItems.findIndex(x=>x.id===item.id), to=from+(action === 'up' ? -1 : 1);
-      if (to < 0 || to >= pageItems.length) return;
-      const ids=state.items.map(x=>x.id), first=ids.indexOf(pageItems[from].id), second=ids.indexOf(pageItems[to].id);
-      [ids[first],ids[second]]=[ids[second],ids[first]]; await write('reorder',{ids},()=>{$('workLauncherDialog').close();}); return;
+      const ids=boardItems().map(x=>x.id), from=ids.indexOf(item.id), to=from+(action === 'up' ? -1 : 1);
+      if (to < 0 || to >= ids.length) return;
+      [ids[from],ids[to]]=[ids[to],ids[from]]; await write('board-order',{ids},()=>{$('workLauncherDialog').close();}); return;
     }
     if (action === 'suggestion') {
       chooseSource(state?.suggestions?.[Number(button.dataset.sourceIndex)]); return;
@@ -468,6 +485,7 @@
       if (action === 'palette') $('workLauncherIcon').value=button.dataset.icon;
       preview(); return;
     }
+    if (action === 'clear-cover') {coverData=null;coverURL='';coverVersion++;coverReading=false;$('workLauncherCover').value='';coverPreview();locks();return;}
     if (action === 'pick') {
       if ($('workLauncherKind').value === 'folder') { await pickFolder('workLauncherTarget'); return; }
       busy=true; locks();
@@ -481,17 +499,18 @@
   }
   async function submit(event) {
     if (event.target.id !== 'workLauncherForm') return;
-    event.preventDefault(); if (busy || pending || imageReading) return;
+    event.preventDefault(); if (busy || pending || imageReading || coverReading) return;
     const title=$('workLauncherName').value.trim(), kind=$('workLauncherKind').value, target=kind === 'app' && selectedApp ? selectedApp.target : $('workLauncherTarget').value.trim();
     const original = state?.items?.find(x => x.id === editing);
+    const cardStyle={card_description:$('workLauncherDescription').value.trim(),...(coverData !== undefined ? {card_cover_data:coverData} : {})};
     if (original && kind === original.kind && target === original.target) {
       if (!title) return;
-      await write('appearance',{id:editing,title,icon:$('workLauncherIcon').value.trim(),...(imageData !== undefined ? {icon_data:imageData} : {})},()=>{$('workLauncherDialog').close();});
+      await write('appearance',{id:editing,title,icon:$('workLauncherIcon').value.trim(),...cardStyle,...(imageData !== undefined ? {icon_data:imageData} : {})},()=>{$('workLauncherDialog').close();});
       return;
     }
     if (!title || !target) return;
     if (kind === 'web') { try { const url=new URL(target); if (!['http:','https:'].includes(url.protocol)) throw Error(); } catch(_) { $('workLauncherFormNotice').textContent='http:// 또는 https://로 시작하는 올바른 주소를 입력하세요.'; return; } }
-    const payload={title,target,kind,icon:$('workLauncherIcon').value.trim(),...(editing ? {id:editing} : {page:selectedPage}),...(imageData !== undefined ? {icon_data:imageData} : {})};
+    const payload={title,target,kind,icon:$('workLauncherIcon').value.trim(),...cardStyle,...(editing ? {id:editing} : {}),...(imageData !== undefined ? {icon_data:imageData} : {})};
     await write('save',payload,()=>{$('workLauncherDialog').close();});
   }
   function dragBlocked() { return busy || loading || !!pending || !state?.action_token || $('workLauncherDialog').open; }
@@ -503,14 +522,14 @@
     const tile = event.target.closest('[data-launcher-action="launch"]');
     const item = state?.items?.find(x => x.id === tile?.dataset.launcherId);
     const source = state?.items?.find(x => x.id === dragItem);
-    if (dragBlocked() || !tile || tile.disabled || !item || !source || (item.page || 1) !== selectedPage || (source.page || 1) !== selectedPage) return null;
+    if (dragBlocked() || !tile || tile.disabled || !item || !source) return null;
     return {tile,item,source};
   }
   function dropAfter(event, tile) { const rect = tile.getBoundingClientRect(); return event.clientX >= rect.left + rect.width/2; }
   function dragStart(event) {
     const tile=event.target.closest('[data-launcher-action="launch"]');
     const item=state?.items?.find(x=>x.id===tile?.dataset.launcherId);
-    if (dragBlocked() || !tile || tile.disabled || !item || (item.page || 1) !== selectedPage || !event.dataTransfer) {event.preventDefault();return;}
+    if (dragBlocked() || !tile || tile.disabled || !item || !event.dataTransfer) {event.preventDefault();return;}
     clearDrag(); dragItem=item.id; suppressLaunchUntil=Date.now()+500;
     event.dataTransfer.clearData(); event.dataTransfer.setData('text/plain',item.id); event.dataTransfer.effectAllowed='move';
     tile.classList.add('is-dragging');
@@ -527,13 +546,11 @@
     if (!target || event.dataTransfer?.files?.length || event.dataTransfer?.getData('text/plain') !== sourceID) {clearDrag();return;}
     const after=dropAfter(event,target.tile); suppressLaunchUntil=Date.now()+500; clearDrag();
     if (target.item.id === sourceID) return;
-    const pageItems=state.items.filter(x=>(x.page || 1)===selectedPage).map(x=>x.id);
-    const reordered=pageItems.filter(id=>id!==sourceID), at=reordered.indexOf(target.item.id)+(after ? 1 : 0);
+    const ordered=boardItems().map(x=>x.id);
+    const reordered=ordered.filter(id=>id!==sourceID), at=reordered.indexOf(target.item.id)+(after ? 1 : 0);
     reordered.splice(at,0,sourceID);
-    if (pageItems.every((id,index)=>id===reordered[index])) return;
-    let offset=0;
-    const ids=state.items.map(item=>(item.page || 1)===selectedPage ? reordered[offset++] : item.id);
-    await write('reorder',{ids});
+    if (ordered.every((id,index)=>id===reordered[index])) return;
+    await write('board-order',{ids:reordered});
   }
   document.addEventListener('DOMContentLoaded',()=>{
     if (!$('workLauncher')) return;
@@ -553,10 +570,11 @@
     $('workLauncherGrid').addEventListener('dragend',()=>{if (dragItem) suppressLaunchUntil=Date.now()+500;clearDrag();});
     $('workLauncherGrid').addEventListener('dragleave',event=>{if (!$('workLauncherGrid').contains(event.relatedTarget)) $('workLauncherGrid').querySelectorAll('.drop-before,.drop-after').forEach(tile=>tile.classList.remove('drop-before','drop-after'));});
     $('workLauncherGrid').addEventListener('contextmenu',editShortcut);
+    $('workLauncherGrid').addEventListener('load',scheduleBoardLayout,true);
+    if (typeof window.addEventListener === 'function') window.addEventListener('resize',scheduleBoardLayout);
     $('workLauncherGrid').addEventListener('keydown',event=>{
       if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) editShortcut(event);
     });
-    $('workLauncherMovePage').addEventListener('change',locks);
     $('workLauncherKind').addEventListener('change',()=>{selectedApp=null;$('workLauncherTarget').value='';$('workLauncherFormNotice').textContent='';kindFields();});
     $('workLauncherAppSearch').addEventListener('input',appResults);
     $('workLauncherBookmarkSearch').addEventListener('input',bookmarkResults);
@@ -571,6 +589,13 @@
       const version=++imageVersion, reader=new FileReader(); imageReading=true; locks();
       reader.onload=()=>{if (version !== imageVersion) return; imageData=String(reader.result);imageURL='';imageReading=false;preview();locks();$('workLauncherFormNotice').textContent='이미지 아이콘을 선택했습니다. 저장하면 적용됩니다.';};
       reader.onerror=()=>{if (version !== imageVersion) return;imageReading=false;locks();$('workLauncherFormNotice').textContent='이미지를 읽지 못했습니다.';}; reader.readAsDataURL(file);
+    });
+    $('workLauncherCover').addEventListener('change',()=>{
+      const file=$('workLauncherCover').files[0];if (!file) return;
+      if (file.size > 4*1024*1024 || !/\.(png|jpe?g|webp|gif)$/i.test(file.name) || (file.type && !/^image\/(png|jpeg|webp|gif)$/i.test(file.type))) { $('workLauncherFormNotice').textContent='4MB 이하 PNG, JPG, WebP, GIF 커버 이미지를 선택하세요.';$('workLauncherCover').value='';return; }
+      const version=++coverVersion,reader=new FileReader();coverReading=true;locks();
+      reader.onload=()=>{if(version !== coverVersion)return;coverData=String(reader.result);coverURL='';coverReading=false;coverPreview();locks();$('workLauncherFormNotice').textContent='커버를 선택했습니다. 저장하면 카드에 적용됩니다.';};
+      reader.onerror=()=>{if(version !== coverVersion)return;coverReading=false;locks();$('workLauncherFormNotice').textContent='커버 이미지를 읽지 못했습니다.';};reader.readAsDataURL(file);
     });
     // Native dialogs provide Escape dismissal and keyboard focus containment.
     locks(); load();

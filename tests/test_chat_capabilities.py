@@ -153,8 +153,11 @@ class CapabilitiesTests(unittest.TestCase):
         items={row['name']:row for row in manifest['items']}
         for name in ('messenger_receive_save_forward','browser_form_submit','manuals_execute','organizer_policy_save','model_settings'):
             self.assertEqual(items[name]['status'],'unsupported')
-        for name in ('launcher_pages','launcher_page_create','launcher_move_page','launcher_change_target','launcher_set_image','scan_status','scan_results'):
+        for name in ('launcher_change_target','launcher_set_image','launcher_card_edit','scan_status','scan_results'):
             self.assertEqual(items[name]['channels'],['chat','click'])
+        for name in ('launcher_pages','launcher_page_create','launcher_move_page'):
+            self.assertEqual(items[name]['channels'],['chat'])
+            self.assertTrue(items[name]['legacy_only'])
         self.assertEqual(items['scan_status']['category'],'files')
         self.assertNotIn('launcher_full_edit',items)
         self.assertNotIn('office_capabilities',items)

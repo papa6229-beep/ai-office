@@ -168,8 +168,8 @@ class CapabilityService:
                            'launcher_add', 'launcher_add_web', 'launcher_edit', 'launcher_remove',
                            'launcher_reorder', 'launcher_launch', 'bookmarks_list', 'bookmark_add',
                            'work_list', 'work_create', 'work_status', 'work_note', 'work_resources', 'work_report',
-                           'launcher_pages', 'launcher_page_create', 'launcher_move_page', 'launcher_change_target',
-                           'launcher_set_image', 'scan_status', 'scan_results', 'scan_start'}
+                           'launcher_change_target',
+                           'launcher_set_image', 'launcher_card_edit', 'scan_status', 'scan_results', 'scan_start'}
         click_connected.update(name for name in specs if name.startswith(('desktop_', 'collections_')))
         for name in click_connected:
             for item in items:
@@ -180,6 +180,8 @@ class CapabilityService:
         except (OSError, ValueError):
             ready = 'needs_setup'
         for item in items:
+            if item['name'] in {'launcher_pages', 'launcher_page_create', 'launcher_move_page'}:
+                item['legacy_only'] = True
             if item['category'] == 'organizer':
                 item['channels'].append('click')
                 if item['name'] != 'organizer_policy_status':
@@ -200,7 +202,7 @@ class CapabilityService:
         # every UI action is already a callable assistant tool.
         for name, group, description in [
             ('organizer_policy_save', 'organizer', '새 정리 폴더·제외 규칙·허용 범위 설정'),
-            ('launcher_manual_target', 'launcher', '파일 선택창으로 임의 새 실행 경로 선택·이미지 제거'),
+            ('launcher_manual_target', 'launcher', '파일 선택창으로 임의 새 실행 경로 선택·작은 아이콘 이미지 제거'),
             ('pc_scan', 'files', 'PC 자료 조사 시작·중복 조사'),
             ('project_archives', 'projects', '프로젝트 버전·압축 자료 비교'),
             ('model_settings', 'settings', '모델 연결·API·업무 폴더 설정'),

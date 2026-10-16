@@ -21,11 +21,12 @@ def _string(description='', maximum=4000):
 
 
 SPECS = {
-    'launcher_pages': ('read', '바로가기 페이지와 항목 수 및 서버 페이지 참조를 조회합니다.', {}, []),
-    'launcher_page_create': ('write', '기존 바로가기 서비스로 빈 페이지를 하나 추가합니다. 페이지 이름은 기존 서비스의 자동 번호입니다.', {}, []),
-    'launcher_move_page': ('write', '조회한 바로가기를 조회한 페이지로 옮깁니다. 원본 파일과 아이콘 이미지는 유지됩니다.', {'ref': _string(), 'page_ref': _string()}, ['ref', 'page_ref']),
+    'launcher_pages': ('read', '과거 설정 호환용 페이지 정보를 조회합니다. 현재 화면은 페이지 전환 없는 스크롤 카드 보드이므로 보드 순서는 launcher_list로 확인하세요.', {}, []),
+    'launcher_page_create': ('write', '과거 설정 호환용 빈 페이지를 추가합니다. 현재 스크롤 보드 화면에 페이지 전환이 생기지 않습니다.', {}, []),
+    'launcher_move_page': ('write', '과거 호환용 페이지 소속만 옮깁니다. 현재 스크롤 보드 순서는 바뀌지 않으며 보드 순서는 launcher_reorder로 변경하세요.', {'ref': _string(), 'page_ref': _string()}, ['ref', 'page_ref']),
     'launcher_change_target': ('write', '조회한 바로가기의 실행 대상을 조회한 앱·북마크·폴더로 변경합니다. 이름·아이콘·페이지는 유지합니다. 파일 실행이나 추측 경로는 지원하지 않습니다.', {'ref': _string(), 'target_ref': _string()}, ['ref', 'target_ref']),
     'launcher_set_image': ('write', 'files_find로 선택한 실제 PNG·JPEG·WebP·GIF·ICO(512KB 이하)를 기존 바로가기 아이콘으로 적용합니다. 애니메이션 GIF는 원본을 유지하며 경로·신원을 다시 확인합니다.', {'ref': _string(), 'image_ref': _string()}, ['ref', 'image_ref']),
+    'launcher_card_edit': ('write', '바로가기 카드 설명(160자 이하)과 커버를 편집합니다. cover_ref는 files_find가 조회한 4MB 이하 PNG·JPEG·WebP·GIF입니다. clear_cover=true는 커버만 지우며 기존 작은 아이콘은 유지합니다.', {'ref': _string(), 'description': _string(maximum=160), 'cover_ref': _string(), 'clear_cover': {'type':'boolean'}}, ['ref']),
     'scan_status': ('read', '기존 PC 자료 조사의 실제 진행 상태를 조회합니다. 새 조사를 시작하거나 파일 본문을 읽지 않습니다.', {}, []),
     'scan_results': ('read', '기존 PC 조사 결과에서 보호 경로를 제외한 메타데이터를 100개씩 조회합니다. 전체 디스크 조사나 파일 본문 읽기가 아닙니다. 위치 표시는 files_find로 다시 선택하세요.', {'query': _string(maximum=500), 'page': {'type': 'integer', 'minimum': 0, 'maximum': 1000}}, []),
 }
@@ -62,26 +63,27 @@ def _selection(registry, context, ref):
     return live
 
 
-def _image_data(item):
+def _image_data(item, *, cover=False):
+    maximum = quick_launcher._MAX_COVER_BYTES if cover else quick_launcher._MAX_ICON_BYTES
     path, info = file_workspace._safe(item['path'])
     mimes = {'.png': 'png', '.jpg': 'jpeg', '.jpeg': 'jpeg', '.webp': 'webp', '.gif': 'gif', '.ico': 'x-icon'}
     mime = mimes.get(path.suffix.casefold())
-    if item['kind'] != 'file' or not mime or not 0 < info.st_size <= quick_launcher._MAX_ICON_BYTES:
-        raise ValueError('아이콘은 512KB 이하의 PNG·JPEG·WebP·GIF·ICO 파일을 선택하세요.')
+    if item['kind'] != 'file' or not mime or (cover and mime == 'x-icon') or not 0 < info.st_size <= maximum:
+        raise ValueError('커버는 4MB 이하 PNG·JPEG·WebP·GIF 파일을 선택하세요.' if cover else '아이콘은 512KB 이하의 PNG·JPEG·WebP·GIF·ICO 파일을 선택하세요.')
     if file_workspace._identity(info) != item['identity']:
         raise ValueError('검색 이후 이미지가 변경되었습니다. 다시 검색하세요.')
     descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_BINARY', 0) | getattr(os, 'O_NOFOLLOW', 0))
     with os.fdopen(descriptor, 'rb') as stream:
         if file_workspace._identity(os.fstat(stream.fileno())) != item['identity']:
             raise ValueError('이미지 경로가 변경되었습니다. 다시 검색하세요.')
-        raw = stream.read(quick_launcher._MAX_ICON_BYTES + 1)
+        raw = stream.read(maximum + 1)
         if file_workspace._identity(os.fstat(stream.fileno())) != item['identity']:
             raise ValueError('이미지가 읽는 동안 변경되었습니다. 다시 검색하세요.')
     _, after = file_workspace._safe(path)
-    if file_workspace._identity(after) != item['identity'] or len(raw) > quick_launcher._MAX_ICON_BYTES:
+    if file_workspace._identity(after) != item['identity'] or len(raw) > maximum:
         raise ValueError('이미지 경로나 크기가 변경되었습니다. 다시 검색하세요.')
     value = 'data:image/' + mime + ';base64,' + base64.b64encode(raw).decode('ascii')
-    quick_launcher._icon_image(value)
+    quick_launcher._cover_image(value) if cover else quick_launcher._icon_image(value)
     return value
 
 
@@ -148,6 +150,17 @@ def execute(registry, name, args, context):
             payload.update(id=item['id'], request_id=context['step_id'], kind=kind, target=value)
             # Omitting icon_data preserves the original BLOB through QuickLauncher.
             result = registry.launcher.perform('save', payload)
+    elif name == 'launcher_card_edit':
+        if args.get('clear_cover') and 'cover_ref' in args:
+            raise ValueError('커버 등록과 제거 중 하나를 선택하세요.')
+        item = _current(registry, context, args['ref'])
+        payload = {'request_id':context['step_id'], 'id':item['id']}
+        if 'description' in args: payload['description'] = args['description']
+        if 'cover_ref' in args: payload['cover_data'] = _image_data(_selection(registry, context, args['cover_ref']),cover=True)
+        elif args.get('clear_cover'): payload['cover_data'] = None
+        if len(payload) == 2:
+            raise ValueError('변경할 설명이나 커버를 지정하세요.')
+        result = registry.launcher.perform('card-style',payload)
     elif name == 'launcher_set_image':
         image = _selection(registry, context, args['image_ref'])
         value = _image_data(image)

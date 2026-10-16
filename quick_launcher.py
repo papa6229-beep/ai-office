@@ -20,12 +20,14 @@ import windows_app_catalog
 
 _LOCKS = {}
 _LOCKS_GUARD = threading.Lock()
-_FIELDS = {'save': {'id', 'title', 'kind', 'target', 'icon', 'icon_data', 'page'},
+_FIELDS = {'save': {'id', 'title', 'kind', 'target', 'icon', 'icon_data', 'page', 'card_description', 'card_cover_data'},
            'remove': {'id'}, 'reorder': {'ids'}, 'launch': {'id'},
-           'add-page': set(), 'appearance': {'id', 'title', 'icon', 'icon_data'},
-           'move-page': {'id', 'page'}}
+           'add-page': set(), 'appearance': {'id', 'title', 'icon', 'icon_data', 'card_description', 'card_cover_data'},
+           'move-page': {'id', 'page'}, 'board-order': {'ids'},
+           'card-style': {'id', 'description', 'cover_data'}}
 _PAGE_SIZE = 15
 _MAX_ICON_BYTES = 512 * 1024
+_MAX_COVER_BYTES = 4 * 1024 * 1024
 _MAX_GIF_FRAMES = 300
 _MAX_GIF_PIXELS = 32_000_000
 _LAUNCH_FAILURE = '열기 요청을 완료하지 못했습니다. 대상을 확인한 후 다시 요청하세요.'
@@ -82,34 +84,39 @@ def _target(kind, value):
     return str(path)
 
 
-def _icon_image(value):
+def _icon_image(value, *, cover=False):
+    maximum_bytes = _MAX_COVER_BYTES if cover else _MAX_ICON_BYTES
+    maximum_edge = 2048 if cover else 1024
+    label = '카드 커버' if cover else '아이콘 이미지'
     if not isinstance(value, str):
         raise ValueError('아이콘 이미지를 확인하세요.')
     if not value:
         return None
-    if len(value) > (_MAX_ICON_BYTES + 2) // 3 * 4 + 100:
-        raise ValueError('아이콘 이미지는 512KB 이하여야 합니다.')
+    if len(value) > (maximum_bytes + 2) // 3 * 4 + 100:
+        raise ValueError(label + ('는 4MB 이하여야 합니다.' if cover else '는 512KB 이하여야 합니다.'))
     match = re.fullmatch(r'data:image/(png|jpeg|webp|gif|x-icon|vnd.microsoft.icon);base64,([A-Za-z0-9+/=]+)', value)
     if not match:
         raise ValueError('PNG, JPEG, WebP, GIF 또는 ICO 이미지를 선택하세요.')
+    if cover and match[1] in {'x-icon', 'vnd.microsoft.icon'}:
+        raise ValueError('카드 커버는 PNG, JPEG, WebP 또는 GIF를 선택하세요.')
     try:
         from PIL import Image
     except ImportError:
         raise ValueError('아이콘 이미지를 처리하려면 Pillow가 필요합니다.') from None
     try:
         raw = base64.b64decode(match[2], validate=True)
-        if len(raw) > _MAX_ICON_BYTES:
+        if len(raw) > maximum_bytes:
             raise ValueError()
         with warnings.catch_warnings():
             warnings.simplefilter('error', Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(raw)) as source:
                 expected = {'png': 'PNG', 'jpeg': 'JPEG', 'webp': 'WEBP', 'gif': 'GIF', 'x-icon': 'ICO', 'vnd.microsoft.icon': 'ICO'}[match[1]]
-                if source.format != expected or max(source.size) > 1024 or min(source.size) < 1:
+                if source.format != expected or max(source.size) > maximum_edge or min(source.size) < 1:
                     raise ValueError()
-                if expected == 'GIF':
+                if expected == 'GIF' or (cover and getattr(source, 'is_animated', False)):
                     # Retain original frames, timing, transparency and loop metadata.
                     # Decode every frame before storing, with a bounded work budget.
-                    if not raw.endswith(b';'):
+                    if expected == 'GIF' and not raw.endswith(b';'):
                         raise ValueError()
                     frames = source.n_frames
                     if frames > _MAX_GIF_FRAMES or source.width * source.height * frames > _MAX_GIF_PIXELS:
@@ -117,7 +124,7 @@ def _icon_image(value):
                     pixels = 0
                     for index in range(frames):
                         source.seek(index)
-                        if max(source.size) > 1024 or min(source.size) < 1:
+                        if max(source.size) > maximum_edge or min(source.size) < 1:
                             raise ValueError()
                         pixels += source.width * source.height
                         if pixels > _MAX_GIF_PIXELS:
@@ -125,14 +132,24 @@ def _icon_image(value):
                         source.load()
                     return raw
                 source.load()
+                if cover:
+                    return raw
                 output = io.BytesIO()
                 source.convert('RGBA').save(output, format='PNG')
                 normalized = output.getvalue()
-                if len(normalized) > _MAX_ICON_BYTES:
+                if len(normalized) > maximum_bytes:
                     raise ValueError()
                 return normalized
     except (OSError, EOFError, ValueError, binascii.Error, Image.DecompressionBombError, Warning):
-        raise ValueError('유효한 1024×1024 이하 아이콘 이미지를 선택하세요.') from None
+        raise ValueError('유효한 '+str(maximum_edge)+'×'+str(maximum_edge)+' 이하 '+label+'를 선택하세요.') from None
+
+
+def _cover_image(value):
+    if value is None:
+        return None
+    if value == '':
+        raise ValueError('카드 커버를 지우려면 null을 사용하세요.')
+    return _icon_image(value, cover=True)
 
 
 def _suggestion_roots():
@@ -200,8 +217,13 @@ class QuickLauncher:
                     id INTEGER PRIMARY KEY,title TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS launcher_item_pages (
                     item_id TEXT PRIMARY KEY,page_id INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS launcher_cards (
+                    item_id TEXT PRIMARY KEY,description TEXT NOT NULL DEFAULT '',cover BLOB);
+                CREATE TABLE IF NOT EXISTS launcher_board_order (
+                    item_id TEXT PRIMARY KEY,position INTEGER NOT NULL);
             ''')
             self._sync_pages(c)
+            self._sync_board(c)
 
     def _new_page(self, c):
         page = c.execute('SELECT COALESCE(MAX(id),0)+1 FROM launcher_pages').fetchone()[0]
@@ -231,6 +253,17 @@ class QuickLauncher:
             page = self._choose_page(c)
             c.execute('INSERT OR REPLACE INTO launcher_item_pages VALUES (?,?)', (row['id'], page))
 
+    def _sync_board(self, c):
+        for table in ('launcher_cards', 'launcher_board_order'):
+            c.execute('DELETE FROM '+table+' WHERE item_id NOT IN (SELECT id FROM launcher_items)')
+        position = c.execute('SELECT COALESCE(MAX(position),-1)+1 FROM launcher_board_order').fetchone()[0]
+        missing = c.execute('SELECT i.id FROM launcher_items i JOIN launcher_item_pages p ON p.item_id=i.id '
+                            'LEFT JOIN launcher_board_order b ON b.item_id=i.id WHERE b.item_id IS NULL '
+                            'ORDER BY p.page_id,i.position,i.id').fetchall()
+        for row in missing:
+            c.execute('INSERT INTO launcher_board_order VALUES (?,?)', (row['id'], position))
+            position += 1
+
     @contextlib.contextmanager
     def _connect(self):
         c = sqlite3.connect(self.db_path, timeout=20)
@@ -243,12 +276,18 @@ class QuickLauncher:
 
     def _overview(self, c):
         self._sync_pages(c)
+        self._sync_board(c)
         items = []
         for row in c.execute('SELECT i.id,title,kind,target,icon,image,position,m.page_id AS page FROM launcher_items i JOIN launcher_item_pages m ON m.item_id=i.id ORDER BY position,i.id'):
             item = dict(row)
             image = item.pop('image')
             item['icon_image'] = image is not None
             item['icon_revision'] = hashlib.sha256(image).hexdigest()[:16] if image is not None else None
+            card = c.execute('SELECT description,cover FROM launcher_cards WHERE item_id=?', (item['id'],)).fetchone()
+            item['card_description'] = card['description'] if card else ''
+            cover = card['cover'] if card else None
+            item['card_cover'] = cover is not None
+            item['card_cover_revision'] = hashlib.sha256(cover).hexdigest()[:16] if cover is not None else None
             try:
                 _target(item['kind'], item['target'])
                 item['available'] = True
@@ -258,7 +297,8 @@ class QuickLauncher:
         catalog = windows_app_catalog.catalog()
         primary = catalog['available']
         suggestions = catalog['items'] if primary else _suggestions()
-        return {'items': items, 'pages': [dict(row) for row in c.execute('SELECT id,title FROM launcher_pages ORDER BY id')],
+        return {'items': items, 'board_order': [row['item_id'] for row in c.execute('SELECT item_id FROM launcher_board_order ORDER BY position,item_id')],
+                'pages': [dict(row) for row in c.execute('SELECT id,title FROM launcher_pages ORDER BY id')],
                 'page_size': _PAGE_SIZE, 'suggestions': suggestions,
                 'suggestion_source': 'windows-start-menu' if primary else 'local-shortcuts',
                 'suggestion_warnings': catalog.get('warnings', []),
@@ -276,6 +316,36 @@ class QuickLauncher:
                 raise ValueError('등록된 아이콘 이미지가 없습니다.')
             raw = bytes(row['image'])
             return raw, 'image/gif' if raw.startswith((b'GIF87a', b'GIF89a')) else 'image/png'
+
+    def cover_bytes(self, item_id):
+        with self._lock, self._connect() as c:
+            self._item(c, item_id)
+            row = c.execute('SELECT cover FROM launcher_cards WHERE item_id=?', (item_id,)).fetchone()
+            if row is None or row['cover'] is None:
+                raise ValueError('등록된 카드 커버가 없습니다.')
+            raw = bytes(row['cover'])
+            mime = ('image/gif' if raw.startswith((b'GIF87a', b'GIF89a')) else
+                    'image/png' if raw.startswith(b'\x89PNG\r\n\x1a\n') else
+                    'image/jpeg' if raw.startswith(b'\xff\xd8') else
+                    'image/webp' if raw.startswith(b'RIFF') and raw[8:12] == b'WEBP' else None)
+            if mime is None:
+                raise ValueError('카드 커버 형식을 확인할 수 없습니다.')
+            return raw, mime
+
+    def _card_style(self, c, item_id, payload):
+        old = c.execute('SELECT description,cover FROM launcher_cards WHERE item_id=?', (item_id,)).fetchone()
+        description = payload.get('description', old['description'] if old else '')
+        if not isinstance(description, str) or len(description) > 160 or any(ord(ch) < 32 or ord(ch) == 127 for ch in description):
+            raise ValueError('카드 설명은 160자 이하의 한 줄로 입력하세요.')
+        cover = _cover_image(payload['cover_data']) if 'cover_data' in payload else old['cover'] if old else None
+        c.execute('INSERT INTO launcher_cards VALUES (?,?,?) ON CONFLICT(item_id) DO UPDATE SET description=excluded.description,cover=excluded.cover',
+                  (item_id, description.strip(), cover))
+
+    def _save_card_fields(self, c, item_id, payload):
+        card = {}
+        if 'card_description' in payload: card['description'] = payload['card_description']
+        if 'card_cover_data' in payload: card['cover_data'] = payload['card_cover_data']
+        if card: self._card_style(c, item_id, card)
 
     def _item(self, c, item_id):
         row = c.execute('SELECT * FROM launcher_items WHERE id=?', (_identifier(item_id),)).fetchone()
@@ -348,6 +418,11 @@ class QuickLauncher:
 
     def _apply(self, c, action, payload):
         self._sync_pages(c)
+        self._sync_board(c)
+        if action == 'card-style':
+            item_id = self._item(c, payload.get('id'))['id']
+            self._card_style(c, item_id, payload)
+            return {'id': item_id, 'item_id': item_id, 'message': '카드 설명과 커버를 저장했습니다.'}
         if action == 'add-page':
             return {'page': self._new_page(c), 'message': '바로가기 페이지를 추가했습니다.'}
         if action == 'move-page':
@@ -372,8 +447,10 @@ class QuickLauncher:
                 raise ValueError('아이콘은 8자 이하의 문자나 이모지로 입력하세요.')
             image = _icon_image(payload['icon_data']) if 'icon_data' in payload else old['image']
             c.execute('UPDATE launcher_items SET title=?,icon=?,image=? WHERE id=?', (title, icon, image, old['id']))
+            self._save_card_fields(c, old['id'], payload)
             page = c.execute('SELECT page_id FROM launcher_item_pages WHERE item_id=?', (old['id'],)).fetchone()[0]
-            return {'id': old['id'], 'item_id': old['id'], 'page': page, 'message': '바로가기 이름과 아이콘을 저장했습니다.'}
+            message = '카드와 바로가기 설정을 저장했습니다.' if any(key in payload for key in ('card_description', 'card_cover_data')) else '바로가기 이름과 아이콘을 저장했습니다.'
+            return {'id': old['id'], 'item_id': old['id'], 'page': page, 'message': message}
         if action == 'save':
             old = self._item(c, payload['id']) if payload.get('id') is not None else None
             title = _text(payload.get('title'), 120, '이름')
@@ -395,11 +472,14 @@ class QuickLauncher:
                 page = self._choose_page(c)
             c.execute('INSERT INTO launcher_items VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,kind=excluded.kind,target=excluded.target,icon=excluded.icon,image=excluded.image', (item_id, title, kind, target, icon, image, position))
             c.execute('INSERT OR REPLACE INTO launcher_item_pages VALUES (?,?)', (item_id, page))
+            self._save_card_fields(c, item_id, payload)
             return {'id': item_id, 'item_id': item_id, 'page': page, 'message': '바로가기를 저장했습니다.'}
         if action == 'remove':
             item_id = self._item(c, payload.get('id'))['id']
             c.execute('DELETE FROM launcher_item_pages WHERE item_id=?', (item_id,))
             c.execute('DELETE FROM launcher_items WHERE id=?', (item_id,))
+            c.execute('DELETE FROM launcher_cards WHERE item_id=?', (item_id,))
+            c.execute('DELETE FROM launcher_board_order WHERE item_id=?', (item_id,))
             for position, row in enumerate(c.execute('SELECT id FROM launcher_items ORDER BY position,id').fetchall()):
                 c.execute('UPDATE launcher_items SET position=? WHERE id=?', (position, row['id']))
             return {'id': item_id, 'item_id': item_id, 'message': '바로가기를 삭제했습니다.'}
@@ -408,5 +488,7 @@ class QuickLauncher:
         if not isinstance(ids, list) or any(not isinstance(item, str) for item in ids) or len(ids) != len(existing) or len(set(ids)) != len(ids) or set(ids) != set(existing):
             raise ValueError('모든 바로가기를 한 번씩 포함하여 정렬하세요.')
         for position, item_id in enumerate(ids):
-            c.execute('UPDATE launcher_items SET position=? WHERE id=?', (position, item_id))
+            c.execute('UPDATE launcher_board_order SET position=? WHERE item_id=?', (position, item_id))
+            if action == 'reorder':
+                c.execute('UPDATE launcher_items SET position=? WHERE id=?', (position, item_id))
         return {'message': '바로가기 순서를 저장했습니다.'}

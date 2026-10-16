@@ -254,7 +254,13 @@ class ToolRegistry:
                     'hint':'문자 일치가 없으면 Windows 등록 표시 이름 목록에서 의미로 판단하세요. 패키지 식별자로 제품 이름을 추측하거나 없는 제품을 다른 앱으로 대체하지 마세요. 없으면 현재 목록에서 찾지 못했다고 답하세요.'})
 
     def _launcher_cards(self,context):
-        return [{'ref':self._ref(context,'launcher',r['id']),'title':r['title'],'kind':r['kind'],'available':r.get('available',True)} for r in self.launcher.overview()['items']]
+        state=self.launcher.overview()
+        rows={row['id']:row for row in state['items']}
+        order=state.get('board_order',[row['id'] for row in state['items']])
+        return [{'ref':self._ref(context,'launcher',rows[key]['id']),'title':rows[key]['title'],
+                 'kind':rows[key]['kind'],'description':rows[key].get('card_description',''),
+                 'has_cover':rows[key].get('card_cover',False),'available':rows[key].get('available',True)}
+                for key in order if key in rows]
 
     def _save(self,item,context):
         for old in self.launcher.overview()['items']:

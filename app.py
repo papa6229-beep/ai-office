@@ -173,12 +173,14 @@ class Handler(BaseHTTPRequestHandler):
         out=json.dumps(data,ensure_ascii=False).encode('utf-8');self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',str(len(out)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(out)
     def body(self):
         n=int(self.headers.get('Content-Length','0'))
-        limit=800000 if urlparse(self.path).path in {'/api/launcher/save','/api/launcher/appearance'} else 200000
+        # A maximum cover plus maximum small icon occupies 6MiB in base64;
+        # leave a bounded allowance for JSON and escaped metadata.
+        limit=6*1024*1024+65536 if urlparse(self.path).path in {'/api/launcher/save','/api/launcher/appearance','/api/launcher/card-style'} else 200000
         if n<0 or n>limit:raise ValueError('요청 크기 초과')
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/launcher','/api/launcher/icon','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
         if path in _AEMEATH_ASSETS:
             b=(ROOT/path.lstrip('/')).read_bytes()
@@ -199,11 +201,12 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/launcher':
             try:return self.reply(launcher_view())
             except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'빠른 실행 목록을 읽지 못했습니다.'},400)
-        if path=='/api/launcher/icon':
+        if path in {'/api/launcher/icon','/api/launcher/cover'}:
             from urllib.parse import parse_qs
             try:
                 item_id=parse_qs(urlparse(self.path).query).get('id',[''])[0]
-                data,mime=quick_launcher.QuickLauncher(DB).icon_bytes(item_id)
+                service=quick_launcher.QuickLauncher(DB)
+                data,mime=service.cover_bytes(item_id) if path.endswith('/cover') else service.icon_bytes(item_id)
                 self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(data);return
             except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'등록한 아이콘을 찾을 수 없습니다.'},404)
         if path=='/api/desk/judgment':

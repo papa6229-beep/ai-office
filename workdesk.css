@@ -297,6 +297,49 @@
 #work .work-launcher-page-move>.work-muted{font-size:11px;margin-top:7px;line-height:1.65}
 #work .work-launcher-order-actions{display:flex;justify-content:space-between;align-items:center;gap:8px}
 #work .work-launcher-order-actions>div{display:flex;gap:6px}
+/* One scrolling card board; saved legacy pages remain a storage detail. */
+#work .work-launcher{background:#191b1d;padding:17px}
+#work .work-launcher-board{max-height:clamp(400px,calc(100vh - 400px),620px);min-height:360px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#4b5145 transparent;padding:0 6px 6px 0;scroll-padding:10px;border-radius:10px}
+#work .work-launcher-board::-webkit-scrollbar{width:5px}
+#work .work-launcher-board::-webkit-scrollbar-thumb{background:#4b5145;border-radius:8px}
+#work .work-launcher-board:focus-visible{outline:1px solid #a4d84b;outline-offset:3px}
+#work .work-launcher-grid{grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:8px;gap:10px;margin-top:10px;min-height:0;align-items:start;align-content:start}
+#work .work-launcher-cell{min-width:0;align-self:start}
+#work .work-launcher-tile{height:auto;min-height:135px;padding:0;gap:0;justify-content:flex-start;align-items:stretch;overflow:hidden;background:#222528;border:1px solid #3d4140;border-radius:13px;box-shadow:0 3px 0 #080a0b66;text-align:left;transition:transform .12s,border-color .12s,background .12s}
+#work .work-launcher-tile:hover:not(:disabled){background:#282d2b;border-color:#7d9d4f;transform:translateY(-2px)}
+#work .work-launcher-tile:focus-visible{outline:2px solid #a4d84b;outline-offset:1px}
+#work .work-launcher-cover{display:block;width:100%;overflow:hidden;background:#111416;border-bottom:1px solid #ffffff0a;aspect-ratio:1/1.06}
+#work .work-launcher-cover img{display:block;width:100%;height:100%;object-fit:cover;pointer-events:none}
+#work .work-launcher-card-content{display:flex;flex-direction:column;align-items:flex-start;gap:9px;padding:14px 11px 13px;min-width:0}
+#work .has-cover .work-launcher-card-content{padding-top:11px;gap:7px}
+#work .work-launcher-icon{width:39px;height:39px;font-size:29px;align-self:flex-start}
+#work .has-cover .work-launcher-icon{width:24px;height:24px;font-size:20px}
+#work .has-cover .work-launcher-icon img{width:20px;height:20px}
+#work .has-cover .work-launcher-icon.is-image{border-radius:6px}
+#work .work-launcher-name{font-size:12px;line-height:1.45;min-height:0;font-weight:700;text-align:left;-webkit-line-clamp:3;overflow-wrap:anywhere}
+#work .work-launcher-description{font-size:10px;line-height:1.6;font-weight:400;color:#b6bdb2;overflow-wrap:anywhere;white-space:pre-wrap;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden}
+#work .work-launcher-add-tile{min-height:135px;align-items:center;justify-content:center;gap:8px;border:1px dashed #52623d;background:#20271a55;color:#bddf90;box-shadow:none}
+#work .work-launcher-add-tile:hover:not(:disabled){background:#2b3622}
+#work .work-launcher-count{margin:0 0 3px;font-family:'Barlow Condensed',Pretendard,sans-serif;font-size:11px;font-weight:600;letter-spacing:1.3px;color:#c2d3af}
+#work .work-launcher-footer{border-top:1px solid #353a33;margin-top:10px;padding-top:10px}
+#work .work-launcher-tile.is-unavailable::after{top:8px;right:8px;box-shadow:0 0 0 2px #191b1d}
+#work .work-launcher-card-editor{margin:22px 0 0;padding:14px;border:1px solid #454b3d;border-radius:12px;min-width:0}
+#work .work-launcher-card-editor legend{padding:0 7px;font-size:12px;color:#c2d3af}
+#work .work-launcher-cover-preview{margin-top:12px;max-height:190px;overflow:hidden;border:1px solid #454b3d;border-radius:9px;background:#111416}
+#work .work-launcher-cover-preview img{display:block;max-width:100%;max-height:188px;margin:auto;object-fit:contain}
+@media(max-width:600px){#work .work-launcher-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(prefers-reduced-motion:reduce){#work .work-launcher-tile{transition:none}#work .work-launcher-tile:hover:not(:disabled){transform:none}}
+@media(min-width:1780px){
+  .shell>.main{max-width:none}
+  #work .work-layout{grid-template-columns:minmax(510px,1.2fr) minmax(430px,1fr) minmax(260px,.63fr);gap:18px}
+  #work .work-main{grid-column:1;grid-row:1}
+  #work .work-rail{display:contents}
+  #work .work-launcher{grid-column:2;grid-row:1;position:sticky;top:18px;min-width:0}
+  #work .work-inbox{grid-column:3;grid-row:1;position:sticky;top:18px;min-width:0;margin-top:0}
+  #work .work-inbox-tabs{gap:4px;flex-wrap:wrap}
+  #work .work-inbox-tabs button{padding:7px 9px;font-size:11px}
+  #work .work-inbox-content{max-height:calc(100vh - 310px);overflow-y:auto;scrollbar-width:thin}
+}
 
 /* File locations share the chat capability, inside the existing work surface. */
 #work .work-file-dialog{width:min(850px,90vw);max-height:85vh;overflow:auto}
