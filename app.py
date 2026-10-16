@@ -177,6 +177,8 @@ def work_service():
     return work_assistant.WorkAssistant(DB,config,call_gemma,
         native_model=lambda messages,tools:call_assistant_model(messages,tools,settings),
         intent_model=lambda messages,tools:call_assistant_intent(messages,tools,settings),
+        source_model=(lambda messages,tools,dispatch:assistant_model.run_source(messages,tools,settings,dispatch))
+                     if settings.get('api_type')=='codex' else None,
         registry_factory=lambda:ToolRegistry(DB,
             work_factory=lambda:work_assistant.WorkAssistant(DB,config,call_gemma),
             configure_ai=configure_ai,browser_service=browser_workspace.manager(),

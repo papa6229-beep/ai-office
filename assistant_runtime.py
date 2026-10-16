@@ -143,12 +143,18 @@ def _validate(value, schema):
 class AssistantRuntime:
     MAX_ROUNDS = 6
     MAX_CALLS = 12
+    MAX_SOURCE_CALLS = 24
+    SOURCE_TOOLS = frozenset({
+        "office_source_list", "office_source_read", "office_source_apply",
+        "office_source_history", "office_source_rollback",
+        "office_project_context", "stage_publish"})
 
-    def __init__(self, db_path, model_call, registry_factory, intent_call=None):
+    def __init__(self, db_path, model_call, registry_factory, intent_call=None, source_model=None):
         self.db_path = str(db_path)
         self.model_call = model_call
         self.registry_factory = registry_factory
         self.intent_call = intent_call
+        self.source_model = source_model
         with _connect(self.db_path) as c:
             initialize(c)
             work_attachments.initialize(c)
@@ -250,7 +256,14 @@ class AssistantRuntime:
         message = '\n'.join(assistant_voice.receipt(str(r.get('message', '결과를 확인해줘.'))[:3000]) for r in visible_receipts)[:16000]
         explanation = ''
         grounded=any(r.get('evidence') and r.get('status')=='ok' for r in receipts)
-        if (not active or grounded) and not (receipts and all(r.get('answer_complete') for r in receipts)) and (not receipts or grounded or any(r.get('status') == 'ok' and r.get('_effect') == 'read' for r in receipts)):
+        source_saved = context.get('_native_source_turn') and any(
+            r.get('status') == 'ok' and isinstance(r.get('data'), dict)
+            and isinstance(r['data'].get('source_change'), dict) for r in receipts)
+        if source_saved:
+            # Keep the agent's user-facing summary alongside actual receipts.
+            # The summary does not determine source_changes or activation.
+            explanation = str(final_answer or '').strip()[:6000]
+        elif (not active or grounded) and not (receipts and all(r.get('answer_complete') for r in receipts)) and (not receipts or grounded or any(r.get('status') == 'ok' and r.get('_effect') == 'read' for r in receipts)):
             explanation = _read_explanation(final_answer)
         if explanation:
             message = message + '\n\n설명\n' + explanation if message else explanation
@@ -322,6 +335,60 @@ class AssistantRuntime:
         with _connect(self.db_path) as c:
             c.execute("UPDATE assistant_steps SET status='done',result=? WHERE id=?", (_json(result), step_id))
         return result
+
+    def _source_conversation(self, registry, context, receipts, messages, definitions, count, effects):
+        """Keep the audited executor while Codex holds one native source turn."""
+        context['_native_source_turn'] = True
+        allowed = [definition for definition in definitions
+                   if definition['function']['name'] in self.SOURCE_TOOLS]
+        schemas = {definition['function']['name']: definition['function'].get('parameters', {})
+                   for definition in allowed}
+        calls_used = count
+
+        def dispatch(name, arguments):
+            nonlocal calls_used
+            if calls_used >= self.MAX_SOURCE_CALLS:
+                receipts.append({'status': 'error', 'message':
+                    '한 번의 앱 원본 작업 한도에 도달했습니다. 완료된 실행 기록을 확인하세요.'})
+                raise ValueError('앱 원본 작업 호출 한도에 도달했습니다.')
+            calls_used += 1
+            effect = 'invalid'
+            try:
+                if name not in self.SOURCE_TOOLS or name not in schemas:
+                    raise ValueError('앱 원본 작업에 허용된 도구가 아닙니다.')
+                _validate(arguments, schemas[name])
+                effect = registry.effect(name)
+                expected = 'write' if name in {'office_source_apply', 'office_source_rollback', 'stage_publish'} else 'read'
+                if effect != expected:
+                    raise ValueError('앱 원본 도구의 실행 권한이 변경되었습니다.')
+                signature = _json({'name': name, 'arguments': arguments})
+                if effect != 'read' and signature in effects:
+                    result = dict(effects[signature], replayed=True)
+                else:
+                    result = self._step(registry, name, arguments, context,
+                                        lambda: registry.execute(name, arguments, context), effect)
+                    if result.get('pending'):
+                        result = {'status': 'error', 'message': '앱 원본 도구가 예상하지 않은 승인 요청을 반환했습니다.'}
+                    if effect != 'read':
+                        effects[signature] = result
+            except (ValueError, KeyError) as error:
+                result = {'status': 'error', 'message': str(error)[:1000]}
+            result['_effect'] = effect
+            if not result.get('replayed'):
+                receipts.append(result)
+            return {key: value for key, value in result.items()
+                    if key in ('status', 'message', 'data', 'refresh')}
+
+        try:
+            output = self.source_model(json.loads(_json(messages)), allowed, dispatch)
+            if (not isinstance(output, dict) or output.get('tool_calls') != []
+                    or not isinstance(output.get('content'), str)):
+                raise ValueError('앱 원본 작업의 최종 응답을 확인하지 못했습니다.')
+            return output['content'][:6000]
+        except Exception as error:
+            receipts.append(_failure_receipt(error,
+                '앱 원본 작업이 중단됐습니다. 완료된 변경은 실제 실행 기록을 확인하세요.'))
+            return None
 
     def _conversation(self, registry, context, receipts):
         with model_requests.foreground_scope():
@@ -419,6 +486,11 @@ class AssistantRuntime:
                 return
         # The initial read counts toward MAX_CALLS, not native model rounds.
         for round_index in range(-1 if initial_output is not None else rounds_used, self.MAX_ROUNDS):
+            last_tool = next((message for message in reversed(messages) if message.get('role') == 'tool'), {})
+            if (round_index != -1 and callable(self.source_model)
+                    and str(last_tool.get('tool_name', '')).startswith('office_source_')):
+                return self._source_conversation(registry, context, receipts, messages,
+                                                 definitions, count, effects)
             output = initial_output if round_index == -1 else self.model_call(messages, definitions)
             if not isinstance(output, dict):
                 raise ValueError('모델 응답을 확인할 수 없습니다.')

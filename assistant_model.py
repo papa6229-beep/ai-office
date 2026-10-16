@@ -135,6 +135,14 @@ def call(messages, tools, settings, *, output_schema=None):
         raise ValueError('AI 서버의 도구 응답을 확인하지 못했습니다. 실행 결과를 확인한 후 다시 요청하세요.') from None
 
 
+def run_source(messages, tools, settings, dispatch):
+    """Continue an observed app-edit task in one native Codex tool turn."""
+    if settings.get('api_type') != 'codex':
+        raise ValueError('Codex 앱 수정 연결이 선택되지 않았습니다.')
+    import codex_bridge
+    return codex_bridge.run_source(messages, tools, settings, dispatch)
+
+
 def _intent_tool_summary(definition):
     """Keep routing semantics and argument constraints, omit presentation bloat."""
     def compact(value):
