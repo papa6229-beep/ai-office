@@ -200,13 +200,13 @@
 #work .work-assistant>.work-panel-heading h3{border-left:4px solid #6ec4cf;padding-left:11px;font-size:20px}
 #work .work-assistant::before{content:'';position:absolute;pointer-events:none;top:-2px;left:26px;width:86px;height:3px;background:#6ec4cf}
 #work .work-launcher .work-panel-heading{padding-bottom:10px;border-bottom:1px solid #434448}
-#work .work-launcher h3{position:relative;isolation:isolate;font-size:21px;color:#171812;padding:4px 18px 4px 12px;line-height:1.4;transform:rotate(-2deg)}
-#work .work-launcher h3::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background:#e4be16;transform:skewX(-12deg);box-shadow:3px 3px #0b0b0d}
+#work .work-launcher h3{position:relative;isolation:isolate;font-size:21px;color:#171812;padding:4px 18px 4px 12px;line-height:1.4;transform:none}
+#work .work-launcher h3::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background:#e4be16;transform:none;box-shadow:3px 3px #0b0b0d}
 #work .work-launcher-slot{height:84px;box-sizing:border-box;border:1px solid #303135;border-radius:9px;background:repeating-linear-gradient(135deg,transparent,transparent 5px,#ffffff02 5px,#ffffff02 6px)}
 #work .work-launcher-add-tile{border:1px dashed #686858;border-bottom:2px solid #38392e;background:#24251f;color:#d3c777;box-shadow:none;justify-content:center;gap:5px;font-size:11px}
 #work .work-launcher-add-tile>span:first-child{font-size:30px;line-height:1;font-weight:400}
 #work .work-launcher-pages button{border-radius:5px;padding:5px 9px;box-shadow:none}
-#work .work-launcher-pages button[aria-current=page]{transform:skewX(-8deg)}
+#work .work-launcher-pages button[aria-current=page]{transform:none}
 #work .work-launcher-tile:focus-visible{outline-offset:1px}
 #work .work-task-empty{display:flex;align-items:center;gap:15px;padding:23px 4px 18px}
 #work .work-empty-mark{display:flex;flex:0 0 40px;align-items:center;justify-content:center;width:40px;height:40px;color:#73766c;border:1px solid #43463e;font-size:28px;line-height:1;transform:rotate(-8deg)}
