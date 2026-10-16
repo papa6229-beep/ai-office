@@ -195,9 +195,6 @@ def snapshot(db, request_id=None):
             artifact=result.get('data',{}).get('artifact') if isinstance(result.get('data'),dict) else None
             safe_artifact=_artifact(artifact)
             if safe_artifact:artifacts.append(safe_artifact)
-            data=result.get('data',{})
-            if step['name'] in {'documents_read','browser_read','browser_scroll','browser_follow'} and isinstance(data,dict) and isinstance(data.get('text'),str):
-                artifacts.append({'id':step['id'],'kind':'text','title':_text(data.get('name') or data.get('title') or '읽은 원문',120),'text':_text(data['text'],12000),'origin':'source','truncated':bool(data.get('truncated') or data.get('collection_limited') or data.get('unread_iframes')) or len(data['text'])>12000})
         exists=c.execute("SELECT 1 FROM sqlite_master WHERE name='stage_artifacts'").fetchone()
         if exists:
             artifacts.extend(value for a in c.execute('SELECT artifact FROM stage_artifacts WHERE request_id=? ORDER BY created LIMIT 12',(row['id'],)) if (value:=_artifact(json.loads(a[0]))))
@@ -223,4 +220,6 @@ def snapshot(db, request_id=None):
         status=('attention' if attention else 'done') if row['status']=='done' else 'attention' if stale else 'running'
         request={'id':row['id'],'status':status,'created':row['created'],'title':'Aemeath 작업','outcome':'확인이 필요합니다.' if status=='attention' else '요청 처리가 종료되었습니다.' if status=='done' else '작업 중입니다.'}
         if payload.get('task_id'):request['task_id']=payload['task_id']
-        return {'request':request,'steps':steps,'artifacts':artifacts,'answer':answer}
+        # The chat explanation is not a deliverable. Keep the response key for
+        # older clients, but only explicitly published/previewed artifacts show.
+        return {'request':request,'steps':steps,'artifacts':artifacts,'answer':''}

@@ -52,3 +52,54 @@
 @media(min-width:1780px){#work .work-stage{grid-column:3;grid-row:1;position:sticky;top:18px;margin-top:0}}
 @media(prefers-reduced-motion:reduce){#work .work-stage-process li[data-status=running] .work-stage-step-number{animation:none}}
 @keyframes workStagePulse{50%{opacity:.35}}
+
+/* The home console owns the monitor; content scrolls inside its panels. */
+body.work-desktop{height:100dvh;overflow:hidden}
+body.work-desktop .shell{height:100dvh;min-height:0;overflow:hidden}
+body.work-desktop .shell>.main{display:flex;flex-direction:column;width:auto;max-width:none;height:100%;min-height:0;margin:0;flex:1;padding:20px 20px 18px;overflow:hidden}
+body.work-desktop .main>.top{display:none}
+body.work-desktop #work:not(.hide){display:flex;flex:1;flex-direction:column;min-height:0;overflow:hidden}
+body.work-desktop #work .work-assistant>.work-notice,body.work-desktop #work .work-assistant>.work-retry{flex-shrink:0;max-height:60px;overflow:auto;margin-bottom:10px;padding:8px 10px}
+body.work-desktop #work .work-layout{display:grid;flex:1;min-height:0;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,.7fr);grid-template-rows:minmax(0,1fr);gap:16px;align-items:stretch}
+body.work-desktop #work .work-main{display:grid;grid-column:1;grid-row:1;grid-template-rows:minmax(0,1fr) clamp(175px,27dvh,285px);gap:16px;min-height:0}
+body.work-desktop #work .work-rail{display:contents}
+body.work-desktop #work .work-assistant,body.work-desktop #work .work-tasks,body.work-desktop #work .work-launcher,body.work-desktop #work .work-stage{display:flex;flex-direction:column;min-width:0;min-height:0;height:auto;position:relative;top:auto;margin:0;overflow:hidden;padding:17px}
+body.work-desktop #work .work-launcher{grid-column:2;grid-row:1}
+body.work-desktop #work .work-stage{grid-column:3;grid-row:1}
+body.work-desktop #work .work-panel-heading{flex-shrink:0;min-height:38px;margin-bottom:12px}
+body.work-desktop #work .work-conversation-layout{flex:1;min-height:0;grid-template-columns:clamp(118px,10.6vw,180px) minmax(0,1fr);gap:12px;align-items:stretch}
+body.work-desktop #work .work-companion-rail{position:static;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain}
+body.work-desktop #work .work-conversation-content{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+body.work-desktop #work .work-messages{flex:1;min-height:60px;max-height:none;overflow-y:auto}
+body.work-desktop #work #workCommandForm{flex-shrink:0;max-height:48%;overflow:auto;scrollbar-width:thin}
+body.work-desktop #work #workCommand{height:66px;min-height:52px;max-height:120px;resize:none}
+body.work-desktop #work .work-context{font-size:10px;margin:5px 0;max-height:36px;overflow:auto}
+body.work-desktop #work .work-compose-footer{padding:7px;gap:5px;flex-wrap:wrap}
+body.work-desktop #work .work-compose-footer span{font-size:9px}
+body.work-desktop #work .work-examples{flex-shrink:0;max-height:45px;overflow:auto;gap:3px;margin-top:7px}
+body.work-desktop #work .work-examples>span{display:none}
+body.work-desktop #work .work-examples button{font-size:10px;padding:2px 0}
+body.work-desktop #work .work-companion{padding-top:9px;padding-bottom:9px}
+body.work-desktop #work .work-companion-stage,body.work-desktop #work .work-companion-stage img{width:min(140px,100%);height:auto;aspect-ratio:1}
+body.work-desktop #work .work-companion-caption{padding-top:7px}
+body.work-desktop #work #workCompanionStatus{font-size:10px;min-height:0;margin-top:4px}
+body.work-desktop #work .work-tasks>.work-panel-heading{margin-bottom:8px;min-height:37px}
+body.work-desktop #work .work-task-list{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain}
+body.work-desktop #work .work-task-form{flex:1;min-height:0;overflow:auto;margin-bottom:8px;padding:4px 10px 10px}
+body.work-desktop #work .work-task-form:not([hidden])+#workTaskList{flex:0 0 48px}
+body.work-desktop #work .work-task-row{padding:11px 5px;gap:8px}
+body.work-desktop #work .work-task-empty{padding:14px 0}
+#work .work-task-badges{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
+#work .work-task-badges:empty{display:none}
+#work .work-task-badge{font-size:9px;line-height:1.5;border:1px solid #465044;border-radius:4px;padding:1px 5px;color:#bdcbb5;background:#242b24}
+body.work-desktop #work .work-launcher-board{flex:1;min-height:0;max-height:none;overflow-y:auto}
+body.work-desktop #work .work-launcher-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+body.work-desktop #work .work-launcher-footer{flex-shrink:0}
+body.work-desktop #work .work-launcher-notice:empty{display:none}
+body.work-desktop #work .work-launcher-notice,body.work-desktop #work .work-launcher-retry{flex-shrink:0;max-height:70px;overflow:auto}
+body.work-desktop #work .work-stage-tabs{flex-shrink:0}
+body.work-desktop #work .work-stage-process,body.work-desktop #work .work-stage-results{flex:1;min-height:0;max-height:none;overflow:auto}
+body.work-desktop #work .work-stage-request{flex-shrink:0;max-height:54px}
+body.work-desktop #work .work-stage-notice{flex-shrink:0;max-height:58px;overflow:auto}
+@media(max-width:1600px){body.work-desktop .side{width:180px;padding-left:10px;padding-right:10px}body.work-desktop .side .brand{font-size:29px;padding-left:3px;padding-right:3px}body.work-desktop .shell>.main{padding:20px 16px 16px}body.work-desktop #work .work-layout{gap:12px}body.work-desktop #work .work-main{gap:12px}body.work-desktop #work .work-assistant,body.work-desktop #work .work-tasks,body.work-desktop #work .work-launcher,body.work-desktop #work .work-stage{padding:13px}body.work-desktop #work .work-conversation-layout{grid-template-columns:118px minmax(0,1fr);gap:10px}body.work-desktop #work .work-launcher-name{font-size:11px}}
+@media(max-height:850px){body.work-desktop #work .work-companion-stage,body.work-desktop #work .work-companion-stage img{width:100px;height:100px}body.work-desktop #work .work-companion-caption>strong{font-size:13px}body.work-desktop #work .work-companion-rail .work-calendar{padding:7px 5px;margin-top:7px}body.work-desktop #work .work-companion-rail .work-calendar-day{line-height:16px;font-size:10px}body.work-desktop #work .work-companion-rail .work-calendar-navigation strong{font-size:14px}body.work-desktop #work .work-examples{max-height:28px}body.work-desktop #work .work-panel-heading{margin-bottom:8px}}

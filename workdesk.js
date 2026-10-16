@@ -31,49 +31,17 @@
     $('workNotice').textContent = message; $('workNotice').hidden = !message;
     $('workNotice').classList.toggle('work-error', error);
   }
-  let inboxTab = 'pending';
-  function inboxSelect(tab) {
-    if (!['pending','records','resources'].includes(tab)) return;
-    inboxTab=tab;
-    for (const [key,name] of [['pending','Pending'],['records','Records'],['resources','Resources']]) {
-      const panel=$('workInbox'+name), button=$('workInbox'+name+'Tab');
-      if (panel) panel.hidden=key !== inboxTab;
-      button?.setAttribute?.('aria-pressed',String(key === inboxTab));
-    }
-  }
-  function renderInbox() {
-    if (!$('workInbox')) return;
-    const tasks=overview?.tasks || [], taskMap=new Map(tasks.map(task=>[task.id,task]));
-    const messageIDs=new Set((overview?.messages || []).filter(m=>m.role === 'assistant').map(m=>m.id));
-    const pending=[],seen=new Set();
-    for (const [kind,cards] of [['action',overview?.assistant_actions || []],['choice',overview?.launcher_choices || []]]) {
-      for (const card of cards) {
-        const key=kind+':'+card.id;
-        if (!card.id || seen.has(key) || !messageIDs.has(card.message_id) || !card.options?.length) continue;
-        seen.add(key);pending.push({kind,card});
-      }
-    }
-    $('workInboxPending').innerHTML=pending.length ? pending.map(({kind,card})=>`<article class="work-inbox-item"><strong>${escape(card.title || card.name || '확인할 요청')}</strong>${card.description ? `<p>${escape(card.description)}</p>` : ''}<div class="work-inbox-options">${card.options.map(option=>kind === 'action' ? `<button type="button" class="work-secondary" data-work-assistant-action="${escape(card.id)}" data-work-assistant-option="${escape(option.id)}">${escape(option.label || '선택')}${option.description ? `<small>${escape(option.description)}</small>` : ''}</button>` : `<button type="button" class="work-secondary" data-work-launcher-choice="${escape(card.id)}" data-work-launcher-target="${escape(option.target)}">${escape(option.title || '프로그램 선택')}${option.detail ? `<small>${escape(option.detail)}</small>` : ''}</button>`).join('')}</div></article>`).join('') : '<p class="work-inbox-empty">확인할 요청이 없습니다.</p>';
-    const events=(overview?.events || []).filter(event=>taskMap.has(event.task_id) && (!selected || event.task_id === selected)).slice().sort((a,b)=>String(b.created || '').localeCompare(String(a.created || '')));
-    const names={created:'업무 등록',status:'상태 변경',note:'진행 메모',resource:'자료 연결'};
-    $('workInboxRecords').innerHTML=events.length ? events.slice(0,30).map(event=>`<article class="work-inbox-item"><div class="work-inbox-meta"><span>${escape(names[event.kind] || '업무 기록')}</span><time>${escape(stamp(event.created))}</time></div><button type="button" class="work-inbox-task" data-work-task="${escape(event.task_id)}">${escape(taskMap.get(event.task_id).title)}</button>${event.text ? `<p>${escape(event.kind === 'status' ? statusNames[event.text] || event.text : event.text)}</p>` : ''}</article>`).join('')+(events.length > 30 ? '<p class="work-inbox-limit">최근 30개 기록을 표시합니다.</p>' : '') : '<p class="work-inbox-empty">업무를 등록하거나 진행 내용을 남기면 여기에 기록됩니다.</p>';
-    const resources=tasks.filter(task=>!selected || task.id === selected).flatMap(task=>(task.resources || []).map(resource=>({task,resource})));
-    $('workInboxResources').innerHTML=resources.length ? resources.map(({task,resource})=>`<article class="work-inbox-item"><strong>${escape(resource.name || '연결 자료')}</strong><button type="button" class="work-inbox-task" data-work-task="${escape(task.id)}">${escape(task.title)}</button><div class="work-inbox-resource-action">${resource.exists === false ? '<span class="work-inbox-missing">경로 확인 필요 · 열기 불가</span>' : `<button type="button" class="work-secondary" data-work-preview="${escape(resource.id)}">미리보기</button><button type="button" class="work-secondary" data-work-resource="${escape(resource.id)}">자료 열기</button>`}</div></article>`).join('') : '<p class="work-inbox-empty">업무에 연결한 파일과 폴더가 여기에 모입니다.</p>';
-    for (const [name,label,count] of [['Pending','확인 필요',pending.length],['Records','업무 기록',events.length],['Resources','연결 자료',resources.length]]) {
-      $('workInbox'+name+'Tab').textContent=label+' '+count;
-    }
-    inboxSelect(inboxTab);
-  }
   function locks() {
     const blocked = busy || !!uncertain || !overview?.action_token;
     $('work').querySelectorAll('button,input,textarea').forEach(el => {
-      if (el.matches('[data-work-inbox-tab]')) {el.disabled=false;return;}
       if (el.closest('#workLauncher,#workLauncherDialog,#workCalendar,#workFileDialog,#workStage,#workStageDialog') || el.matches('[data-work-preview]') || el.matches('[data-work-action="close-detail"],[data-files-action]')) return;
       if (el.matches('[data-work-action="desk"],[data-work-action="tasks"]')) return;
       if (el.matches('[data-work-action="reload"]')) { el.disabled = busy || !!uncertain || loading; return; }
       if (el.matches('[data-work-action="retry"]')) { el.disabled = busy; return; }
       el.disabled = blocked;
     });
+    const reload=$('workUtilities')?.querySelector('[data-work-action="reload"]');
+    if(reload)reload.disabled=busy || !!uncertain || loading;
     $('workRetry').hidden = !uncertain;
     $('workSend').textContent = busy ? '처리 중…' : '요청 보내기';
     $('workConnection').textContent = busy ? '요청 처리 중' : overview ? '업무 기록 연결됨' : '연결 필요';
@@ -115,7 +83,7 @@
   function render() {
     const tasks = overview.tasks || [], counts = overview.counts || {};
     $('workCounts').textContent = `예정 ${counts.todo ?? 0} · 검토중 ${counts.review ?? 0} · 진행중 ${counts.doing ?? 0} · 완료 ${counts.done ?? 0}`;
-    $('workTaskList').innerHTML = tasks.length ? tasks.map(t=>`<button type="button" class="work-task-row" data-work-task="${escape(t.id)}" aria-pressed="${t.id === selected}"><span class="work-state ${escape(t.status)}">${escape(statusNames[t.status] || t.status)}</span><span class="work-task-copy"><span class="work-task-name">${escape(t.title)}</span><small>${t.due_date ? '마감 '+escape(t.due_date) : '마감일 없음'}${t.resources?.length ? ' · 연결 자료 '+t.resources.length+'개' : ''}</small></span><span aria-hidden="true">›</span></button>`).join('') : '<div class="work-empty work-task-empty"><span class="work-empty-mark" aria-hidden="true">＋</span><div><strong>오늘 할 일을 여기에 모아보세요</strong><p>비서에게 말하거나 ‘업무 추가’로 등록하세요.</p></div></div>';
+    $('workTaskList').innerHTML = tasks.length ? tasks.map(t=>`<button type="button" class="work-task-row" data-work-task="${escape(t.id)}" aria-pressed="${t.id === selected}"><span class="work-state ${escape(t.status)}">${escape(statusNames[t.status] || t.status)}</span><span class="work-task-copy"><span class="work-task-name">${escape(t.title)}</span><small>${t.due_date ? '마감 '+escape(t.due_date) : '마감일 없음'}</small><span class="work-task-badges">${t.notes?.length ? `<span class="work-task-badge">메모 ${t.notes.length}</span>` : ''}${t.resources?.length ? `<span class="work-task-badge">자료 ${t.resources.length}</span>` : ''}${(overview.events || []).some(e=>e.task_id === t.id) ? `<span class="work-task-badge">기록 ${(overview.events || []).filter(e=>e.task_id === t.id).length}</span>` : ''}</span></span><span aria-hidden="true">›</span></button>`).join('') : '<div class="work-empty work-task-empty"><span class="work-empty-mark" aria-hidden="true">＋</span><div><strong>오늘 할 일을 여기에 모아보세요</strong><p>비서에게 말하거나 ‘업무 추가’로 등록하세요.</p></div></div>';
     const messages = overview.messages || [];
     const log = $('workMessages'), nearBottom = log.scrollHeight-log.scrollTop-log.clientHeight < 50;
     const choices = overview.launcher_choices || [], actions = overview.assistant_actions || [];
@@ -126,7 +94,6 @@
     }).join('') : '<p class="work-empty">무슨 일을 해야 하나요?<br>업무를 등록하거나 바로가기에 추가할 프로그램을 알려주세요.</p>';
     if (nearBottom) log.scrollTop = log.scrollHeight;
     renderDetail();
-    renderInbox();
     locks();
   }
   window.workLoad = async function workLoad() {
@@ -143,9 +110,6 @@
       if (!overview) {
         $('workMessages').innerHTML = '<p class="work-empty">업무 기록에 연결하지 못했습니다.</p>';
         $('workTaskList').innerHTML = '<p class="work-empty">연결 후 업무를 확인할 수 있습니다.</p>';
-        for (const name of ['Pending','Records','Resources']) {
-          const panel=$('workInbox'+name);if(panel)panel.innerHTML='<p class="work-inbox-empty">업무 연결 후 항목을 확인할 수 있습니다.</p>';
-        }
 
       }
       locks();
@@ -221,7 +185,6 @@
   }
   async function click(event) {
     const button = event.target.closest('button'); if (!button || button.disabled) return;
-    if (button.dataset.workInboxTab) {inboxSelect(button.dataset.workInboxTab);return;}
     if (button.dataset.workAssistantAction) { write('assistant-action',{pending_id:button.dataset.workAssistantAction,option_id:button.dataset.workAssistantOption}); return; }
     if (button.dataset.workLauncherChoice) { write('choose-launcher',{choice_id:button.dataset.workLauncherChoice,target:button.dataset.workLauncherTarget}); return; }
     if (button.dataset.workTask) { selected = button.dataset.workTask; renderDetail(false); render(); $('workTaskDialog').showModal(); loadHistory(selected); return; }
@@ -246,9 +209,9 @@
   }
   document.addEventListener('DOMContentLoaded',()=>{
     if (!$('work')) return;
-    $('workDate').textContent=new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric',weekday:'long'}).format(new Date());
     $('workTaskDialog').addEventListener('close',()=>{historySequence++; if (selected) $('workTaskList').querySelector(`[data-work-task="${CSS.escape(selected)}"]`)?.focus();});
     $('work').addEventListener('submit',submit); $('work').addEventListener('click',click);
+    $('workUtilities')?.addEventListener('click',click);
     const command = $('workCommand');
     let composing = false;
     command.addEventListener('input',()=>{companionOutcome=null;companionUpdate();});
@@ -703,10 +666,10 @@
   }
   function init() {
     const dialog=$('workFileDialog');if (!dialog) return;
-    $('work').addEventListener('click',event=>{
+    const fileClick=event=>{
       const button=event.target.closest('[data-files-action]');if (!button || button.disabled) return;
       const action=button.dataset.filesAction;
-      if (action==='open') {if(!dialog.open)dialog.showModal();$('workFileQuery').focus();return;}
+      if (action==='open') {if (document.body.dataset.activeView !== 'work') show('work');if(!dialog.open)dialog.showModal();$('workFileQuery').focus();return;}
       if (action==='close') {dialog.close();return;}
       if (action==='preview') {
         const item=items[Number(button.dataset.filesIndex)];if(!item || busy || pending)return;busy=true;lock();message('미리보기를 준비하고 있어요…');
@@ -714,7 +677,9 @@
       }
       if (action==='reveal') {reveal(items[Number(button.dataset.filesIndex)]);return;}
       if (action==='retry' && pending) reveal();
-    });
+    };
+    $('work').addEventListener('click',fileClick);
+    $('workUtilities')?.addEventListener('click',fileClick);
     $('workFileForm').addEventListener('submit',event=>{event.preventDefault();search();});
   }
   document.addEventListener('DOMContentLoaded',init);

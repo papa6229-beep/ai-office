@@ -1,14 +1,10 @@
 <section id="work">
-  <header class="work-heading">
-    <div><p id="workDate" class="work-muted"></p><h2>오늘, 어떤 일을 도와드릴까요?</h2><p class="work-muted">업무를 기록하고, 자주 쓰는 도구를 바로 여세요.</p></div>
-    <div class="work-links"><button type="button" class="work-quiet" data-work-action="reload">새로고침</button><button type="button" class="work-quiet" data-files-action="open">파일 찾기</button><button type="button" class="work-quiet" data-work-action="desk">내 자료 열기</button><button type="button" class="work-quiet" data-work-action="tasks">기존 업무 리스트</button></div>
-  </header>
-  <div id="workNotice" class="work-notice" role="status" aria-live="polite" hidden></div>
-  <div id="workRetry" class="work-retry" hidden><span>응답을 확인하지 못했습니다. 같은 요청으로 다시 확인할 수 있습니다.</span><button type="button" data-work-action="retry">같은 요청 다시 시도</button></div>
   <div class="work-layout">
     <div class="work-main">
       <article class="work-assistant" aria-labelledby="workAssistantTitle">
         <div class="work-panel-heading"><h3 id="workAssistantTitle">Aemeath</h3><span id="workConnection" class="work-muted">연결 확인 중</span></div>
+        <div id="workNotice" class="work-notice" role="status" aria-live="polite" hidden></div>
+        <div id="workRetry" class="work-retry" hidden><span>응답을 확인하지 못했습니다. 같은 요청으로 다시 확인할 수 있습니다.</span><button type="button" data-work-action="retry">같은 요청 다시 시도</button></div>
         <div class="work-conversation-layout">
           <div class="work-companion-rail">
           <aside id="workCompanion" class="work-companion" data-state="idle" aria-label="Aemeath 상태">
@@ -42,11 +38,6 @@
           <div class="work-form-actions"><button type="button" class="work-quiet" data-work-action="cancel-task">취소</button><button type="submit">업무 저장</button></div>
         </form>
         <div id="workTaskList" class="work-task-list"><p class="work-empty">업무를 불러오고 있습니다.</p></div>
-      <article id="workInbox" class="work-inbox" aria-labelledby="workInboxTitle">
-        <div class="work-panel-heading"><h3 id="workInboxTitle">업무 확인·기록</h3><span class="work-muted">오늘의 업무와 연결</span></div>
-        <nav class="work-inbox-tabs" aria-label="업무 기록 분류"><button type="button" id="workInboxPendingTab" data-work-inbox-tab="pending" aria-pressed="true" aria-controls="workInboxPending">확인 필요</button><button type="button" id="workInboxRecordsTab" data-work-inbox-tab="records" aria-pressed="false" aria-controls="workInboxRecords">업무 기록</button><button type="button" id="workInboxResourcesTab" data-work-inbox-tab="resources" aria-pressed="false" aria-controls="workInboxResources">연결 자료</button></nav>
-        <div id="workInboxPending" class="work-inbox-content"><p class="work-inbox-empty">업무 기록을 불러오고 있습니다.</p></div><div id="workInboxRecords" class="work-inbox-content" hidden></div><div id="workInboxResources" class="work-inbox-content" hidden></div>
-      </article>
       </article>
     </div>
     <aside class="work-rail" aria-label="바로가기 런처">

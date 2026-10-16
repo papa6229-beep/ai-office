@@ -60,8 +60,6 @@
     const steps=Array.isArray(data.steps) ? data.steps : [];
     $('workStageProcess').innerHTML=steps.length ? '<ol>'+steps.map((step,index)=>`<li data-status="${esc(step.status)}"><div class="work-stage-step-number">${String(index+1).padStart(2,'0')}</div><div><div class="work-stage-step-heading"><strong>${esc(step.label || step.name || '처리 단계')}</strong><span>${esc({running:'진행중',ok:'완료',error:'오류',pending:'대기',unknown:'확인 필요'}[step.status] || '확인 필요')}</span></div>${step.message ? `<pre>${esc(step.message)}</pre>` : ''}</div></li>`).join('')+'</ol>' : '<p class="work-stage-empty">'+(request?.status==='running' ? '요청을 받았습니다. 실제 처리 단계를 기다리고 있어요.' : '표시할 처리 단계가 없습니다.')+'</p>';
     artifacts=Array.isArray(data.artifacts) ? data.artifacts.slice() : [];
-    const answer=String(data.answer || '').trim();
-    if(answer && !artifacts.some(artifact=>String(artifact.text || '').trim()===answer))artifacts.push({kind:'text',title:artifacts.some(artifact=>artifact.origin==='source') ? 'AI 답변 / 요약' : 'Aemeath의 답변',text:answer,origin:artifacts.some(artifact=>artifact.origin==='source') ? 'summary' : 'ai'});
     renderArtifacts();
   }
   function schedule(delay=1100){stop();if(!document.hidden && !preview && !finished)timer=setTimeout(()=>poll(epoch),delay);}
@@ -78,13 +76,9 @@
         render(data);finished=['done','attention'].includes(data.request.status);notice();
       }else if(!active){finished=true;}
       else if(terminal && attempts>3){
-        finished=true;$('workStageStatus').textContent=terminal.phase==='done' ? '답변 도착' : '확인 필요';$('workStage').dataset.status=terminal.phase==='done' ? 'done' : 'attention';
-        const answer=String(terminal.result?.message || '');
-        if(answer){
-          const blocks=[...answer.matchAll(/```([\w+-]*)\n([\s\S]*?)```/g)];
-          artifacts=blocks.length ? blocks.map((match,index)=>({id:'reply-'+index,kind:'code',title:'코드 초안 '+(index+1),language:match[1],text:match[2],origin:'draft'})) : [{kind:'text',title:'Aemeath의 답변',text:answer,origin:'ai'}];renderArtifacts();
-        }
-        notice('이 요청에는 별도의 처리 단계가 기록되지 않았습니다.');
+        finished=true;$('workStageStatus').textContent=terminal.phase==='done' ? '대기' : '확인 필요';$('workStage').dataset.status=terminal.phase==='done' ? 'done' : 'attention';
+        artifacts=[];renderArtifacts();
+        notice('이 요청에는 별도의 작업 결과물이 없습니다. 답변은 채팅에서 확인하세요.');
       }
       else if(attempts>30){finished=true;$('workStageStatus').textContent='상태 확인 필요';notice('처리 단계가 도착하지 않았습니다. 채팅에서 요청 결과를 확인해 주세요.');}
       else if(attempts>12){notice('처리 단계가 아직 도착하지 않았습니다. 요청 결과를 기다립니다.');}
