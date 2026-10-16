@@ -341,7 +341,13 @@
   }
   function render() {
     const items = boardItems();
-    const tiles = items.map(item => `<div class="work-launcher-cell"><button type="button" draggable="true" class="work-launcher-tile${item.card_cover ? ' has-cover' : ''}${item.available === false ? ' is-unavailable' : ''}" data-launcher-action="launch" data-launcher-id="${esc(item.id)}" title="${esc(item.title)} · ${esc(item.target)}" aria-label="${esc(item.title)} 열기${item.available === false ? ' · 경로 확인 필요' : ''}">${item.card_cover ? `<span class="work-launcher-cover"><img src="${coverURLFor(item)}" alt="" loading="lazy" draggable="false"></span>` : ''}<span class="work-launcher-card-content"><span class="work-launcher-icon${item.icon_image ? ' is-image' : ''}" aria-hidden="true">${icon(item)}</span><span class="work-launcher-name">${esc(item.title)}</span>${item.card_description ? `<span class="work-launcher-description">${esc(item.card_description)}</span>` : ''}</span></button></div>`).join('');
+    const tiles = items.map(item => {
+      const type = item.kind === 'web' ? ['W','웹사이트'] : item.kind === 'folder' ? ['F','폴더'] : ['P','프로그램'];
+      const artwork = item.card_cover
+        ? `<img src="${coverURLFor(item)}" alt="" loading="lazy" draggable="false">`
+        : `<span class="work-launcher-icon${item.icon_image ? ' is-image' : ''}" aria-hidden="true">${icon(item)}</span>`;
+      return `<div class="work-launcher-cell"><button type="button" draggable="true" class="work-launcher-tile${item.card_cover ? ' has-cover' : ''}${item.available === false ? ' is-unavailable' : ''}" data-launcher-action="launch" data-launcher-id="${esc(item.id)}" title="${esc(item.title)} · ${esc(item.target)}" aria-label="${esc(item.title)} 열기${item.available === false ? ' · 경로 확인 필요' : ''}"><span class="work-launcher-cover${item.card_cover ? '' : ' is-icon-artwork'}">${artwork}</span><span class="work-launcher-card-content"><span class="work-launcher-kind" title="${type[1]}" aria-label="${type[1]}">${type[0]}</span><span class="work-launcher-name">${esc(item.title)}</span><span class="work-launcher-target" title="${esc(item.target)}">${esc(item.target)}</span>${item.card_description ? `<span class="work-launcher-description">${esc(item.card_description)}</span>` : ''}</span></button></div>`;
+    }).join('');
     const addTile = '<button type="button" class="work-launcher-tile work-launcher-add-tile" data-launcher-action="add" aria-label="바로가기 카드 추가"><span aria-hidden="true">＋</span><span>새 카드</span></button>';
     $('workLauncherGrid').innerHTML = tiles + addTile;
     $('workLauncherCount').textContent = `${items.length} CARDS · SCROLL TO EXPLORE`;
