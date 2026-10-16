@@ -523,6 +523,10 @@
       const action = el.dataset.launcherAction;
       el.disabled = action === 'close' ? false : action === 'retry' ? busy : action === 'reload' ? busy || loading || !!pending : busy || loading || !!pending || !state?.action_token || imageReading || coverReading || bookmarkLoading;
     });
+    $('workLauncherGrid').querySelectorAll('a[data-launcher-action="launch"]').forEach(link=>{
+      link.disabled=busy || loading || !!pending || !state?.action_token || imageReading || coverReading || bookmarkLoading;
+      link.setAttribute('aria-disabled',String(link.disabled));link.tabIndex=link.disabled ? -1 : 0;
+    });
     $('workLauncherRetry').hidden = !pending;
     $('workLauncherDialogRetry').hidden = !pending;
     $('workLauncherSave').textContent = busy ? '저장 중…' : imageReading || coverReading ? '이미지 읽는 중…' : '바로가기 저장';
@@ -535,6 +539,11 @@
   }
   const iconURL = item => '/api/launcher/icon?id='+encodeURIComponent(item.id)+(item.icon_revision ? '&v='+encodeURIComponent(item.icon_revision) : '');
   const coverURLFor = item => '/api/launcher/cover?id='+encodeURIComponent(item.id)+(item.card_cover_revision ? '&v='+encodeURIComponent(item.card_cover_revision) : '');
+  function webLink(item) {
+    if(item.kind!=='web' || typeof item.target!=='string' || /[\s\\\x00-\x1f\x7f]/.test(item.target))return '';
+    try{const url=new URL(item.target);return ['http:','https:'].includes(url.protocol) && url.hostname && !url.username && !url.password ? url.href : '';}
+    catch{return '';}
+  }
   function icon(item) {
     return item.icon_image ? `<img src="${iconURL(item)}" alt="" loading="lazy">` : `<span>${esc(item.icon || Array.from(item.title || '✦').slice(0,2).join(''))}</span>`;
   }
@@ -545,7 +554,9 @@
       const artwork = item.card_cover
         ? `<img src="${coverURLFor(item)}" alt="" loading="lazy" draggable="false">`
         : `<span class="work-launcher-icon${item.icon_image ? ' is-image' : ''}" aria-hidden="true">${icon(item)}</span>`;
-      return `<div class="work-launcher-cell"><button type="button" draggable="true" class="work-launcher-tile${item.card_cover ? ' has-cover' : ''}${item.available === false ? ' is-unavailable' : ''}" data-launcher-action="launch" data-launcher-id="${esc(item.id)}" title="${esc(item.title)} · ${esc(item.target)}" aria-label="${esc(item.title)} 열기${item.available === false ? ' · 경로 확인 필요' : ''}"><span class="work-launcher-cover${item.card_cover ? '' : ' is-icon-artwork'}">${artwork}</span><span class="work-launcher-card-content"><span class="work-launcher-kind" data-launcher-kind="${type[0]}" title="${type[1]}" aria-label="${type[1]}">${type[0]}</span><span class="work-launcher-name">${esc(item.title)}</span><span class="work-launcher-target" title="${esc(item.target)}">${esc(item.target)}</span>${item.card_description ? `<span class="work-launcher-description">${esc(item.card_description)}</span>` : ''}</span></button></div>`;
+      const href=webLink(item),tag=href ? 'a' : 'button';
+      const attributes=href ? `href="${esc(href)}" target="_blank" rel="noopener noreferrer"` : 'type="button"';
+      return `<div class="work-launcher-cell"><${tag} ${attributes} draggable="true" class="work-launcher-tile${item.card_cover ? ' has-cover' : ''}${item.available === false ? ' is-unavailable' : ''}" data-launcher-action="launch" data-launcher-id="${esc(item.id)}" title="${esc(item.title)} · ${esc(item.target)}" aria-label="${esc(item.title)} 열기${item.available === false ? ' · 경로 확인 필요' : ''}"><span class="work-launcher-cover${item.card_cover ? '' : ' is-icon-artwork'}">${artwork}</span><span class="work-launcher-card-content"><span class="work-launcher-kind" data-launcher-kind="${type[0]}" title="${type[1]}" aria-label="${type[1]}">${type[0]}</span><span class="work-launcher-name">${esc(item.title)}</span><span class="work-launcher-target" title="${esc(item.target)}">${esc(item.target)}</span>${item.card_description ? `<span class="work-launcher-description">${esc(item.card_description)}</span>` : ''}</span></${tag}></div>`;
     }).join('');
     const addTile = '<button type="button" class="work-launcher-tile work-launcher-add-tile" data-launcher-action="add" aria-label="바로가기 카드 추가"><span aria-hidden="true">＋</span><span>새 카드</span></button>';
     $('workLauncherGrid').innerHTML = tiles + addTile;
@@ -650,14 +661,24 @@
     kindFields(); preview(); coverPreview(); $('workLauncherDialog').showModal(); locks(); $('workLauncherName').focus();
   }
   async function click(event) {
-    const button = event.target.closest('[data-launcher-action]'); if (!button || button.disabled) return;
+    const button = event.target.closest('[data-launcher-action]'); if (!button) return;
+    if(button.disabled){event.preventDefault();return;}
     const action=button.dataset.launcherAction, item=(state?.items || []).find(x=>x.id===button.dataset.launcherId);
     if (action === 'close') { dialogVersion++; $('workLauncherDialog').close(); return; }
     if (action === 'reload') { await load(true); return; }
     if (action === 'retry') { if (pending) await write(null,null,null,pending); return; }
     if (action === 'add') { open(); return; }
     if (action === 'edit') { if (item) open(item); return; }
-    if (action === 'launch') { if (Date.now() < suppressLaunchUntil || dragItem) return; if (item) await write(action,{id:item.id}); return; }
+    if (action === 'launch') {
+      if(Date.now() < suppressLaunchUntil || dragItem || !item){event.preventDefault();return;}
+      if(item.kind==='web'){
+        if(!button.matches('a[href]')){event.preventDefault();message('웹 주소를 확인해 주세요.',true);return;}
+        // Native navigation belongs to the browser/profile hosting this office.
+        // Do not send a click to the separate automation Chrome workspace.
+        message('현재 브라우저의 새 탭으로 열기를 요청했습니다.');return;
+      }
+      event.preventDefault();await write(action,{id:item.id});return;
+    }
     if (action === 'remove') {
       if (item) await write('remove',{id:item.id},()=>{$('workLauncherDialog').close();});
       return;
@@ -775,6 +796,10 @@
     $('workLauncherGrid').addEventListener('dragend',()=>{if (dragItem) suppressLaunchUntil=Date.now()+500;clearDrag();});
     $('workLauncherGrid').addEventListener('dragleave',event=>{if (!$('workLauncherGrid').contains(event.relatedTarget)) $('workLauncherGrid').querySelectorAll('.drop-before,.drop-after').forEach(tile=>tile.classList.remove('drop-before','drop-after'));});
     $('workLauncherGrid').addEventListener('contextmenu',editShortcut);
+    $('workLauncherGrid').addEventListener('auxclick',event=>{
+      const link=event.target.closest('a[data-launcher-action="launch"]');
+      if(link && (link.disabled || dragItem || Date.now()<suppressLaunchUntil))event.preventDefault();
+    });
     $('workLauncherGrid').addEventListener('load',scheduleBoardLayout,true);
     if (typeof window.addEventListener === 'function') window.addEventListener('resize',scheduleBoardLayout);
     $('workLauncherGrid').addEventListener('keydown',event=>{

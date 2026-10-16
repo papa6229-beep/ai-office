@@ -1,5 +1,9 @@
 # AI OFFICE development handoff
 
+## Model use
+
+- The user does not want GPT-6 Astra used. Do not select Astra or invoke a custom agent, including `head`, configured to use Astra. This latest preference overrides earlier generic delegation guidance for this project. Keep those judgments in the main chat without automatically substituting another expensive model.
+
 ## Shared context
 
 - Before changing the app, read `PROJECT_CONTEXT.md` and the relevant recent entries in `PROJECT_WORKLOG.jsonl`. Inspect current source and execution evidence before treating an old record as current truth.
