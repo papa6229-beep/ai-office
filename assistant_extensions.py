@@ -14,6 +14,7 @@ import desktop_workspace
 import file_workspace
 import quick_launcher
 import scanner
+import companion_assets
 
 
 def _string(description='', maximum=4000):
@@ -29,6 +30,8 @@ SPECS = {
     'launcher_card_edit': ('write', '바로가기 카드 설명(160자 이하)과 커버를 편집합니다. cover_ref는 files_find가 조회한 4MB 이하 PNG·JPEG·WebP·GIF입니다. clear_cover=true는 커버만 지우며 기존 작은 아이콘은 유지합니다.', {'ref': _string(), 'description': _string(maximum=160), 'cover_ref': _string(), 'clear_cover': {'type':'boolean'}}, ['ref']),
     'scan_status': ('read', '기존 PC 자료 조사의 실제 진행 상태를 조회합니다. 새 조사를 시작하거나 파일 본문을 읽지 않습니다.', {}, []),
     'scan_results': ('read', '기존 PC 조사 결과에서 보호 경로를 제외한 메타데이터를 100개씩 조회합니다. 전체 디스크 조사나 파일 본문 읽기가 아닙니다. 위치 표시는 files_find로 다시 선택하세요.', {'query': _string(maximum=500), 'page': {'type': 'integer', 'minimum': 0, 'maximum': 1000}}, []),
+    'companion_assets': ('read', 'Aemeath 상태별 캐릭터 목록을 조회합니다. 기본 이미지는 제거 대상이 아니며 추가 이미지의 참조를 반환합니다.', {'state': {'type':'string','enum':['idle','answer','agree','error','typing','working']}}, []),
+    'companion_remove': ('write', '조회한 캐릭터 참조를 지정 상태의 표시 목록에서 제거합니다. 원본 첨부 파일은 삭제하지 않습니다.', {'state': {'type':'string','enum':['idle','answer','agree','error','typing','working']}, 'ref': _string()}, ['state','ref']),
 }
 
 
@@ -91,6 +94,21 @@ def execute(registry, name, args, context):
     """Dispatch one named adapter; ToolRegistry owns schema and effect checks."""
     if name not in SPECS:
         raise ValueError('등록된 확장 기능을 선택하세요.')
+    if name == 'companion_assets':
+        manifest=companion_assets.manifest(registry.db_path)
+        items=[]
+        for state,rows in manifest['states'].items():
+            if args.get('state') and state!=args['state']: continue
+            for item in rows:
+                if item['id'].startswith('builtin-'): continue
+                ref=registry._ref(context,'companion_asset',{'id':item['id'],'state':state})
+                items.append({'ref':ref,'state':state,'name':item['name']})
+        return _ok('추가된 캐릭터 목록입니다.',{'items':items})
+    if name == 'companion_remove':
+        selected=registry._get(context,args['ref'],'companion_asset')
+        if selected['state']!=args['state']: raise ValueError('조회한 상태와 제거 요청이 달라요. 다시 확인해줘.')
+        result=companion_assets.remove(registry.db_path,selected['state'],selected['id'])
+        return _ok('선택한 추가 캐릭터를 표시 목록에서 제거했어요. 원본 파일은 보관돼요.',{'revision':result['revision']})
     if name == 'scan_status':
         status = scanner.status()
         safe = {key: status.get(key) for key in ('id', 'status', 'scanned', 'skipped', 'errors', 'started', 'finished', 'summary')}

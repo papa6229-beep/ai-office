@@ -20,6 +20,7 @@ import lmstudio_runtime
 import model_requests
 import chat_stream
 import office_reload
+import office_feedback
 import agent_workspace
 import work_attachments
 import companion_assets
@@ -189,11 +190,24 @@ def work_service():
 def capability_service():
     return capabilities.CapabilityService(DB,workspace=config().get('workspace'))
 
+def resume_screen_verification(server,parent_id):
+    # Continue the same user-authorized task only after its actual UI report.
+    payload=None;ticket=None
+    try:
+        with office_reload.action() as admitted:
+            if not admitted or config().get('api_type')!='codex':return
+            payload=office_feedback.claim_followup(DB,parent_id)
+            if not payload:return
+            response=work_service().perform('verify-followup',payload)
+            changes=response.get('result',{}).get('source_changes',[])
+            if changes:ticket=office_reload.prepare(changes,payload['request_id'])
+    except Exception:
+        if payload:office_feedback.mark_unverified(DB,payload['request_id'],'실제 화면 확인을 이어가는 연결이 중단됐습니다. 완료로 확정하지 않습니다.')
+    finally:office_reload.schedule(server,ticket)
+
 def open_managed_web(url):
-    import importlib.util,webbrowser
-    if importlib.util.find_spec('playwright') is None:
-        if not webbrowser.open(url): raise ValueError('브라우저를 열지 못했습니다.')
-        return {'message':'일반 브라우저 열기를 요청했습니다. 화면 읽기에는 Playwright 설치가 필요합니다.'}
+    # Reuse the AI OFFICE Chrome workspace so launcher sites become tabs in
+    # the same managed window instead of spawning the system browser.
     return browser_workspace.manager().open(url)
 
 def launcher_service():
@@ -269,7 +283,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in _AEMEATH_ASSETS:
             b=(ROOT/path.lstrip('/')).read_bytes()
             self.send_response(200);self.send_header('Content-Type','image/gif' if path.endswith('.gif') else 'image/png');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(b);return
-        if path in {'/workambient.css','/workambient.js','/workstage.css','/workstage.js','/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js','/retro.css','/assets/fonts/PretendardVariable.woff2','/assets/fonts/BarlowCondensed-Bold.ttf','/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'}:
+        if path in {'/work-observer.js','/workambient.css','/workambient.js','/workstage.css','/workstage.js','/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js','/retro.css','/assets/fonts/PretendardVariable.woff2','/assets/fonts/BarlowCondensed-Bold.ttf','/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'}:
             b=(ROOT/path.lstrip('/')).read_bytes()
             mime='font/woff2' if path.endswith('.woff2') else 'font/ttf' if path.endswith('.ttf') else 'text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8'
             self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.end_headers();self.wfile.write(b);return
@@ -335,6 +349,7 @@ class Handler(BaseHTTPRequestHandler):
             organizer_policy.ensure_worker()
             start_ai_supervisor()
             page=(ROOT/'index.html').read_text(encoding='utf-8').replace('<!-- WORK_DESK -->',(ROOT/'workdesk.html').read_text(encoding='utf-8'))
+            page=page.replace('</head>',"<meta name=\"office-build\" content='"+json.dumps(office_feedback.version())+"'></head>",1)
             b=page.encode('utf-8');self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
         if path=='/api/desktop-path':
             home=pathlib.Path.home()
@@ -385,7 +400,7 @@ class Handler(BaseHTTPRequestHandler):
             s=config();s['api_key']='' if not s.get('api_key') else '(설정됨)';return self.reply({'tasks':tasks,'runs':runs,'settings':s,'action_token':DESK_TOKEN})
         self.reply({'error':'not found'},404)
     def do_POST(self):
-        with office_reload.action(readonly=urlparse(self.path).path=='/api/work/stream') as admitted:
+        with office_reload.action(readonly=urlparse(self.path).path in {'/api/work/stream','/api/work/feedback'}) as admitted:
             if not admitted:return self.reply({'error':'수정한 기능을 반영하고 있어요. 잠시 뒤 다시 요청해 주세요.'},503)
             self._do_POST()
     def _do_POST(self):
@@ -437,6 +452,17 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
                 payload={k:v for k,v in d.items() if k!='token'}
+                if p=='/api/work/feedback':
+                    if set(payload)-{'client','report'}:raise ValueError('화면 확인 요청을 확인하세요.')
+                    feedback=office_feedback.update_client(DB,payload.get('client'),payload.get('report'))
+                    self.reply(feedback)
+                    accepted=feedback.get('accepted') or {}
+                    if accepted.get('followup'):
+                        threading.Thread(target=resume_screen_verification,args=(self.server,accepted['actual_request_id']),daemon=True).start()
+                    return
+                if p=='/api/work/companion-remove':
+                    if set(payload)!={'state','id'}:raise ValueError('캐릭터 제거 요청을 확인하세요.')
+                    return self.reply({'companion_assets':companion_assets.remove(DB,payload['state'],payload['id'])})
                 if p=='/api/work/upload':
                     if set(payload)-{'request_id','upload_id','name','data_url'}:raise ValueError('첨부 요청을 확인하세요.')
                     result=work_attachments.upload(DB,payload.get('name'),payload.get('data_url'),payload.get('upload_id'),request_id=payload.get('request_id'))
@@ -460,6 +486,7 @@ class Handler(BaseHTTPRequestHandler):
                     result=service.overview();result['result']={'action':'open-resource','message':'등록한 자료 열기를 요청했습니다.'}
                 else:
                     action='task' if p=='/api/task' else 'status' if p=='/api/task/status' else p.rsplit('/',1)[-1]
+                    if action=='verify-followup':raise ValueError('화면 확인은 원래 요청에서 내부적으로 이어집니다.')
                     if p=='/api/task/status' and 'id' in payload:payload['task_id']=payload.pop('id')
                     if action in {'command','assistant-action'} and config().get('api_type')=='codex':
                         with chat_stream.capture(payload.get('request_id')):

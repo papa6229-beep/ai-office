@@ -379,3 +379,22 @@
 #work .work-message-attachments{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;white-space:normal}
 #work #workCommandForm.is-file-drag{outline:2px dashed var(--ao-accent,#a5d947);outline-offset:4px;border-radius:9px}
 #work .work-stage-download{display:inline-flex;align-items:center;padding:5px 9px;border:1px solid #495544;border-radius:5px;color:#c5e78f;text-decoration:none;font-size:12px}
+
+/* Keep a subtle keyboard focus cue without the broken cyan outline. */
+#work button:focus-visible,#work input:focus-visible,#work textarea:focus-visible{outline:none;box-shadow:0 0 0 1px #a4d84b}
+#work #workCommand:focus{outline:none;box-shadow:none}
+
+/* Use the full shared panel height: keep the companion widgets visible and let chat grow. */
+#work .work-conversation-layout{align-items:stretch}
+#work .work-conversation-content{display:flex;flex-direction:column;min-height:0}
+#work .work-messages{max-height:none;min-height:0;flex:1 1 auto}
+#work .work-companion-rail{height:100%;display:flex;flex-direction:column;gap:10px}
+#work .work-companion-rail .work-companion{flex:1 1 0;min-height:0;display:flex;flex-direction:column;justify-content:center;padding:12px 8px}
+#work .work-companion-rail .work-companion-stage{width:min(100%,190px);height:auto;aspect-ratio:1/1;flex:none}
+#work .work-companion-rail .work-companion-stage img{width:100%;height:100%;object-fit:contain}
+#work .work-companion-rail .work-calendar{flex:0 0 auto;padding:8px 7px;margin:0}
+#work .work-companion-rail .work-calendar-day{line-height:17px}
+#work .work-companion-rail .work-ambient{flex:0 0 auto;margin-top:0}
+#work .work-examples{display:none}
+@media(max-width:1150px){#work .work-companion-rail{height:auto;display:grid;grid-template-columns:minmax(0,1fr) 180px;align-items:stretch}#work .work-companion-rail .work-companion{display:flex;flex-direction:column;text-align:center}#work .work-companion-rail .work-companion-stage{width:min(100%,140px);height:auto;aspect-ratio:1/1}#work .work-companion-rail .work-ambient{grid-column:1/-1}}
+@media(max-width:600px){#work .work-companion-rail{grid-template-columns:minmax(0,1fr) 166px}}

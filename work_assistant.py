@@ -220,7 +220,7 @@ class WorkAssistant:
         return {'task_id':task_id,'events':list(reversed(rows[:1000])),'truncated':len(rows)>1000}
 
     def perform(self, action, payload):
-        if self.native_model is not None and action in ('command', 'assistant-action'):
+        if self.native_model is not None and action in ('command', 'assistant-action','verify-followup'):
             from assistant_runtime import AssistantRuntime
             return AssistantRuntime(self.db_path, self.native_model, self.registry_factory,
                                     intent_call=self.intent_model,source_model=self.source_model,

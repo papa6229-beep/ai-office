@@ -1014,6 +1014,7 @@ def _agent_event(callback, thread_id, turn_id, item, phase):
         return
     metadata = {'thread_id': thread_id, 'turn_id': turn_id,
                 'item_id': str(item.get('id', ''))[:200], 'kind': kind, 'phase': phase}
+    if kind=='imageView' and isinstance(item.get('path'),str):metadata['path']=item['path'][:4096]
     if item.get('status') in {'inProgress', 'completed', 'failed', 'declined', 'interrupted'}:
         metadata['status'] = item['status']
     if type(item.get('exitCode')) is int:

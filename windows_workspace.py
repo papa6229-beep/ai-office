@@ -4,6 +4,7 @@ Only observed, expiring references may be acted on. This module never accepts
 coordinates, selectors, shell commands, or keyboard sequences from its caller.
 """
 import atexit
+import base64
 import datetime
 import hashlib
 import importlib.util
@@ -52,7 +53,7 @@ def available():
 def capabilities():
     return {'available': available(), 'backend': 'windows_uia', 'operations': sorted(OPERATIONS),
             'scope': '관찰한 일반 Windows 앱의 UI Automation 요소',
-            'screenshots': False, 'keyboard_or_coordinates': False,
+            'screenshots': available(), 'keyboard_or_coordinates': False,
             'protected_windows': False, 'verification_required': True}
 
 
@@ -120,6 +121,10 @@ class WindowsWorkspace:
         if not isinstance(window_id, str):
             raise WindowsWorkspaceError('invalid')
         return self._request('inspect', window_id)
+
+    def capture(self, window_id):
+        if not isinstance(window_id, str):raise WindowsWorkspaceError('invalid')
+        return self._request('capture', window_id)
 
     def act(self, window_id, control_id, snapshot_id, operation, value=None):
         if not all(isinstance(x, str) for x in (window_id, control_id, snapshot_id, operation)) or operation not in OPERATIONS:
@@ -275,6 +280,41 @@ class WindowsWorkspace:
                 'truncated': len(collected) > MAX_CONTROLS or len(text) > MAX_TEXT,
                 'scope': 'UI Automation 텍스트와 요소; 이미지와 비표준 UI는 읽지 못할 수 있습니다.',
                 'captured_at': datetime.datetime.now(datetime.timezone.utc).isoformat()}
+
+    def _do_capture(self, window_id):
+        import ctypes, io
+        from ctypes import wintypes
+        from PIL import ImageGrab, ImageDraw
+        window, info = self._resolve_window(window_id)
+        user32=ctypes.WinDLL('user32',use_last_error=True)
+        user32.IsIconic.argtypes=[wintypes.HWND]
+        user32.GetWindowRect.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.RECT)]
+        rect=wintypes.RECT()
+        if user32.IsIconic(info['handle']) or not user32.GetWindowRect(info['handle'],ctypes.byref(rect)):
+            raise WindowsWorkspaceError('unsupported')
+        if not 0 < (rect.right-rect.left)*(rect.bottom-rect.top) <= 32000000:
+            raise WindowsWorkspaceError('unsupported')
+        image=ImageGrab.grab(window=info['handle']).convert('RGB')
+        draw=ImageDraw.Draw(image);masked=0
+        for raw,item in self._collect(window):
+            if not _sensitive(item):continue
+            try:
+                box=raw.rectangle()
+                sx=image.width/(rect.right-rect.left);sy=image.height/(rect.bottom-rect.top)
+                box=(max(0,int((box.left-rect.left)*sx)-4),max(0,int((box.top-rect.top)*sy)-4),min(image.width,int((box.right-rect.left)*sx)+4),min(image.height,int((box.bottom-rect.top)*sy)+4))
+                if box[2]>box[0] and box[3]>box[1]:draw.rectangle(box,fill='black');masked+=1
+            except Exception:raise WindowsWorkspaceError('denied') from None
+        if all(high-low<3 for low,high in image.getextrema()):
+            raise WindowsWorkspaceError('unsupported')
+        _,after=self._resolve_window(window_id)
+        if after['title']!=info['title']:raise WindowsWorkspaceError('stale')
+        image.thumbnail((1600,1200));stream=io.BytesIO();image.save(stream,'JPEG',quality=78)
+        if stream.tell()>1500000:raise WindowsWorkspaceError('unsupported')
+        return {'window_id':window_id,'title':_redact(info['title'])[:500],
+                'process':info['process'],'image':base64.b64encode(stream.getvalue()).decode(),
+                'width':image.width,'height':image.height,'masked_controls':masked,
+                'captured_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                'scope':'선택한 실제 창의 픽셀 캡처; 최소화·보호 창은 캡처하지 않습니다.'}
 
     def _do_act(self, window_id, control_id, snapshot_id, operation, value):
         snapshot = self._snapshots.get(window_id)

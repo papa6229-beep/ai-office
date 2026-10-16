@@ -193,6 +193,7 @@
     observeChatLayout();
     settleChatScroll();
   }
+  document.addEventListener('work-stage-verification',()=>{if(!busy&&!uncertain)window.workLoad?.();});
   window.workLoad = async function workLoad() {
     if (!$('work') || loading || busy || uncertain) return;
     loading = true; companionOutcome=null; companionError=''; companionUpdate();
@@ -277,7 +278,7 @@
   }
   async function write(endpoint, payload, cleanup, existing) {
     if (busy || (!existing && uncertain) || !overview?.action_token) return;
-    const request = existing || {endpoint, body:{...payload, token:overview.action_token, request_id:payload.request_id || requestID()}, cleanup};
+    const request = existing || {endpoint, body:{...payload, ...(['command','assistant-action'].includes(endpoint)&&window.officeUI?{client:window.officeUI.capture()}:{}), token:overview.action_token, request_id:payload.request_id || requestID()}, cleanup};
     companionError=''; companionOutcome=null; busy = true; notice(); locks();
     let confirmedResponse = false;
     const stageRequest=['command','assistant-action','choose-launcher'].includes(request.endpoint);

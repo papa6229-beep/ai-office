@@ -12,6 +12,7 @@ import uuid
 
 import document_reader
 import file_workspace
+import office_feedback
 
 MEDIA_TTL = 30 * 60
 IMAGE_MAX = 16 * 1024 * 1024
@@ -25,6 +26,8 @@ STEP_LABELS.update({'office_source_list':'앱 원본 찾기','office_source_read
                     'office_source_apply':'앱 변경 저장','office_source_history':'앱 변경 이력',
                     'office_source_rollback':'앱 변경 되돌리기'})
 STEP_LABELS.update({'agent_workspace_status':'작업 사본 확인','agent_source_publish':'앱 변경 게시','agent_output_publish':'결과물 게시'})
+STEP_LABELS.update({'office_ui_observe':'실제 화면 관찰','office_task_goal':'사용자 결과·확인 조건 기록',
+                    'office_ui_check':'현재 화면 결과 확인','office_ui_review':'실제 창 이미지 검토'})
 STEP_LABELS.update({'codex_command':'코드·작업 실행','codex_file_change':'작업 파일 수정',
                     'codex_image_view':'이미지 확인','codex_web_search':'자료 검색','codex_context':'작업 문맥 정리'})
 CODE_TYPES = {'.py':'python','.js':'javascript','.ts':'typescript','.html':'html','.css':'css','.json':'json','.sql':'sql','.sh':'bash','.ps1':'powershell','.jsx':'jsx','.tsx':'tsx'}
@@ -61,7 +64,7 @@ def task_note(db, request_id, title, summary=''):
 
 def _task_identity(note, operations, artifacts):
     # Old read/list receipts alone do not turn an ordinary conversation into work.
-    actual=[op for op in operations if op['name']!='workspace_task_note' and
+    actual=[op for op in operations if op['name'] not in {'workspace_task_note','office_task_goal'} and
             (op['effect'] in {'write','external','approval'} and op['name']!='codex_command')]
     analysis={'documents_read','attachment_read','browser_read','browser_view','codex_command','codex_image_view','codex_web_search'}
     eligible=bool(actual or artifacts or (note and any(op['name'] in analysis for op in operations)))
@@ -242,7 +245,10 @@ def request_list(db):
                        'ORDER BY created DESC,rowid DESC LIMIT 300').fetchall()
     items=[]
     for row in rows:
-        try: payload=json.loads(row['payload']).get('payload',{})
+        try:
+            envelope=json.loads(row['payload'])
+            if envelope.get('action')=='verify-followup':continue
+            payload=envelope.get('payload',{})
         except (ValueError,TypeError): payload={}
         message=_text(payload.get('message',''),500)
         if not message: message='작업 요청'
@@ -258,13 +264,15 @@ def snapshot(db, request_id=None):
         return {'request':None,'steps':[],'artifacts':[],'answer':'',
                 'requests':request_list(db)}
     empty={'request':None,'steps':[],'artifacts':[],'answer':''}
+    related,verification=office_feedback.family(db,request_id)
+    placeholders=','.join('?' for _ in related)
     with connect(db) as c:
         if not c.execute("SELECT 1 FROM sqlite_master WHERE name='assistant_requests'").fetchone(): return empty
         row=c.execute('SELECT * FROM assistant_requests WHERE id=?',(request_id,)).fetchone() if request_id else c.execute('SELECT * FROM assistant_requests ORDER BY created DESC,rowid DESC LIMIT 1').fetchone()
         if not row: return empty
         payload=json.loads(row['payload']).get('payload',{})
         steps=[]; artifacts=[]; attention=False;operations=[];unresolved={};source_refs={}
-        for step in c.execute('SELECT id,name,effect,arguments,status,result,created FROM assistant_steps WHERE request_id=? ORDER BY created,rowid',(row['id'],)):
+        for step in c.execute('SELECT id,name,effect,arguments,status,result,created FROM assistant_steps WHERE request_id IN ('+placeholders+') ORDER BY created,rowid',related):
             result=json.loads(step['result']) if step['result'] else {}
             try:arguments=json.loads(step['arguments'])
             except (ValueError,TypeError):arguments={}
@@ -287,7 +295,7 @@ def snapshot(db, request_id=None):
             if safe_artifact:artifacts.append(safe_artifact)
         exists=c.execute("SELECT 1 FROM sqlite_master WHERE name='stage_artifacts'").fetchone()
         if exists:
-            artifacts.extend(value for a in c.execute('SELECT artifact FROM stage_artifacts WHERE request_id=? ORDER BY created LIMIT 12',(row['id'],)) if (value:=_artifact(json.loads(a[0]))))
+            artifacts.extend(value for a in c.execute('SELECT artifact FROM stage_artifacts WHERE request_id IN ('+placeholders+') ORDER BY created LIMIT 12',related) if (value:=_artifact(json.loads(a[0]))))
         response=json.loads(row['response']) if row['response'] else {}
         result=response.get('result',{})
         attention=bool(unresolved) or (not operations and any(r.get('status')=='error' for r in result.get('tool_results',[]) if isinstance(r,dict)))
@@ -299,6 +307,10 @@ def snapshot(db, request_id=None):
         try:stale=(datetime.datetime.now().astimezone()-datetime.datetime.fromisoformat(row['created'])).total_seconds()>600
         except (ValueError,TypeError):stale=True
         status=('attention' if attention else 'done') if row['status']=='done' else 'running'
+        if row['status']=='done' and verification:
+            if verification['state'] in {'failed','unverified'}:status='attention'
+            elif verification['state']=='verified':status='done'
+            else:status='verifying'
         note=None
         if c.execute("SELECT 1 FROM sqlite_master WHERE name='stage_task_notes'").fetchone():
             note=c.execute('SELECT title,summary FROM stage_task_notes WHERE request_id=?',(row['id'],)).fetchone()
@@ -316,4 +328,5 @@ def snapshot(db, request_id=None):
                 if message and message not in {entry['message'] for entry in diagnostics}:
                     diagnostics.append({'status':receipt['status'],'message':message})
                 if len(diagnostics)>=20:break
-        return {'request':request,'workspace_eligible':eligible,'steps':steps[-100:],'artifacts':artifacts,'diagnostics':diagnostics,'answer':''}
+        return {'request':request,'workspace_eligible':eligible,'steps':steps[-100:],'artifacts':artifacts,
+                'diagnostics':diagnostics,'verification':verification,'answer':''}

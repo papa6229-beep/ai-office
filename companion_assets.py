@@ -78,3 +78,29 @@ def apply(db,row,state='idle',mode='append'):
             stream.flush(); os.fsync(stream.fileno())
         os.replace(temporary,root/'manifest.json')
     return manifest(db)
+
+
+def remove(db,state,identifier):
+    """Remove one uploaded variant from a state without touching its source file."""
+    if state not in STATES or not isinstance(identifier,str) or not identifier:
+        raise ValueError('캐릭터 상태와 자료를 확인해주세요.')
+    with _LOCK:
+        saved=_read(db)
+        previous=saved['overrides'].get(state,{'replace':False,'ids':[]})
+        ids=list(previous.get('ids',[]))
+        if identifier not in ids:
+            raise ValueError('선택한 상태에 등록된 추가 캐릭터가 없습니다.')
+        before=json.loads(json.dumps(saved))
+        ids.remove(identifier)
+        if ids: saved['overrides'][state]={'replace':bool(previous.get('replace')),'ids':ids}
+        else: saved['overrides'].pop(state,None)
+        saved['revision']=uuid.uuid4().hex
+        saved['history']=(saved.get('history',[])+[{'at':time.time(),'state':state,'mode':'remove','attachment_id':identifier,'previous':previous}])[-100:]
+        root=_location(db)
+        backup=root/('before-'+saved['revision']+'.json')
+        with backup.open('x',encoding='utf-8') as stream: json.dump(before,stream,ensure_ascii=False)
+        temporary=root/('pending-'+uuid.uuid4().hex+'.json')
+        with temporary.open('x',encoding='utf-8') as stream:
+            json.dump(saved,stream,ensure_ascii=False); stream.flush(); os.fsync(stream.fileno())
+        os.replace(temporary,root/'manifest.json')
+    return manifest(db)

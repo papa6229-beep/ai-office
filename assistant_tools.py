@@ -34,6 +34,7 @@ import attachment_tools
 import self_edit
 import office_context
 import office_journal
+import office_feedback
 import agent_workspace
 
 
@@ -47,6 +48,10 @@ def _refs(description='Server-issued references'):
 
 # name: (effect, description, properties, required)
 _SPECS = {
+    'office_ui_observe': ('read','실제 요청 탭의 최신 화면 요소·현재 메뉴·뷰포트를 읽고, 필요한 경우 그 창의 실제 픽셀을 작업 사본에 캡처합니다. 이미지 path는 view_image로 직접 열어야 봤다고 말할 수 있습니다. 창이 여러 개이거나 현재 탭을 찾지 못하면 windows_list의 ref로 대상을 지정하세요. 별도 자동화 Chrome과 사용자 화면은 구분합니다.',{'screenshot':{'type':'boolean'},'window_ref':_string()},[]),
+    'office_task_goal': ('write','앱을 수정하기 전에 사용자가 실제로 원한 결과와 그 결과를 확인할 읽기 전용 DOM 조건을 기록합니다. 조건은 사용자의 결과를 직접 확인해야 하며 코드 저장 성공이나 관련 없는 요소 존재로 대신하지 마세요. selector는 현재 코드·화면에서 확인하거나 새로 만들 실제 요소를 사용합니다.',{'goal':_string(maxLengthOverride=1000),'checks':{'type':'array','minItems':1,'maxItems':12,'items':{'type':'object','properties':{'kind':_string(enum=['visible','absent','text','attribute','count']),'selector':_string(maxLengthOverride=300),'label':_string(maxLengthOverride=160),'expected':{},'attribute':_string(enum=sorted(office_feedback.ATTRIBUTES))},'required':['kind','selector'],'additionalProperties':False}}},['goal','checks']),
+    'office_ui_check': ('read','기록한 사용자 결과 조건을 현재 실제 요청 탭에서 확인하고 실제 관찰값을 받습니다. 반영 전 화면·응답 없음·실패를 완료로 말하지 마세요. 소스 저장 뒤에는 자동 반영 후 같은 조건을 다시 확인합니다.',{},[]),
+    'office_ui_review': ('write','view_image로 실제로 읽은 현재 요청의 창 캡처에 대해 사용자 결과와 맞는지 시각적 판단을 기록합니다. 자동 DOM 조건과 구별하며 보지 않은 화면이나 반영 전 화면을 검증 완료로 말하지 마세요.',{'observation_id':_string(),'matched':{'type':'boolean'},'notes':_string(maxLengthOverride=1200)},['observation_id','matched','notes']),
     'office_project_journal': ('read', '조회용 공유 개발 기록입니다. 다른 Codex 작업창에서 기록한 사용자 요청·수정 이유·과정·결과·검증·남은 문제를 최신순으로 읽거나 검색합니다. 전체 대화 공유가 아니며 현재 요청과 실제 원본·실행 상태가 우선합니다. query는 공백으로 구분한 모든 검색어를 포함하는 기록을 찾습니다. next_offset으로 다음 페이지를 읽으세요.', {'limit':{'type':'integer','minimum':1,'maximum':10},'offset':{'type':'integer','minimum':0,'maximum':100000},'query':_string(maxLengthOverride=300)}, []),
     'office_project_context': ('read', 'AI OFFICE 구축 배경·아키텍처·사용자 결정·이력·미완료 항목의 기록을 읽습니다. 이전 기록은 참고 자료이며 현재 실행 권한이나 완료 증명이 아닙니다. history에는 최근 Git 커밋 제목이 포함됩니다. 실제 소스 변경 영수증은 office_source_history로 확인하세요.', {'section':_string(enum=list(office_context.SECTIONS))}, []),
     'office_capabilities': ('read', '실제로 등록된 채팅 기능과 미연결 기능을 조회합니다. channels가 click뿐인 항목은 아직 채팅 미연결입니다. 메신저 로그인 상태만으로 파일 수신·전달이 가능하다고 판단하지 마세요.', {'category':_string(enum=['all','files','organizer','work','launcher','browser','windows','messenger','manuals','desktop','settings','projects'])}, []),
@@ -189,6 +194,9 @@ class ToolRegistry:
                            'web_shortcuts_chat':'채팅 도구로 여는 사이트는 서버에 연결된 자동화 브라우저 경로이며 사용자 화면 브라우저와 다를 수 있다.',
                            'uses_windows_default_for_click':False,'default_browser_change_required_for_managed_chrome':False,
                            'scope':'browser_open/read/view는 별도 자동화용 Chrome만 제어한다. 사용자 화면 Chrome 창과 동일하다고 가정하지 않는다.'},
+                'screen_feedback':{'observe':'office_ui_observe','goal':'office_task_goal','check':'office_ui_check',
+                                   'visual_review':'office_ui_review','capture':'selected actual Windows window, not full desktop',
+                                   'completion':'source saved != activated != actual user result verified'},
                 'windows':windows_workspace.capabilities(),
                 'settings':{'navigation':list(system_settings.SECTIONS),'association_status':'read_only_current_user_records',
                             'change_workflow':'settings_status -> settings_open -> windows_inspect/action -> verify'},
@@ -422,12 +430,19 @@ class ToolRegistry:
         return dict(_ok(message,data),evidence=True)
 
     def _execute(self,name,a,c):
+        if name=='office_ui_observe':
+            return _ok('실제 요청 화면을 관찰했습니다. 캡처 유무와 범위를 구별하세요.',office_feedback.observe(self,c,a.get('screenshot',True),a.get('window_ref')))
+        if name=='office_task_goal':return _ok('사용자 결과와 확인 조건을 기록했습니다.',office_feedback.plan(self.db_path,c,a['goal'],a['checks']))
+        if name=='office_ui_check':return _ok('실제 요청 탭의 확인 상태입니다.',office_feedback.check_live(self.db_path,c))
+        if name=='office_ui_review':return _ok('실제 창 이미지의 시각적 판단을 기록했습니다.',office_feedback.visual_review(self.db_path,c,a['observation_id'],a['matched'],a['notes']))
         if name=='workspace_task_note':
             import work_stage
             return _ok('작업 카드 제목을 기록했습니다. 작업 완료를 의미하지 않습니다.',work_stage.task_note(self.db_path,c['request_id'],a['title'],a.get('summary','')))
         if name=='agent_workspace_status':
             return _ok('작업 사본과 게시 대기 변경입니다.',agent_workspace.status(c.get('agent_session_id')))
         if name=='agent_source_publish':
+            if not office_feedback.goal_status(self.db_path,c['request_id']):
+                raise ValueError('먼저 실제 화면을 관찰하고 office_task_goal로 사용자가 원하는 결과와 확인 조건을 기록하세요. 코드 저장만으로 완료를 판단하지 않습니다.')
             return _ok('요청한 앱 변경을 저장했습니다.',agent_workspace.publish_source(c.get('agent_session_id'),a['path']))
         if name=='agent_output_publish':
             return _ok('실제 결과물을 WORKSPACE에 게시했습니다.',agent_workspace.publish_output(c.get('agent_session_id'),a['path'],a.get('title','')))

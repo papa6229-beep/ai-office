@@ -20,6 +20,7 @@
 #work .work-task-scope{margin:0 0 14px;padding:10px 12px;border-left:2px solid #9fce57;background:#1b241d;color:#c4d0bf;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
 #work .work-request-card small{padding:3px 7px;border:1px solid #475443;border-radius:20px;color:#bdcbaf;font-size:10px;white-space:nowrap}
 #work .work-request-card[data-status=running] small{color:#c8ee91;border-color:#77964d}
+#work .work-request-card[data-status=verifying] small{color:#a6dce0;border-color:#55898d}
 #work .work-request-card[data-status=attention] small{color:#efc49c;border-color:#8a654c}
 #work .work-request-card[data-status=done] small{color:#9fc9ad;border-color:#496a53}
 #work .work-stage-process ol{list-style:none;margin:0;padding:0}

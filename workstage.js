@@ -63,6 +63,15 @@
   }
   function renderExecutionLog(data){
     const root=$('workStageResultContent');if(!root)return;
+    if(data.verification){
+      const info=document.createElement('div');info.className='work-execution-log';
+      const title=document.createElement('strong');title.textContent='결과 확인 · '+({verified:'실제 화면 조건 확인',failed:'조건 불일치',awaiting_activation:'반영 후 확인 대기',awaiting_review:'실제 창 검토 대기',following_up:'실제 창 검토 중',checking_client:'현재 화면 확인 중',planned:'확인 조건 기록',unverified:'미확인'}[data.verification.state]||'확인 필요');info.append(title);
+      const goal=document.createElement('p');goal.textContent=data.verification.goal||'';info.append(goal);
+      if(data.verification.reason){const reason=document.createElement('p');reason.textContent=data.verification.reason;info.append(reason);}
+      for(const row of data.verification.results||[]){const p=document.createElement('p');p.textContent=(row.passed?'✓ ':'! ')+(row.check.label||row.check.selector);info.append(p);}
+      if(data.verification.visual_review){const p=document.createElement('p');p.textContent='실제 창 이미지 판단: '+data.verification.visual_review.notes;info.append(p);}
+      root.append(info);
+    }
     const steps=Array.isArray(data.steps)?data.steps:[],diagnostics=Array.isArray(data.diagnostics)?data.diagnostics:[];
     if(!steps.length&&!diagnostics.length)return;
     const details=document.createElement('details');details.className='work-execution-log';
@@ -81,7 +90,7 @@
     const focused=document.activeElement?.dataset?.requestId;root.replaceChildren();
     if(!requests.length){const p=document.createElement('p');p.className='work-stage-empty';p.textContent='요청한 작업이 여기에 표시됩니다.';root.append(p);return;}
     for(const item of requests){const card=document.createElement('button');card.type='button';card.className='work-request-card';card.dataset.requestId=item.request.id;card.dataset.status=item.request.status||'unknown';card.setAttribute('aria-pressed',String(item.request.id===selectedRequest));
-      const summary=document.createElement('span');summary.textContent=item.summary||item.request.title||'작업 요청';const badge=document.createElement('small');badge.textContent={running:'진행 중',done:'완료',attention:'확인 필요'}[item.request.status]||'상태 확인 중';card.append(summary,badge);root.append(card);if(focused===item.request.id)card.focus({preventScroll:true});}
+      const summary=document.createElement('span');summary.textContent=item.summary||item.request.title||'작업 요청';const badge=document.createElement('small');badge.textContent={running:'진행 중',done:'완료',verifying:'반영·확인 중',attention:'확인 필요'}[item.request.status]||'상태 확인 중';card.append(summary,badge);root.append(card);if(focused===item.request.id)card.focus({preventScroll:true});}
   }
   function render(data) {
     const request=data.request;if(!request)return;
@@ -96,7 +105,7 @@
     if(!selectedRequest)selectedRequest=request.id;renderRequestCards();
     if(request.id!==selectedRequest)return;
     const signature=JSON.stringify(data);if(signature===last)return;last=signature;
-    $('workStageRequest').textContent=item.summary;$('workStageStatus').textContent={running:'진행 중',done:'완료',attention:'확인 필요'}[request.status]||'상태 확인 중';$('workStage').dataset.status=request.status;
+    $('workStageRequest').textContent=item.summary;$('workStageStatus').textContent={running:'진행 중',done:'완료',verifying:'반영·확인 중',attention:'확인 필요'}[request.status]||'상태 확인 중';$('workStage').dataset.status=request.status;
     artifacts=Array.isArray(data.artifacts)?data.artifacts.slice():[];renderArtifacts();
     if(request.summary){const scope=document.createElement('p');scope.className='work-task-scope';scope.textContent=request.summary;$('workStageResultContent').prepend(scope);}
     renderExecutionLog(data);
@@ -155,6 +164,10 @@
     $('workStageDialog').addEventListener('close',()=>{$('workStageExpanded').querySelectorAll('video').forEach(video=>{video.pause();video.removeAttribute('src');video.load();});$('workStageExpanded').replaceChildren();});
     document.addEventListener('work-stage-request',event=>start(event.detail || {}));
     document.addEventListener('work-stage-notice',event=>{notice(event.detail?.message||'');});
+    document.addEventListener('work-stage-verification',async event=>{
+      const id=event.detail?.request_id;if(!id)return;
+      try{const response=await fetch('/api/work/stage?request_id='+encodeURIComponent(id),{cache:'no-store'});if(response.ok)render(await response.json());}catch{}
+    });
     document.addEventListener('work-stage-preview',event=>{
       const artifact=event.detail?.artifact;if(!artifact)return;epoch++;stop();preview=true;finished=true;artifacts=[artifact];renderArtifacts();select('results');
       $('workStageRequest').textContent=artifact.title || '선택한 자료';$('workStageStatus').textContent='미리보기';$('workStage').dataset.status='preview';notice();$('workStage').focus({preventScroll:true});$('workStage').scrollIntoView({block:'nearest',behavior:'smooth'});
