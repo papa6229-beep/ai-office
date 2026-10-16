@@ -25,7 +25,7 @@ ROOT=pathlib.Path(__file__).resolve().parent
 DB=ROOT/'office.db'
 CFG=ROOT/'settings.json'
 HOST='127.0.0.1'; PORT=8765
-DEFAULT={'gemma_url':'http://127.0.0.1:11434','gemma_model':'gemma4:26b','api_type':'ollama','api_key':'','workspace':str(pathlib.Path.home()/'Documents'/'AI-Office'),'timeout':60}
+DEFAULT={'gemma_url':'http://127.0.0.1:11434','gemma_model':'gemma4:26b','vision_model':'','api_type':'ollama','api_key':'','workspace':str(pathlib.Path.home()/'Documents'/'AI-Office'),'timeout':60}
 def config():
     if not CFG.exists(): CFG.write_text(json.dumps(DEFAULT,ensure_ascii=False,indent=2),encoding='utf-8')
     return {**DEFAULT,**json.loads(CFG.read_text(encoding='utf-8'))}
@@ -50,7 +50,7 @@ def call_gemma(prompt,settings=None):
     if type(output_limit) is int and 128<=output_limit<=1536:
         if s['api_type']=='openai':payload['max_tokens']=output_limit
         else:payload['options']['num_predict']=output_limit
-    if s['api_type']!='openai' and s.get('_judgment_think') is False:payload['think']=False
+    if s['api_type']!='openai':payload['think']=s.get('_judgment_think') is True
     if s.get('api_key'):headers['Authorization']='Bearer '+s['api_key']
     req=urllib.request.Request(u,data=json.dumps(payload).encode(),headers=headers,method='POST')
     class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -61,7 +61,7 @@ def call_gemma(prompt,settings=None):
 def call_gemma_vision(prompt,image_b64,settings=None):
     s=settings if settings is not None else config()
     if s.get('api_type')!='ollama':raise ValueError('이미지 내용 분석은 설정된 Ollama Gemma 서버에서만 지원합니다.')
-    base=local_content_review.validate_endpoint(s['gemma_url']);model=s['gemma_model'];t=int(s.get('timeout',60))
+    base=local_content_review.validate_endpoint(s['gemma_url']);model=str(s.get('vision_model') or '').strip() or s['gemma_model'];t=int(s.get('timeout',60))
     payload={'model':model,'messages':[{'role':'user','content':prompt,'images':[image_b64]}],'stream':False,'options':{'temperature':0.2}}
     headers={'Content-Type':'application/json'}
     if s.get('api_key'):headers['Authorization']='Bearer '+s['api_key']
@@ -416,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
             if p=='/api/scan-duplicates':
                 result=scanner.duplicate_report();runlog('중복 조사','완료',str(result['total_groups'])+'개 동일 내용 그룹 확인');return self.reply(result)
             if p=='/api/settings':
-                new={k:d[k] for k in ('gemma_url','gemma_model','api_type','workspace','timeout') if k in d}
+                new={k:d[k] for k in ('gemma_url','gemma_model','vision_model','api_type','workspace','timeout') if k in d}
                 if 'api_key' in d and d['api_key']!='(설정됨)':new['api_key']=d['api_key']
                 s=config();s.update(new)
                 if s['api_type'] not in ['ollama','openai']:raise ValueError('지원하지 않는 API 형식')
