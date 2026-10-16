@@ -31,9 +31,43 @@
     $('workNotice').textContent = message; $('workNotice').hidden = !message;
     $('workNotice').classList.toggle('work-error', error);
   }
+  let inboxTab = 'pending';
+  function inboxSelect(tab) {
+    if (!['pending','records','resources'].includes(tab)) return;
+    inboxTab=tab;
+    for (const [key,name] of [['pending','Pending'],['records','Records'],['resources','Resources']]) {
+      const panel=$('workInbox'+name), button=$('workInbox'+name+'Tab');
+      if (panel) panel.hidden=key !== inboxTab;
+      button?.setAttribute?.('aria-pressed',String(key === inboxTab));
+    }
+  }
+  function renderInbox() {
+    if (!$('workInbox')) return;
+    const tasks=overview?.tasks || [], taskMap=new Map(tasks.map(task=>[task.id,task]));
+    const messageIDs=new Set((overview?.messages || []).filter(m=>m.role === 'assistant').map(m=>m.id));
+    const pending=[],seen=new Set();
+    for (const [kind,cards] of [['action',overview?.assistant_actions || []],['choice',overview?.launcher_choices || []]]) {
+      for (const card of cards) {
+        const key=kind+':'+card.id;
+        if (!card.id || seen.has(key) || !messageIDs.has(card.message_id) || !card.options?.length) continue;
+        seen.add(key);pending.push({kind,card});
+      }
+    }
+    $('workInboxPending').innerHTML=pending.length ? pending.map(({kind,card})=>`<article class="work-inbox-item"><strong>${escape(card.title || card.name || '확인할 요청')}</strong>${card.description ? `<p>${escape(card.description)}</p>` : ''}<div class="work-inbox-options">${card.options.map(option=>kind === 'action' ? `<button type="button" class="work-secondary" data-work-assistant-action="${escape(card.id)}" data-work-assistant-option="${escape(option.id)}">${escape(option.label || '선택')}${option.description ? `<small>${escape(option.description)}</small>` : ''}</button>` : `<button type="button" class="work-secondary" data-work-launcher-choice="${escape(card.id)}" data-work-launcher-target="${escape(option.target)}">${escape(option.title || '프로그램 선택')}${option.detail ? `<small>${escape(option.detail)}</small>` : ''}</button>`).join('')}</div></article>`).join('') : '<p class="work-inbox-empty">확인할 요청이 없습니다.</p>';
+    const events=(overview?.events || []).filter(event=>taskMap.has(event.task_id)).slice().sort((a,b)=>String(b.created || '').localeCompare(String(a.created || '')));
+    const names={created:'업무 등록',status:'상태 변경',note:'진행 메모',resource:'자료 연결'};
+    $('workInboxRecords').innerHTML=events.length ? events.slice(0,30).map(event=>`<article class="work-inbox-item"><div class="work-inbox-meta"><span>${escape(names[event.kind] || '업무 기록')}</span><time>${escape(stamp(event.created))}</time></div><button type="button" class="work-inbox-task" data-work-task="${escape(event.task_id)}">${escape(taskMap.get(event.task_id).title)}</button>${event.text ? `<p>${escape(event.kind === 'status' ? statusNames[event.text] || event.text : event.text)}</p>` : ''}</article>`).join('')+(events.length > 30 ? '<p class="work-inbox-limit">최근 30개 기록을 표시합니다.</p>' : '') : '<p class="work-inbox-empty">업무를 등록하거나 진행 내용을 남기면 여기에 기록됩니다.</p>';
+    const resources=tasks.flatMap(task=>(task.resources || []).map(resource=>({task,resource})));
+    $('workInboxResources').innerHTML=resources.length ? resources.map(({task,resource})=>`<article class="work-inbox-item"><strong>${escape(resource.name || '연결 자료')}</strong><button type="button" class="work-inbox-task" data-work-task="${escape(task.id)}">${escape(task.title)}</button><div class="work-inbox-resource-action">${resource.exists === false ? '<span class="work-inbox-missing">경로 확인 필요 · 열기 불가</span>' : `<button type="button" class="work-secondary" data-work-resource="${escape(resource.id)}">자료 열기</button>`}</div></article>`).join('') : '<p class="work-inbox-empty">업무에 연결한 파일과 폴더가 여기에 모입니다.</p>';
+    for (const [name,label,count] of [['Pending','확인 필요',pending.length],['Records','업무 기록',events.length],['Resources','연결 자료',resources.length]]) {
+      $('workInbox'+name+'Tab').textContent=label+' '+count;
+    }
+    inboxSelect(inboxTab);
+  }
   function locks() {
     const blocked = busy || !!uncertain || !overview?.action_token;
     $('work').querySelectorAll('button,input,textarea').forEach(el => {
+      if (el.matches('[data-work-inbox-tab]')) {el.disabled=false;return;}
       if (el.closest('#workLauncher,#workLauncherDialog,#workCalendar') || el.matches('[data-work-action="close-detail"]')) return;
       if (el.matches('[data-work-action="desk"],[data-work-action="tasks"]')) return;
       if (el.matches('[data-work-action="reload"]')) { el.disabled = busy || !!uncertain || loading; return; }
@@ -92,6 +126,7 @@
     }).join('') : '<p class="work-empty">무슨 일을 해야 하나요?<br>업무를 등록하거나 바로가기에 추가할 프로그램을 알려주세요.</p>';
     if (nearBottom) log.scrollTop = log.scrollHeight;
     renderDetail();
+    renderInbox();
     locks();
   }
   window.workLoad = async function workLoad() {
@@ -108,6 +143,9 @@
       if (!overview) {
         $('workMessages').innerHTML = '<p class="work-empty">업무 기록에 연결하지 못했습니다.</p>';
         $('workTaskList').innerHTML = '<p class="work-empty">연결 후 업무를 확인할 수 있습니다.</p>';
+        for (const name of ['Pending','Records','Resources']) {
+          const panel=$('workInbox'+name);if(panel)panel.innerHTML='<p class="work-inbox-empty">업무 연결 후 항목을 확인할 수 있습니다.</p>';
+        }
 
       }
       locks();
@@ -179,6 +217,7 @@
   }
   async function click(event) {
     const button = event.target.closest('button'); if (!button || button.disabled) return;
+    if (button.dataset.workInboxTab) {inboxSelect(button.dataset.workInboxTab);return;}
     if (button.dataset.workAssistantAction) { write('assistant-action',{pending_id:button.dataset.workAssistantAction,option_id:button.dataset.workAssistantOption}); return; }
     if (button.dataset.workLauncherChoice) { write('choose-launcher',{choice_id:button.dataset.workLauncherChoice,target:button.dataset.workLauncherTarget}); return; }
     if (button.dataset.workTask) { selected = button.dataset.workTask; renderDetail(false); render(); $('workTaskDialog').showModal(); loadHistory(selected); return; }

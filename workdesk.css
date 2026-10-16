@@ -229,7 +229,7 @@
 @media(min-width:601px) and (max-width:1150px){#work .work-launcher-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 
 /* A persistent companion rail, separate from the scrolling conversation. */
-#work .work-conversation-layout{display:grid;grid-template-columns:140px minmax(0,1fr);gap:16px;align-items:start}
+#work .work-conversation-layout{display:grid;grid-template-columns:180px minmax(0,1fr);gap:16px;align-items:start}
 #work .work-conversation-content{min-width:0}
 #work .work-companion{position:sticky;top:12px;min-width:0;margin-top:2px;background:#111113;border-radius:12px;padding:12px 0 15px;text-align:center;overflow:hidden}
 #work .work-companion-stage{position:relative;width:140px;height:140px;margin:0 auto;background:#000;border-radius:10px;overflow:hidden}
@@ -247,3 +247,43 @@
 #work .work-companion.is-gif-unavailable.is-still-unavailable .work-companion-fallback{display:flex}
 @media(prefers-reduced-motion:reduce){#work .work-companion-stage .work-companion-animation{display:none}#work .work-companion-stage .work-companion-still{display:block}#work .work-companion.is-still-unavailable .work-companion-still{display:none}#work .work-companion.is-still-unavailable .work-companion-fallback{display:flex}}
 @media(max-width:1150px){#work .work-conversation-layout{grid-template-columns:minmax(0,1fr);gap:13px}#work .work-companion{position:static;display:flex;align-items:center;text-align:left;padding:5px 10px;margin-top:0;gap:14px}#work .work-companion-stage,#work .work-companion-stage img{width:86px;height:86px;flex-shrink:0}#work .work-companion-caption{padding:0}#work #workCompanionStatus{min-height:0;margin-top:4px}}
+
+/* A small personal calendar stays with Aemeath; inbox shows only existing work data. */
+#work .work-companion-rail{min-width:0;position:sticky;top:12px}
+#work .work-companion-rail .work-companion{position:static}
+#work .work-companion-rail .work-calendar{margin-top:10px;padding:10px 9px;border:1px solid #393b3f;border-radius:10px;box-shadow:none}
+#work .work-companion-rail .work-calendar-heading{gap:5px;padding-bottom:6px}
+#work .work-companion-rail .work-calendar-heading h3{font-size:12px}
+#work .work-companion-rail .work-calendar-heading button{font-size:10px;padding:3px 7px}
+#work .work-companion-rail .work-calendar-navigation{gap:3px;margin:6px 0}
+#work .work-companion-rail .work-calendar-navigation strong{font-size:16px;white-space:nowrap}
+#work .work-companion-rail .work-calendar-navigation button{padding:0 6px;font-size:17px}
+#work .work-companion-rail .work-calendar-weekdays,#work .work-companion-rail .work-calendar-grid{gap:2px}
+#work .work-companion-rail .work-calendar-weekdays{font-size:10px;margin-bottom:3px}
+#work .work-companion-rail .work-calendar-day{font-size:11px;line-height:19px}
+#work .work-inbox{margin-top:16px;padding:17px 18px;background:#191b1d;border:1px solid #414348;border-radius:12px;min-width:0}
+#work .work-inbox>.work-panel-heading{padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid #37393d}
+#work .work-inbox h3{font-family:'Barlow Condensed',Pretendard,sans-serif;font-size:27px;letter-spacing:.8px;padding-left:13px;position:relative}
+#work .work-inbox h3::before{content:'';position:absolute;left:0;top:9px;width:4px;height:19px;background:var(--ao-accent,#a4d84b);border-radius:2px}
+#work .work-inbox>.work-panel-heading>.work-muted{font-size:11px}
+#work .work-inbox-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px}
+#work .work-inbox-tabs button{background:transparent;color:#b7bcb2;border:1px solid #454941;border-radius:5px;box-shadow:none;padding:6px 9px;font-size:12px}
+#work .work-inbox-tabs button[aria-pressed=true]{background:var(--ao-accent-muted,#29351f);border-color:var(--ao-accent-deep,#7aa52e);color:var(--ao-accent-text,#c5e78f)}
+#work .work-inbox-content{min-height:155px;max-height:345px;overflow:auto;scrollbar-width:thin;overscroll-behavior:contain}
+#work .work-inbox-item{padding:12px 0;border-bottom:1px solid #35373a;overflow-wrap:anywhere}
+#work .work-inbox-item:first-child{padding-top:4px}
+#work .work-inbox-item>strong{display:block;font-size:13px;line-height:1.6;font-weight:650}
+#work .work-inbox-item p{font-size:12px;line-height:1.75;color:#bcbeb5;margin-top:5px;white-space:pre-wrap}
+#work .work-inbox-options{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+#work .work-inbox-options button{font-size:12px;text-align:left;border-radius:6px}
+#work .work-inbox-options small{display:block;font-size:11px;line-height:1.6;font-weight:400;margin-top:3px}
+#work .work-inbox-meta{display:flex;gap:10px;justify-content:space-between;color:#9da795;font-size:11px;line-height:1.6;margin-bottom:4px}
+#work .work-inbox-task{display:block;background:transparent;border:0;box-shadow:none;border-radius:2px;padding:2px 0;color:#e0e5da;font-weight:600;font-size:13px;line-height:1.65;text-align:left}
+#work .work-inbox-task:hover:not(:disabled){text-decoration:underline;text-underline-offset:3px}
+#work .work-inbox-resource-action{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
+#work .work-inbox-resource-action button{font-size:11px;padding:5px 9px}
+#work .work-inbox-missing{font-size:11px;color:#d4aa7c}
+#work .work-inbox-empty{color:#b3b8ad;font-size:13px;line-height:1.85;padding:30px 3px}
+#work .work-inbox-limit{font-size:11px;color:#a2aa98;padding-top:9px}
+@media(max-width:1150px){#work .work-companion-rail{position:static;display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:12px;align-items:center}#work .work-companion-rail .work-calendar{margin-top:0}#work .work-companion-rail .work-companion{display:block;text-align:center}#work .work-companion-rail .work-companion-caption{padding:5px 8px}}
+@media(max-width:600px){#work .work-companion-rail{gap:8px;grid-template-columns:minmax(0,1fr) 166px}#work .work-companion-rail .work-companion-stage,#work .work-companion-rail .work-companion-stage img{width:80px;height:80px}#work .work-inbox{padding:15px 13px}#work .work-inbox>.work-panel-heading>.work-muted{display:none}}

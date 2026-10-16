@@ -65,5 +65,5 @@ test('connection error recovers only on explicit reload and failed assets do not
 });
 test('assets and reduced motion use isolated companion rail with no character overlay',()=>{
   const html=fs.readFileSync(path.join(__dirname,'..','workdesk.html'),'utf8'),css=fs.readFileSync(path.join(__dirname,'..','workdesk.css'),'utf8');
-  assert.match(html,/work-conversation-layout/);assert.match(html,/workCompanionStatus" role="status" aria-live="polite"/);assert.match(css,/prefers-reduced-motion:reduce/);assert.match(css,/work-conversation-layout\{display:grid;grid-template-columns:140px minmax\(0,1fr\)/);
+  assert.match(html,/work-conversation-layout/);assert.match(html,/workCompanionStatus" role="status" aria-live="polite"/);assert.match(css,/prefers-reduced-motion:reduce/);assert.match(css,/work-conversation-layout\{display:grid;grid-template-columns:180px minmax\(0,1fr\)/);
 });
