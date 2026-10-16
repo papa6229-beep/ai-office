@@ -129,6 +129,21 @@ class LocalImageReviewTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 local_image_review.analyze(self.files, dict(self.settings, gemma_model=name), lambda *args: self.fail('model called'))
 
+    def test_vision_override_accepts_text_primary_and_trims_override(self):
+        calls = []
+        result = local_image_review.analyze(self.files,
+            dict(self.settings, gemma_model='hf.co/example/SuperGemma:Q4_K_M', vision_model=' gemma3:12b '),
+            lambda *args: calls.append(args) or '{"confidence":0.8}')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result['items'][0]['state'], '검토 후보')
+
+    def test_invalid_override_is_rejected_and_blank_uses_primary(self):
+        for name in ['gemma3:1b', 'gemma4:26b-cloud', 'llama3']:
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                local_image_review.analyze(self.files, dict(self.settings, vision_model=name),
+                    lambda *args: self.fail('model called'))
+        local_image_review.analyze(self.files, dict(self.settings, vision_model='  '), lambda *args: '{}')
+
     def test_type_protected_and_size_limits(self):
         for item in [dict(self.files[0], extension='.svg'), dict(self.files[0], protected=True)]:
             with self.assertRaises(ValueError):

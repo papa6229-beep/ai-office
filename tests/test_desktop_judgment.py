@@ -102,6 +102,29 @@ class JudgmentTests(unittest.TestCase):
         self.assertIn('model_suggestion', item['flags'])
         self.assertNotIn('empty_verified', item['flags'])
 
+    def test_vision_override_with_text_primary_and_model_switch_invalidates_cache(self):
+        from PIL import Image
+        Image.new('RGB', (20, 20), 'red').save(self.desktop / 'image.png')
+        self.settings.update(gemma_model='hf.co/example/SuperGemma:Q4_K_M', vision_model=' gemma3:12b ')
+        self.assertEqual(self.run_scan()['image_count'], 1)
+        first = len(self.calls)
+        self.settings['vision_model'] = 'gemma3:12b'
+        self.run_scan()
+        self.assertEqual(len(self.calls), first)
+        self.settings['vision_model'] = 'gemma3:4b'
+        self.assertEqual(self.run_scan()['image_count'], 1)
+        self.assertGreater(len(self.calls), first)
+
+    def test_invalid_vision_override_cannot_use_valid_primary(self):
+        from PIL import Image
+        Image.new('RGB', (20, 20), 'red').save(self.desktop / 'image.png')
+        for name in ['gemma3:1b', 'gemma4:26b-cloud', 'llama3']:
+            with self.subTest(name=name):
+                self.settings['vision_model'] = name
+                result = self.run_scan(force=True)
+                self.assertEqual(result['image_count'], 0)
+        self.assertEqual(self.calls, [])
+
     def test_stopped_response_not_committed(self):
         self.add('memo.txt')
         entered, release = threading.Event(), threading.Event()

@@ -212,8 +212,9 @@ def start(force=False):
                 raise ValueError()
             settings = copy.deepcopy(_supplier())
             validate_endpoint(settings.get('gemma_url', ''))
-            signature = hashlib.sha256(json.dumps({k: settings.get(k) for k in
-                ('gemma_url', 'gemma_model', 'api_type')}, sort_keys=True).encode()).hexdigest()
+            engine_settings = {k: settings.get(k) for k in ('gemma_url', 'gemma_model', 'api_type')}
+            engine_settings['vision_model'] = str(settings.get('vision_model') or '').strip() or settings.get('gemma_model', '')
+            signature = hashlib.sha256(json.dumps(engine_settings, sort_keys=True).encode()).hexdigest()
         except Exception:
             _runtime.update(last_error='분석 설정 또는 저장 기록을 확인하세요. 기존 자료는 보존됩니다.', phase='error')
             return status()
@@ -336,7 +337,8 @@ def _analyze(item, settings, signature, local_only=False):
               '"disposition":"keep|archive|review_delete|unknown", "sensitive":false, "confidence":0.0, "reason":"관찰한 구체적인 근거"}\n'
               + json.dumps(payload, ensure_ascii=False))
     if extension in IMAGES:
-        if settings.get('api_type', 'ollama') != 'ollama' or not local_image_review._vision_model(settings.get('gemma_model', '')):
+        model_name = str(settings.get('vision_model') or '').strip() or settings.get('gemma_model', '')
+        if settings.get('api_type', 'ollama') != 'ollama' or not local_image_review._vision_model(model_name):
             row['reason'] = '설정된 모델은 이미지 이해를 지원하지 않아 보류했습니다.'
             return row
         image = local_image_review._image_payload(item)
