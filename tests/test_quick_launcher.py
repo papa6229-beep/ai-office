@@ -2,6 +2,7 @@ import base64
 import concurrent.futures
 import contextlib
 import io
+import json
 import pathlib
 import sqlite3
 import sys
@@ -57,6 +58,88 @@ class QuickLauncherTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.do('reorder', ids=ids)
         self.assertEqual([i['position'] for i in self.service.overview()['items']], [0, 1])
+
+    def test_legacy_items_are_partitioned_without_item_schema_or_value_changes(self):
+        with sqlite3.connect(self.db) as c:
+            rows = [(uuid.uuid4().hex, f'항목 {i}', 'web', 'https://example.com', '🌐', b'old-image', i) for i in range(29)]
+            c.executemany('INSERT INTO launcher_items VALUES (?,?,?,?,?,?,?)', rows)
+        overview = QuickLauncher(self.db).overview()
+        self.assertEqual([item['page'] for item in overview['items']], [i // 9 + 1 for i in range(29)])
+        self.assertEqual(overview['pages'], [{'id': i, 'title': f'{i}페이지'} for i in range(1, 5)])
+        with sqlite3.connect(self.db) as c:
+            self.assertEqual(c.execute('SELECT * FROM launcher_items ORDER BY position').fetchall(), rows)
+            self.assertEqual(len(c.execute('PRAGMA table_info(launcher_items)').fetchall()), 7)
+
+    def test_empty_pages_persist_add_page_replays_and_targeted_save_uses_page(self):
+        payload = {'request_id': uuid.uuid4().hex}
+        first = self.service.perform('add-page', payload)
+        self.assertEqual(first, QuickLauncher(self.db).perform('add-page', payload))
+        self.assertEqual(first['result']['page'], 2)
+        item_id = self.save(page=2)
+        self.assertEqual(self.service.overview()['items'][0]['page'], 2)
+        self.do('save', id=item_id, title='편집', kind='web', target='https://example.com')
+        self.assertEqual(self.service.overview()['items'][0]['page'], 2)
+        self.do('remove', id=item_id)
+        self.assertEqual(len(QuickLauncher(self.db).overview()['pages']), 2)
+        with sqlite3.connect(self.db) as c:
+            self.assertEqual(c.execute('SELECT * FROM launcher_item_pages').fetchall(), [])
+
+    def test_legacy_request_receipt_remains_exact_on_replay(self):
+        payload = {'request_id': uuid.uuid4().hex, 'title': '과거', 'kind': 'web', 'target': 'https://example.com'}
+        receipt = {'items': [], 'result': {'message': '과거 응답'}}
+        signature = json.dumps({'action': 'save', 'payload': payload}, ensure_ascii=False, sort_keys=True)
+        with sqlite3.connect(self.db) as c:
+            c.execute('INSERT INTO launcher_requests VALUES (?,?,?)', (payload['request_id'], signature, json.dumps(receipt)))
+        self.assertEqual(QuickLauncher(self.db).perform('save', payload), receipt)
+        self.assertEqual(self.service.overview()['items'], [])
+
+    def test_full_page_spills_without_hidden_items_and_reordering_keeps_mapping(self):
+        ids = [self.save(str(i), page=1) for i in range(11)]
+        overview = self.service.overview()
+        self.assertEqual([i['page'] for i in overview['items']], [1] * 9 + [2] * 2)
+        mapping = {item['id']: item['page'] for item in overview['items']}
+        updated = self.do('reorder', ids=ids[::-1])
+        self.assertEqual([item['id'] for item in updated['items']], ids[::-1])
+        self.assertEqual({item['id']: item['page'] for item in updated['items']}, mapping)
+        for bad in (0, -1, 3, '1', True, None, [], {}):
+            with self.subTest(page=bad), self.assertRaises(ValueError):
+                self.save(page=bad)
+        self.assertEqual(len(self.service.overview()['items']), 11)
+
+    def test_appearance_preserves_unavailable_target_and_other_values_with_replay(self):
+        target = self.root / 'vanished.exe'
+        target.write_bytes(b'fixture')
+        item_id = self.do('save', title='원본', kind='app', target=str(target), icon='🚀')['result']['id']
+        target.unlink()
+        before = self.service.overview()['items'][0]
+        payload = {'request_id': uuid.uuid4().hex, 'id': item_id, 'title': '새 이름', 'icon': '🎨'}
+        response = self.service.perform('appearance', payload)
+        self.assertEqual(response, QuickLauncher(self.db).perform('appearance', payload))
+        item = response['items'][0]
+        for key in ('id', 'kind', 'target', 'position', 'page', 'available'):
+            self.assertEqual(item[key], before[key])
+        self.assertEqual((item['title'], item['icon']), ('새 이름', '🎨'))
+        self.assertFalse(item['available'])
+        for extra in ({'target': 'https://evil.example'}, {'page': 2}, {'kind': 'web'}, {'title': ''}, {'icon': 'toolongicon'}, {'icon_data': 'bad'}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                self.do('appearance', **{'id': item_id, 'title': '이름', **extra})
+        with self.assertRaises(ValueError):
+            self.do('add-page', title='unknown')
+
+    def test_appearance_image_updates_and_removes_without_changing_launch_target(self):
+        from PIL import Image
+        out = io.BytesIO()
+        Image.new('RGB', (16, 16), 'red').save(out, format='PNG')
+        data = 'data:image/png;base64,' + base64.b64encode(out.getvalue()).decode()
+        item_id = self.save()
+        self.do('appearance', id=item_id, title='이미지', icon_data=data)
+        original = self.service.icon_bytes(item_id)
+        self.do('appearance', id=item_id, title='이름만')
+        self.assertEqual(self.service.icon_bytes(item_id), original)
+        self.do('appearance', id=item_id, title='제거', icon_data='')
+        with self.assertRaises(ValueError):
+            self.service.icon_bytes(item_id)
+        self.assertEqual(self.service.overview()['items'][0]['target'], 'https://example.com')
 
     def test_idempotency_replays_and_rejects_changed_payload(self):
         payload = {'request_id': uuid.uuid4().hex, 'title': '한 번', 'kind': 'web', 'target': 'https://example.com'}

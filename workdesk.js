@@ -13,7 +13,7 @@
   function locks() {
     const blocked = busy || !!uncertain || !overview?.action_token;
     $('work').querySelectorAll('button,input,textarea').forEach(el => {
-      if (el.closest('#workLauncher,#workLauncherDialog') || el.matches('[data-work-action="close-detail"]')) return;
+      if (el.closest('#workLauncher,#workLauncherDialog,#workCalendar') || el.matches('[data-work-action="close-detail"]')) return;
       if (el.matches('[data-work-action="desk"],[data-work-action="tasks"]')) return;
       if (el.matches('[data-work-action="reload"]')) { el.disabled = busy || !!uncertain || loading; return; }
       if (el.matches('[data-work-action="retry"]')) { el.disabled = busy; return; }
@@ -204,6 +204,16 @@
   let state = null, busy = false, loading = false, pending = null, editing = null, managing = false, imageData, imageReading = false, imageVersion = 0, imageURL = '';
   let selectedApp = null, bookmarks = null, bookmarkLoading = false, dialogVersion = 0;
   let launcherRefreshQueued = false;
+  let appearanceOnly = false, selectedPage = 1;
+  const pageStorageKey = 'ai-office.launcher.selected-page';
+  try { selectedPage = Math.max(1, Number(localStorage.getItem(pageStorageKey)) || 1); } catch (_) {}
+  function pages() {
+    return state?.pages?.length ? state.pages : [{id:1,title:'1페이지'}];
+  }
+  function selectPage(page) {
+    selectedPage = pages().some(p => p.id === Number(page)) ? Number(page) : pages()[0].id;
+    try { localStorage.setItem(pageStorageKey, String(selectedPage)); } catch (_) {}
+  }
   function drainChatRefresh() {
     if (!launcherRefreshQueued || busy || loading || pending || $('workLauncherDialog').open) return;
     launcherRefreshQueued = false;
@@ -229,7 +239,9 @@
     return item.icon_image ? `<img src="/api/launcher/icon?id=${encodeURIComponent(item.id)}" alt="" loading="lazy">` : `<span>${esc(item.icon || Array.from(item.title || '✦').slice(0,2).join(''))}</span>`;
   }
   function render() {
-    const items = state?.items || [];
+    selectPage(selectedPage);
+    const items = (state?.items || []).filter(item => (item.page || 1) === selectedPage);
+    $('workLauncherPages').innerHTML = pages().map(page => `<button type="button" data-launcher-action="page" data-launcher-page="${page.id}" ${page.id === selectedPage ? 'aria-current="page"' : ''}>${esc(page.title)}</button>`).join('')+'<button type="button" data-launcher-action="add-page" aria-label="바로가기 페이지 추가">+ 페이지</button>';
     $('workLauncherGrid').innerHTML = items.length ? items.map((item,i) => `<div class="work-launcher-cell"><button type="button" class="work-launcher-tile${item.available === false ? ' is-unavailable' : ''}" data-launcher-action="launch" data-launcher-id="${esc(item.id)}" title="${esc(item.target)}" aria-label="${esc(item.title)} 열기"><span class="work-launcher-icon" aria-hidden="true">${icon(item)}</span><span class="work-launcher-name">${esc(item.title)}</span><span class="work-launcher-kind">${item.available === false ? '경로 확인 필요' : esc(kinds[item.kind] || item.kind)}</span></button>${managing ? `<div class="work-launcher-edit"><button type="button" data-launcher-action="edit" data-launcher-id="${esc(item.id)}" aria-label="${esc(item.title)} 수정">수정</button><button type="button" data-launcher-action="remove" data-launcher-id="${esc(item.id)}" aria-label="${esc(item.title)} 바로가기 삭제">삭제</button><button type="button" data-launcher-action="up" data-launcher-id="${esc(item.id)}" ${i === 0 ? 'hidden' : ''} aria-label="${esc(item.title)} 앞으로 이동">←</button><button type="button" data-launcher-action="down" data-launcher-id="${esc(item.id)}" ${i === items.length-1 ? 'hidden' : ''} aria-label="${esc(item.title)} 뒤로 이동">→</button></div>` : ''}</div>`).join('') : '<div class="work-launcher-empty"><span aria-hidden="true">＋</span><strong>자주 쓰는 도구를 모아두세요</strong><p>추가를 눌러 프로그램, 웹사이트,<br>작업 폴더를 등록하세요.</p></div>';
     const manage = $('workLauncher').querySelector('[data-launcher-action="manage"]');
     manage.textContent = managing ? '편집 완료' : '편집'; manage.setAttribute('aria-pressed',String(managing));
@@ -263,7 +275,9 @@
       const unresolved = [202,403,409].includes(response.status) || /처리\s*중|processing|in[_ -]?progress/i.test([data.error,data.code,data.status].filter(Boolean).join(' '));
       confirmed = !unresolved;
       if (unresolved || !response.ok || data.error) throw Error(data.error || '요청을 처리하지 못했습니다.');
-      pending = null; state = data; request.cleanup?.(); render(); message(data.result?.message || (request.endpoint === 'launch' ? '열기 요청을 전달했습니다.' : '바로가기를 저장했습니다.'));
+      pending = null; state = data;
+      if (data.result?.page && ['save','add-page'].includes(request.endpoint)) selectPage(data.result.page);
+      request.cleanup?.(); render(); message(data.result?.message || (request.endpoint === 'launch' ? '열기 요청을 전달했습니다.' : '바로가기를 저장했습니다.'));
     } catch (e) {
       if (!confirmed) pending = request; else pending = null;
       message(`${confirmed ? '요청 실패' : '처리 결과 확인 실패'}: ${e.message}`,true);
@@ -273,12 +287,13 @@
     const kind = $('workLauncherKind').value;
     const config = {app:['프로그램 전체 경로 (.exe / .lnk)','발견한 프로그램을 선택하거나 전체 경로를 입력하세요.','C:\\Program Files\\...\\app.exe'],web:['웹사이트 주소','http:// 또는 https://로 시작하는 웹사이트 주소를 입력하세요.','https://example.com'],folder:['폴더 전체 경로','작업 폴더를 선택하거나 전체 경로를 입력하세요.','C:\\Users\\...\\Documents']}[kind];
     $('workLauncherTargetLabel').textContent = config[0]; $('workLauncherTargetHelp').textContent = config[1]; $('workLauncherTarget').placeholder = config[2]; $('workLauncherPick').hidden = kind === 'web';
-    $('workLauncherSuggestionsWrap').hidden = kind !== 'app';
-    $('workLauncherBookmarksWrap').hidden = kind !== 'web';
+    $('workLauncherKindWrap').hidden = appearanceOnly;
+    $('workLauncherSuggestionsWrap').hidden = appearanceOnly || kind !== 'app';
+    $('workLauncherBookmarksWrap').hidden = appearanceOnly || kind !== 'web';
     const registered = kind === 'app' && !!selectedApp;
-    $('workLauncherSelectedApp').hidden = !registered;
-    $('workLauncherTargetWrap').hidden = registered;
-    $('workLauncherTarget').required = !registered;
+    $('workLauncherSelectedApp').hidden = appearanceOnly || !registered;
+    $('workLauncherTargetWrap').hidden = appearanceOnly || registered;
+    $('workLauncherTarget').required = !appearanceOnly && !registered;
     $('workLauncherSelectedAppName').textContent = registered ? 'Windows 시작 메뉴 · '+selectedApp.title : '';
   }
   function appResults() {
@@ -310,10 +325,12 @@
     if (url) { const img = document.createElement('img'); img.src=url; img.alt=''; $('workLauncherIconPreview').append(img); }
     else $('workLauncherIconPreview').textContent = $('workLauncherIcon').value || '✦';
   }
-  function open(item) {
+  function open(item, compact = false) {
+    appearanceOnly = compact;
     dialogVersion++; selectedApp=item?.kind === 'app' && String(item.target).startsWith('startapp:') ? item : null;
     editing = item?.id || null; imageData = undefined; imageURL = item?.icon_image ? '/api/launcher/icon?id='+encodeURIComponent(item.id) : ''; imageVersion++; imageReading=false;
-    $('workLauncherForm').reset(); $('workLauncherDialogTitle').textContent = editing ? '바로가기 수정' : '바로가기 추가';
+    $('workLauncherForm').reset(); $('workLauncherDialogTitle').textContent = appearanceOnly ? '이름 · 아이콘 변경' : editing ? '바로가기 수정' : '바로가기 추가';
+    $('workLauncherDialog').classList.toggle('is-appearance', appearanceOnly);
     $('workLauncherName').value = item?.title || ''; $('workLauncherKind').value = item?.kind || 'app'; $('workLauncherTarget').value = selectedApp ? '' : item?.target || ''; $('workLauncherIcon').value = item?.icon || '✦'; $('workLauncherFormNotice').textContent='';
     $('workLauncherBookmarkPicker').hidden=!bookmarks; $('workLauncherBookmarkNotice').textContent=(bookmarks?.warnings || []).join(' ');
     appResults(); if (bookmarks) bookmarkResults();
@@ -325,13 +342,18 @@
     if (action === 'close') { dialogVersion++; $('workLauncherDialog').close(); return; }
     if (action === 'reload') { await load(true); return; }
     if (action === 'retry') { if (pending) await write(null,null,null,pending); return; }
+    if (action === 'page') { selectPage(button.dataset.launcherPage); render(); return; }
+    if (action === 'add-page') { await write('add-page',{}); return; }
     if (action === 'add') { open(); return; }
     if (action === 'manage') { managing=!managing; render(); return; }
     if (action === 'edit') { if (item) open(item); return; }
     if (action === 'launch' || action === 'remove') { if (item) await write(action,{id:item.id}); return; }
     if (action === 'up' || action === 'down') {
-      if (!item) return; const ids=state.items.map(x=>x.id), from=ids.indexOf(item.id), to=from+(action === 'up' ? -1 : 1);
-      if (to < 0 || to >= ids.length) return; [ids[from],ids[to]]=[ids[to],ids[from]]; await write('reorder',{ids}); return;
+      if (!item) return;
+      const pageItems=state.items.filter(x=>(x.page || 1)===selectedPage), from=pageItems.findIndex(x=>x.id===item.id), to=from+(action === 'up' ? -1 : 1);
+      if (to < 0 || to >= pageItems.length) return;
+      const ids=state.items.map(x=>x.id), first=ids.indexOf(pageItems[from].id), second=ids.indexOf(pageItems[to].id);
+      [ids[first],ids[second]]=[ids[second],ids[first]]; await write('reorder',{ids}); return;
     }
     if (action === 'suggestion') {
       chooseSource(state?.suggestions?.[Number(button.dataset.sourceIndex)]); return;
@@ -370,15 +392,32 @@
     if (event.target.id !== 'workLauncherForm') return;
     event.preventDefault(); if (busy || pending || imageReading) return;
     const title=$('workLauncherName').value.trim(), kind=$('workLauncherKind').value, target=kind === 'app' && selectedApp ? selectedApp.target : $('workLauncherTarget').value.trim();
+    if (appearanceOnly) {
+      if (!title || !editing) return;
+      await write('appearance',{id:editing,title,icon:$('workLauncherIcon').value.trim(),...(imageData !== undefined ? {icon_data:imageData} : {})},()=>{$('workLauncherDialog').close();});
+      return;
+    }
     if (!title || !target) return;
     if (kind === 'web') { try { const url=new URL(target); if (!['http:','https:'].includes(url.protocol)) throw Error(); } catch(_) { $('workLauncherFormNotice').textContent='http:// 또는 https://로 시작하는 올바른 주소를 입력하세요.'; return; } }
-    const payload={title,target,kind,icon:$('workLauncherIcon').value.trim(),...(editing ? {id:editing} : {}),...(imageData !== undefined ? {icon_data:imageData} : {})};
+    const payload={title,target,kind,icon:$('workLauncherIcon').value.trim(),...(editing ? {id:editing} : {page:selectedPage}),...(imageData !== undefined ? {icon_data:imageData} : {})};
     await write('save',payload,()=>{$('workLauncherDialog').close();});
   }
   document.addEventListener('DOMContentLoaded',()=>{
     if (!$('workLauncher')) return;
     $('workLauncherPalette').innerHTML=['✦','🎨','🖥️','🌐','📁','📊','✉️','📝','🎬','⚙️'].map(x=>`<button type="button" data-launcher-action="palette" data-icon="${esc(x)}" aria-label="${esc(x)} 아이콘">${esc(x)}</button>`).join('');
     $('work').addEventListener('click',click); $('work').addEventListener('submit',submit);
+    function editAppearance(event) {
+      const tile=event.target.closest('[data-launcher-action="launch"]');
+      if (!tile) return;
+      event.preventDefault();
+      if (tile.disabled || busy || loading || pending || !state?.action_token) return;
+      const item=state.items.find(x=>x.id===tile.dataset.launcherId);
+      if (item) open(item,true);
+    }
+    $('workLauncherGrid').addEventListener('contextmenu',editAppearance);
+    $('workLauncherGrid').addEventListener('keydown',event=>{
+      if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) editAppearance(event);
+    });
     $('workLauncherKind').addEventListener('change',()=>{selectedApp=null;$('workLauncherTarget').value='';$('workLauncherFormNotice').textContent='';kindFields();});
     $('workLauncherAppSearch').addEventListener('input',appResults);
     $('workLauncherBookmarkSearch').addEventListener('input',bookmarkResults);
@@ -396,5 +435,33 @@
     });
     // Native dialogs provide Escape dismissal and keyboard focus containment.
     locks(); load();
+  });
+})();
+
+/* Calendar is local and independent of assistant/network request locks. */
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  let year, month;
+  function renderCalendar() {
+    const today=new Date(), first=new Date(year,month,1), days=new Date(year,month+1,0).getDate();
+    $('workCalendarMonth').textContent=`${year}년 ${month+1}월`;
+    let cells='<span class="work-calendar-blank" aria-hidden="true"></span>'.repeat(first.getDay());
+    for(let day=1;day<=days;day++) {
+      const current=today.getFullYear()===year && today.getMonth()===month && today.getDate()===day;
+      const weekday=new Date(year,month,day).getDay();
+      cells+=`<span class="work-calendar-day${weekday===0 ? ' is-sunday' : weekday===6 ? ' is-saturday' : ''}${current ? ' is-today' : ''}"${current ? ' aria-current="date"' : ''} aria-label="${year}년 ${month+1}월 ${day}일">${day}</span>`;
+    }
+    $('workCalendarGrid').innerHTML=cells;
+  }
+  document.addEventListener('DOMContentLoaded',()=>{
+    if (!$('workCalendar')) return;
+    const today=new Date(); year=today.getFullYear();month=today.getMonth();renderCalendar();
+    $('workCalendar').addEventListener('click',event=>{
+      const button=event.target.closest('[data-calendar-action]'); if (!button) return;
+      if(button.dataset.calendarAction==='today'){const now=new Date();year=now.getFullYear();month=now.getMonth();}
+      else {const next=new Date(year,month+(button.dataset.calendarAction==='prev' ? -1 : 1),1);year=next.getFullYear();month=next.getMonth();}
+      renderCalendar();
+    });
   });
 })();

@@ -19,8 +19,10 @@ import windows_app_catalog
 
 _LOCKS = {}
 _LOCKS_GUARD = threading.Lock()
-_FIELDS = {'save': {'id', 'title', 'kind', 'target', 'icon', 'icon_data'},
-           'remove': {'id'}, 'reorder': {'ids'}, 'launch': {'id'}}
+_FIELDS = {'save': {'id', 'title', 'kind', 'target', 'icon', 'icon_data', 'page'},
+           'remove': {'id'}, 'reorder': {'ids'}, 'launch': {'id'},
+           'add-page': set(), 'appearance': {'id', 'title', 'icon', 'icon_data'}}
+_PAGE_SIZE = 9
 _MAX_ICON_BYTES = 512 * 1024
 _LAUNCH_FAILURE = '열기 요청을 완료하지 못했습니다. 대상을 확인한 후 다시 요청하세요.'
 _LAUNCH_UNCERTAIN = '이미 처리된 열기 요청입니다. 실행 여부를 확인한 후 새로 요청하세요.'
@@ -172,7 +174,40 @@ class QuickLauncher:
                     image BLOB,position INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS launcher_requests (
                     id TEXT PRIMARY KEY,payload TEXT NOT NULL,response TEXT);
+                CREATE TABLE IF NOT EXISTS launcher_pages (
+                    id INTEGER PRIMARY KEY,title TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS launcher_item_pages (
+                    item_id TEXT PRIMARY KEY,page_id INTEGER NOT NULL);
             ''')
+            self._sync_pages(c)
+
+    def _new_page(self, c):
+        page = c.execute('SELECT COALESCE(MAX(id),0)+1 FROM launcher_pages').fetchone()[0]
+        c.execute('INSERT INTO launcher_pages VALUES (?,?)', (page, f'{page}페이지'))
+        return page
+
+    def _choose_page(self, c, requested=None, item_id=None):
+        if requested is not None:
+            if type(requested) is not int or requested < 1 or not c.execute('SELECT 1 FROM launcher_pages WHERE id=?', (requested,)).fetchone():
+                raise ValueError('등록된 바로가기 페이지를 선택하세요.')
+            count = c.execute('SELECT COUNT(*) FROM launcher_item_pages WHERE page_id=? AND item_id!=?', (requested, item_id or '')).fetchone()[0]
+            if count < _PAGE_SIZE:
+                return requested
+        for row in c.execute('SELECT id FROM launcher_pages ORDER BY id').fetchall():
+            count = c.execute('SELECT COUNT(*) FROM launcher_item_pages WHERE page_id=? AND item_id!=?', (row['id'], item_id or '')).fetchone()[0]
+            if count < _PAGE_SIZE:
+                return row['id']
+        return self._new_page(c)
+
+    def _sync_pages(self, c):
+        # Side tables keep the original item schema and saved values unchanged.
+        if not c.execute('SELECT 1 FROM launcher_pages LIMIT 1').fetchone():
+            self._new_page(c)
+        c.execute('DELETE FROM launcher_item_pages WHERE item_id NOT IN (SELECT id FROM launcher_items)')
+        missing = c.execute('SELECT i.id FROM launcher_items i LEFT JOIN launcher_item_pages m ON m.item_id=i.id LEFT JOIN launcher_pages p ON p.id=m.page_id WHERE p.id IS NULL ORDER BY i.position,i.id').fetchall()
+        for row in missing:
+            page = self._choose_page(c)
+            c.execute('INSERT OR REPLACE INTO launcher_item_pages VALUES (?,?)', (row['id'], page))
 
     @contextlib.contextmanager
     def _connect(self):
@@ -185,8 +220,9 @@ class QuickLauncher:
             c.close()
 
     def _overview(self, c):
+        self._sync_pages(c)
         items = []
-        for row in c.execute('SELECT id,title,kind,target,icon,image IS NOT NULL AS icon_image,position FROM launcher_items ORDER BY position,id'):
+        for row in c.execute('SELECT i.id,title,kind,target,icon,image IS NOT NULL AS icon_image,position,m.page_id AS page FROM launcher_items i JOIN launcher_item_pages m ON m.item_id=i.id ORDER BY position,i.id'):
             item = dict(row)
             item['icon_image'] = bool(item['icon_image'])
             try:
@@ -198,14 +234,15 @@ class QuickLauncher:
         catalog = windows_app_catalog.catalog()
         primary = catalog['available']
         suggestions = catalog['items'] if primary else _suggestions()
-        return {'items': items, 'suggestions': suggestions,
+        return {'items': items, 'pages': [dict(row) for row in c.execute('SELECT id,title FROM launcher_pages ORDER BY id')],
+                'page_size': _PAGE_SIZE, 'suggestions': suggestions,
                 'suggestion_source': 'windows-start-menu' if primary else 'local-shortcuts',
                 'suggestion_warnings': catalog.get('warnings', []),
                 'suggestion_total': len(suggestions),
                 'suggestion_truncated': catalog.get('truncated', False) if primary else len(suggestions) >= 50}
 
     def overview(self):
-        with self._connect() as c:
+        with self._lock, self._connect() as c:
             return self._overview(c)
 
     def icon_bytes(self, item_id):
@@ -285,6 +322,19 @@ class QuickLauncher:
                 return response
 
     def _apply(self, c, action, payload):
+        self._sync_pages(c)
+        if action == 'add-page':
+            return {'page': self._new_page(c), 'message': '바로가기 페이지를 추가했습니다.'}
+        if action == 'appearance':
+            old = self._item(c, payload.get('id'))
+            title = _text(payload.get('title'), 120, '이름')
+            icon = payload.get('icon', old['icon'])
+            if not isinstance(icon, str) or len(icon) > 8 or any(ord(ch) < 32 for ch in icon):
+                raise ValueError('아이콘은 8자 이하의 문자나 이모지로 입력하세요.')
+            image = _icon_image(payload['icon_data']) if 'icon_data' in payload else old['image']
+            c.execute('UPDATE launcher_items SET title=?,icon=?,image=? WHERE id=?', (title, icon, image, old['id']))
+            page = c.execute('SELECT page_id FROM launcher_item_pages WHERE item_id=?', (old['id'],)).fetchone()[0]
+            return {'id': old['id'], 'item_id': old['id'], 'page': page, 'message': '바로가기 이름과 아이콘을 저장했습니다.'}
         if action == 'save':
             old = self._item(c, payload['id']) if payload.get('id') is not None else None
             title = _text(payload.get('title'), 120, '이름')
@@ -296,10 +346,20 @@ class QuickLauncher:
             image = _icon_image(payload['icon_data']) if 'icon_data' in payload else old['image'] if old else None
             item_id = old['id'] if old else uuid.uuid4().hex
             position = old['position'] if old else c.execute('SELECT COALESCE(MAX(position),-1)+1 FROM launcher_items').fetchone()[0]
+            if 'page' in payload:
+                if type(payload['page']) is not int:
+                    raise ValueError('등록된 바로가기 페이지를 선택하세요.')
+                page = self._choose_page(c, payload['page'], item_id)
+            elif old:
+                page = c.execute('SELECT page_id FROM launcher_item_pages WHERE item_id=?', (item_id,)).fetchone()[0]
+            else:
+                page = self._choose_page(c)
             c.execute('INSERT INTO launcher_items VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,kind=excluded.kind,target=excluded.target,icon=excluded.icon,image=excluded.image', (item_id, title, kind, target, icon, image, position))
-            return {'id': item_id, 'item_id': item_id, 'message': '바로가기를 저장했습니다.'}
+            c.execute('INSERT OR REPLACE INTO launcher_item_pages VALUES (?,?)', (item_id, page))
+            return {'id': item_id, 'item_id': item_id, 'page': page, 'message': '바로가기를 저장했습니다.'}
         if action == 'remove':
             item_id = self._item(c, payload.get('id'))['id']
+            c.execute('DELETE FROM launcher_item_pages WHERE item_id=?', (item_id,))
             c.execute('DELETE FROM launcher_items WHERE id=?', (item_id,))
             for position, row in enumerate(c.execute('SELECT id FROM launcher_items ORDER BY position,id').fetchall()):
                 c.execute('UPDATE launcher_items SET position=? WHERE id=?', (position, row['id']))

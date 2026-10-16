@@ -14,7 +14,7 @@
 #work .work-launcher-notice{font-size:11px;color:#c6def7;line-height:1.7;overflow-wrap:anywhere}
 #work .work-launcher-notice:not(:empty){padding:10px 0}
 #work .work-launcher-notice.is-error{color:#ffd2b4}
-#work .work-launcher-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:10px}
+#work .work-launcher-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px;min-height:304px;align-content:start}
 #work .work-launcher-cell{min-width:0}
 #work .work-launcher-tile{width:100%;min-width:0;min-height:96px;padding:10px 5px 8px;display:flex;align-items:center;flex-direction:column;gap:4px;background:#243e5b;border:1px solid #385571;border-bottom:3px solid #0f2135;border-radius:8px;color:#edf5ff;box-shadow:inset 0 1px #ffffff0b;transition:background .12s,transform .12s}
 #work .work-launcher-tile:hover:not(:disabled){background:#315372;border-color:#729bc3;transform:translateY(-2px)}
@@ -87,5 +87,21 @@
 #work .work-action-approval{border-color:#c6ac76;background:#fffcf4}
 @media(max-width:1150px){#work .work-layout{grid-template-columns:minmax(0,1.2fr) minmax(300px,1fr);gap:20px}#work .work-launcher{padding:19px}#work .work-launcher-grid{gap:8px}}
 @media(max-width:850px){#work .work-layout{grid-template-columns:1fr}#work .work-rail{position:static;display:block}}
-@media(max-width:600px){#work .work-launcher-grid{grid-template-columns:repeat(4,minmax(0,1fr))}#work .work-launcher{padding:18px 14px}#work .work-dialog{padding:18px 16px}#work .work-resource-entry{flex-wrap:wrap}#work .work-dialog .work-resource-entry input,#work .work-dialog .work-resource-entry select{flex-basis:65%}#work .work-launcher .work-panel-heading{align-items:center}#work .work-heading h2{font-size:24px}}
-@media(max-width:380px){#work .work-launcher-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:600px){#work .work-launcher{padding:18px 14px}#work .work-dialog{padding:18px 16px}#work .work-resource-entry{flex-wrap:wrap}#work .work-dialog .work-resource-entry input,#work .work-dialog .work-resource-entry select{flex-basis:65%}#work .work-launcher .work-panel-heading{align-items:center}#work .work-heading h2{font-size:24px}}
+#work .work-launcher-pages{display:flex;gap:5px;flex-wrap:wrap;margin-top:18px;border-top:1px solid #38516a;padding-top:14px}
+#work .work-launcher-pages button{padding:6px 9px;font-size:11px;background:#253f5b;color:#bed2e8}
+#work .work-launcher-pages button[aria-current=page]{background:#d6e8fc;color:#183b63;font-weight:700}
+#work .work-launcher-tip{font-size:10px;line-height:1.6;color:#9ab2cb;margin-top:12px}
+#work .work-launcher-dialog.is-appearance{width:min(430px,calc(100vw - 32px))}
+#work .work-calendar{margin-top:18px;padding:20px 22px;background:#fff;border:1px solid #d5e1eb;border-radius:14px;color:#203448}
+#work .work-calendar-heading,#work .work-calendar-navigation{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#work .work-calendar-heading button{font-size:11px;padding:5px 10px}
+#work .work-calendar-navigation{margin:16px 0 14px}
+#work .work-calendar-navigation strong{font-size:15px;letter-spacing:-.4px}
+#work .work-calendar-navigation button{padding:3px 12px;font-size:20px}
+#work .work-calendar-weekdays,#work .work-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));text-align:center;gap:5px}
+#work .work-calendar-weekdays{font-size:11px;color:#6e8398;margin-bottom:7px}
+#work .work-calendar-weekdays span:first-child,#work .work-calendar-day.is-sunday{color:#af655f}
+#work .work-calendar-weekdays span:last-child,#work .work-calendar-day.is-saturday{color:#4275a6}
+#work .work-calendar-day{font-size:12px;line-height:30px;min-width:0;border-radius:7px}
+#work .work-calendar-day.is-today{background:#2d63a8;color:#fff;font-weight:700;box-shadow:0 2px 5px #2d63a824}

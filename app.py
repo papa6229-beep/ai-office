@@ -166,7 +166,7 @@ class Handler(BaseHTTPRequestHandler):
         out=json.dumps(data,ensure_ascii=False).encode('utf-8');self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',str(len(out)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(out)
     def body(self):
         n=int(self.headers.get('Content-Length','0'))
-        limit=800000 if urlparse(self.path).path=='/api/launcher/save' else 200000
+        limit=800000 if urlparse(self.path).path in {'/api/launcher/save','/api/launcher/appearance'} else 200000
         if n<0 or n>limit:raise ValueError('요청 크기 초과')
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):

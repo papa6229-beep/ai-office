@@ -42,7 +42,7 @@ class LauncherApiTests(unittest.TestCase):
 
     def test_auth_and_foreign_host_are_rejected(self):
         self.assertEqual(self.request()['action_token'],app.DESK_TOKEN)
-        for action in ('save','remove','reorder','launch','pick-program','bookmarks','refresh'):
+        for action in ('save','remove','reorder','launch','pick-program','bookmarks','refresh','add-page','appearance'):
             with self.subTest(action=action), self.assertRaises(urllib.error.HTTPError) as error:
                 self.request('/api/launcher/'+action,{})
             self.assertEqual(error.exception.code,403)
@@ -93,6 +93,16 @@ class LauncherApiTests(unittest.TestCase):
         with urllib.request.urlopen(self.base+'/api/launcher/icon?id='+item_id,timeout=5) as result:
             self.assertEqual(result.headers.get_content_type(),'image/png')
             self.assertTrue(result.read().startswith(b'\x89PNG'))
+        page = self.write('add-page')['result']['page']
+        self.assertEqual(page, 2)
+        self.write('appearance', id=item_id, title='우클릭 수정', icon_data=icon)
+        changed = self.request()['items'][0]
+        self.assertEqual((changed['title'], changed['target'], changed['page']), ('우클릭 수정', 'https://example.com', 1))
+        for action in ('add-page', 'appearance'):
+            for headers in ({'Origin': 'https://outside.example'}, {'Host': 'outside.example'}):
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    self.request('/api/launcher/'+action, {'token': app.DESK_TOKEN}, headers)
+                self.assertEqual(error.exception.code, 403)
 
     def test_program_picker_is_explicit_and_authenticated(self):
         from types import SimpleNamespace
