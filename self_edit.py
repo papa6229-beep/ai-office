@@ -35,9 +35,37 @@ model_requests.py office_weather.py organizer_lab.py organizer_policy.py
 project_intelligence.py quick_launcher.py scanner.py streamdock_import.py
 system_settings.py updater.py windows_actions.py windows_app_catalog.py
 windows_workspace.py work_assistant.py work_stage.py workspace_insights.py
+attachment_tools.py work_attachments.py companion_assets.py office_context.py
 desk-collections.js desk-judgment.js desk-organizer.js desk-policy.js desk.js
 workambient.js workdesk.js workstage.js desk.css retro.css workambient.css
 workdesk.css workstage.css first-release.html index.html workdesk.html'''.split())
+MANAGED = ROOT / 'local_backups' / 'codex-agent-state' / 'managed-sources.json'
+PROTECTED = frozenset({'self_edit.py','office_reload.py','agent_workspace.py','agent_state.py'})
+
+
+def _valid_new_name(name):
+    return (isinstance(name,str) and bool(re.fullmatch(r'[a-z][a-z0-9_-]{0,79}\.(?:py|js|css|html|md)',name))
+            and name not in PROTECTED and not re.fullmatch(r'(?:con|prn|aux|nul|com[1-9]|lpt[1-9])\..+',name))
+
+
+def source_names():
+    names = set(ALLOWED)
+    if MANAGED.exists():
+        info = _unlinked(MANAGED)
+        if info.st_size > 32768: raise ValueError('관리 원본 목록이 올바르지 않습니다.')
+        rows = json.loads(MANAGED.read_text(encoding='utf-8'))
+        if not isinstance(rows,list) or any(not _valid_new_name(n) for n in rows):
+            raise ValueError('관리 원본 목록이 올바르지 않습니다.')
+        names.update(rows)
+    return names - PROTECTED
+
+
+def _register_name(name):
+    names = source_names() - set(ALLOWED)
+    names.add(name)
+    MANAGED.parent.mkdir(parents=True,exist_ok=True)
+    _unlinked(MANAGED.parent,directory=True)
+    _atomic(MANAGED,json.dumps(sorted(names)).encode('utf-8'))
 
 
 def _hash(raw):
@@ -60,7 +88,7 @@ def _unlinked(path, directory=False):
 
 
 def _path(name):
-    if not isinstance(name, str) or name not in ALLOWED:
+    if not isinstance(name, str) or name not in source_names():
         raise ValueError('허용된 AI OFFICE 원본 파일을 먼저 조회하세요.')
     path = ROOT / name
     _unlinked(path)
@@ -100,7 +128,7 @@ def catalog(query=''):
     with LOCK:
         rows = []
         terms = _query_terms(query)
-        for name in sorted(ALLOWED):
+        for name in sorted(source_names()):
             if not (ROOT / name).exists(): continue
             _, raw, text = _load(name)
             folded = text.casefold()
@@ -195,7 +223,7 @@ def _record(change_id):
     info = _unlinked(path)
     if info.st_size > 8192: raise ValueError('변경 이력이 올바르지 않습니다.')
     data = json.loads(path.read_text(encoding='utf-8'))
-    if data.get('change_id') != change_id or data.get('path') not in ALLOWED:
+    if data.get('change_id') != change_id or data.get('path') not in source_names():
         raise ValueError('변경 이력이 올바르지 않습니다.')
     return folder, data
 
@@ -213,7 +241,7 @@ def history():
         return sorted(rows, key=lambda r:r['created'], reverse=True)[:50]
 
 
-def _write_change(name, before, after, *, rollback_of=None):
+def _write_change(name, before, after, *, rollback_of=None, creating=False, deleting=False):
     validation = _syntax(name, after)
     _backup_root()
     change_id = uuid.uuid4().hex
@@ -222,13 +250,32 @@ def _write_change(name, before, after, *, rollback_of=None):
     _unlinked(folder, directory=True)
     metadata = {'change_id':change_id, 'path':name, 'created':time.time(),
                 'before_sha256':_hash(before), 'sha256':_hash(after), 'status':'prepared',
-                'kind':'backend' if name.endswith('.py') else 'frontend', 'validation':validation}
+                'kind':'backend' if name.endswith('.py') else 'frontend', 'validation':validation,
+                'created_file':creating,'deleted_file':deleting}
     if rollback_of: metadata['rollback_of'] = rollback_of
     _atomic(folder / 'before.bin', before)
     _atomic(folder / 'change.json', json.dumps(metadata, ensure_ascii=False).encode('utf-8'))
-    path, current, _ = _load(name)
-    if current != before: raise ValueError('다른 편집으로 원본이 바뀌었습니다. 다시 읽고 수정하세요.')
-    _atomic(path, after)
+    path = ROOT / name
+    if creating:
+        _unlinked(ROOT,directory=True)
+        if path.exists() or path.is_symlink(): raise ValueError('동일한 원본 이름이 이미 있습니다.')
+        _register_name(name)
+    else:
+        path, current, _ = _load(name)
+        if current != before: raise ValueError('다른 편집으로 원본이 바뀌었습니다. 다시 읽고 수정하세요.')
+    if deleting:
+        path.unlink()
+    elif creating:
+        # Publish complete bytes without clobbering a concurrently created file.
+        fd,temporary=tempfile.mkstemp(prefix='.new-source-',suffix='.tmp',dir=str(ROOT))
+        try:
+            with os.fdopen(fd,'wb') as stream:
+                stream.write(after);stream.flush();os.fsync(stream.fileno())
+            os.link(temporary,path)
+        finally:
+            if os.path.exists(temporary):os.unlink(temporary)
+    else:
+        _atomic(path, after)
     metadata['status'] = 'saved'
     _atomic(folder / 'change.json', json.dumps(metadata, ensure_ascii=False).encode('utf-8'))
     diff = ''.join(difflib.unified_diff(before.decode('utf-8').splitlines(keepends=True),
@@ -237,6 +284,22 @@ def _write_change(name, before, after, *, rollback_of=None):
             'validation':validation,
             'artifact':{'id':change_id, 'kind':'code', 'language':'diff', 'origin':'applied',
                         'title':name+' · 원본 저장됨', 'text':diff[:12000], 'truncated':len(diff)>12000}}
+
+
+def publish_file(name, expected_sha256, after):
+    """Server-owned baseline permits whole-file native patches without model hashes."""
+    if not isinstance(after,bytes) or not after or len(after)>MAX_BYTES or b'\0' in after:
+        raise ValueError('UTF-8 원본 크기와 내용을 확인하세요.')
+    after.decode('utf-8')
+    with LOCK:
+        if expected_sha256 is None:
+            if not _valid_new_name(name) or name in ALLOWED or (ROOT/name).exists():
+                raise ValueError('새 원본 이름은 보호되지 않은 새 평면 파일이어야 합니다.')
+            return _write_change(name,b'',after,creating=True)
+        _,before,_=_load(name)
+        if _hash(before)!=expected_sha256: raise ValueError('실행 원본이 바뀌었습니다. 작업 사본과 변경 내용을 비교하세요.')
+        if before==after:return {'unchanged':True,'path':name}
+        return _write_change(name,before,after)
 
 
 def apply(selection, expected_sha256, old_text, new_text):
@@ -260,6 +323,11 @@ def rollback(selection):
     with LOCK:
         folder, data = _record(selection['change_id'])
         if data['status'] != 'saved': raise ValueError('저장이 확인된 변경만 되돌릴 수 있습니다.')
+        if data.get('deleted_file'):
+            if (ROOT/data['path']).exists(): raise ValueError('삭제 이후 생성된 원본은 덮어쓰지 않습니다.')
+            before=(folder/'before.bin').read_bytes()
+            if _hash(before)!=data['before_sha256']:raise ValueError('백업 무결성을 확인할 수 없습니다.')
+            return _write_change(data['path'],b'',before,rollback_of=data['change_id'],creating=True)
         _, current, _ = _load(data['path'])
         if _hash(current) != data['sha256']:
             raise ValueError('이후 변경이 있어 자동으로 덮어쓰지 않습니다. 현재 원본을 다시 확인하세요.')
@@ -268,7 +336,7 @@ def rollback(selection):
         if info.st_size > MAX_BYTES: raise ValueError('백업 크기가 올바르지 않습니다.')
         before = before_path.read_bytes()
         if _hash(before) != data['before_sha256']: raise ValueError('백업 무결성을 확인할 수 없습니다.')
-        return _write_change(data['path'], current, before, rollback_of=data['change_id'])
+        return _write_change(data['path'], current, before, rollback_of=data['change_id'],deleting=bool(data.get('created_file')))
 
 
 def restore_changes(change_ids):

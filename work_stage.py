@@ -24,6 +24,7 @@ STEP_LABELS.update({'attachments_list':'첨부 자료 확인','attachment_read':
 STEP_LABELS.update({'office_source_list':'앱 원본 찾기','office_source_read':'앱 원본 읽기',
                     'office_source_apply':'앱 변경 저장','office_source_history':'앱 변경 이력',
                     'office_source_rollback':'앱 변경 되돌리기'})
+STEP_LABELS.update({'agent_workspace_status':'작업 사본 확인','agent_source_publish':'앱 변경 게시','agent_output_publish':'결과물 게시'})
 CODE_TYPES = {'.py':'python','.js':'javascript','.ts':'typescript','.html':'html','.css':'css','.json':'json','.sql':'sql','.sh':'bash','.ps1':'powershell','.jsx':'jsx','.tsx':'tsx'}
 
 def connect(path):
@@ -176,13 +177,13 @@ def _artifact(value):
     if not result['id']:return None
     if result['kind'] in {'image','video'}:
         url=value.get('url','')
-        if not isinstance(url,str) or not re.fullmatch(r'/api/work/(?:media|attachment)\?id=[0-9a-f]{32}',url):return None
+        if not isinstance(url,str) or not re.fullmatch(r'/api/work/(?:media|attachment|agent-artifact)\?id=[0-9a-f]{32}',url):return None
         result['url']=url
     else:
         result.update(text=_text(value.get('text'),12000),language=_text(value.get('language'),30),
                       truncated=bool(value.get('truncated')) or len(str(value.get('text','')))>12000)
     download_url=value.get('download_url')
-    if isinstance(download_url,str) and re.fullmatch(r'/api/work/attachment\?id=[0-9a-f]{32}&download=1',download_url):
+    if isinstance(download_url,str) and re.fullmatch(r'/api/work/(?:attachment|agent-artifact)\?id=[0-9a-f]{32}&download=1',download_url):
         result['download_url']=download_url
     return result
 

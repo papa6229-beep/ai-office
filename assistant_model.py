@@ -143,6 +143,14 @@ def run_source(messages, tools, settings, dispatch):
     return codex_bridge.run_source(messages, tools, settings, dispatch)
 
 
+def run_agent(messages, tools, settings, dispatch, **hooks):
+    """Use one native Codex conversation for every office request."""
+    if settings.get('api_type') != 'codex':
+        raise ValueError('Codex 연결이 선택되지 않았습니다.')
+    import codex_bridge
+    return codex_bridge.run_agent(messages, tools, settings, dispatch, **hooks)
+
+
 def _intent_tool_summary(definition):
     """Keep routing semantics and argument constraints, omit presentation bloat."""
     def compact(value):

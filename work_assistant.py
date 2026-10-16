@@ -141,7 +141,7 @@ def _resource(path):
 
 
 class WorkAssistant:
-    def __init__(self, db_path, settings_supplier, text_model, native_model=None, registry_factory=None, intent_model=None, source_model=None):
+    def __init__(self, db_path, settings_supplier, text_model, native_model=None, registry_factory=None, intent_model=None, source_model=None, agent_model=None):
         self.db_path = str(db_path)
         self.settings_supplier = settings_supplier
         self.text_model = text_model
@@ -149,6 +149,7 @@ class WorkAssistant:
         self.registry_factory = registry_factory
         self.intent_model = intent_model
         self.source_model = source_model
+        self.agent_model = agent_model
         self.launcher = quick_launcher.QuickLauncher(db_path)
         with _LOCKS_GUARD:
             self._lock = _LOCKS.setdefault(os.path.normcase(os.path.abspath(self.db_path)), threading.RLock())
@@ -222,7 +223,8 @@ class WorkAssistant:
         if self.native_model is not None and action in ('command', 'assistant-action'):
             from assistant_runtime import AssistantRuntime
             return AssistantRuntime(self.db_path, self.native_model, self.registry_factory,
-                                    intent_call=self.intent_model,source_model=self.source_model).perform(action, payload)
+                                    intent_call=self.intent_model,source_model=self.source_model,
+                                    agent_model=self.agent_model).perform(action, payload)
         if action not in _FIELDS or not isinstance(payload, dict) or set(payload) - (_FIELDS[action] | {'request_id'}):
             raise ValueError('지원하지 않는 요청 항목입니다.')
         request_id = payload.get('request_id')

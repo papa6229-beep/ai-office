@@ -23,9 +23,9 @@ WORKSPACE는 작업 요청 카드와 상태를 보여주고, 카드를 누르면
 ## Architecture
 
 - app.py: 로컬 HTTP 서버, 화면·API 연결, 변경 후 활성화 예약. 실제 시작 화면은 / 이며 first-release.html은 안내 문서다.
-- assistant_model.py / codex_bridge.py: 설정된 모델 연결과 Codex 구독 인증. 현재 선택은 gpt-6-luna, 낮은 추론 노력, 기본 속도다. 유휴 추론을 돌리지 않고 요청할 때 사용한다. 소스 개조 경로는 등록된 소스 도구를 한 Codex 작업 안에서 직접 호출하고 실제 결과를 이어받는 방식으로 연결한다. 다른 일반 업무의 기존 도구 루프와 구별한다. LM Studio E4B는 이전 연결이며 자동 실행하지 않도록 전환했다. 실제 설정은 실행 환경 조회가 우선이다.
-- assistant_runtime.py / assistant_tools.py / assistant_extensions.py: 의미 기반 실행 판단, 등록 도구 선택, 실행·중복 방지·기록. 모델의 제안과 실제 실행기를 구별한다. 등록 도구 없는 네이티브 Codex 셸·MCP까지 모두 연결된 상태는 아니다.
-- self_edit.py / office_reload.py: 허용된 기존 앱 소스 조회·읽기·정확한 수정, 백업·해시·구문 확인, 프런트 새로고침/백엔드 재시작. 임의 사용자 파일이나 DB를 소스 도구로 수정하지 않는다.
+- assistant_model.py / codex_bridge.py: 현재 gpt-6-luna, 낮은 추론, 기본 속도의 Codex 구독 연결. 일반 대화·업무·앱 개조를 같은 네이티브 실행 흐름에서 처리하며, 영구 스레드로 도구 결과와 대화를 이어간다. 별도의 실행 여부 분류 관문은 Codex 경로에서 사용하지 않는다. LM Studio E4B는 자동 실행하지 않는다. 현재 설정은 실제 실행 환경 조회가 우선이다.
+- assistant_runtime.py / assistant_tools.py / assistant_extensions.py: 네이티브 도구 호출을 기존 업무 실행기로 연결하고 실제 결과를 회신한다. agent_state.py는 영구 대화 식별자·참조·호출 ID 영수증을 보관해 재전송의 중복 실행을 막는다. 도구가 확인 대기를 반환하면 중단하고 사용자 선택 후 실제 결과로 이어간다.
+- agent_workspace.py / self_edit.py / office_reload.py: source 작업본에서 네이티브 코드·파일 작업 후 agent_source_publish로 운영 소스 반영. 전체 파일 기준 해시·백업·구문 확인, 새 평면 모듈 생성과 되돌리기, 화면 새로고침/백엔드 재시작을 연결한다. 원본 DB·설정은 작업본에 복사하지 않는다. outputs의 결과는 agent_output_publish로 게시한다. 임의 MCP나 외부 앱이 모두 연결된 것은 아니다.
 - index.html / workdesk.html / workdesk.js / workdesk.css: 앱 외곽, 대화·오늘의 업무·런처. desk.*는 자료 데스크다.
 - workstage.js / workstage.css / work_stage.py: 우측 WORKSPACE의 표시·실제 요청 단계·결과물·안전한 미리보기. 화면을 고치려면 작업 기록만 검색하지 말고 해당 소스를 읽는다.
 - workambient.js / workambient.css / office_weather.py: 시간·날씨·캐릭터 주변 위젯.
@@ -68,4 +68,4 @@ WORKSPACE는 작업 요청 카드와 상태를 보여주고, 카드를 누르면
 아래는 개발 채팅에서 확인한 아직 완료되지 않은 방향이다. 최신 요청으로 해당 작업을 맡겼을 때만 실행한다. 현재 코드와 최근 실행 기록으로 완료 여부를 다시 확인한다.
 
 - 프로젝트 맥락 연결과 WORKSPACE 카드 변경의 실제 화면 사용성은 사용자의 시각적 확인에 맞춰 보완한다. 전체 개발 대화 자동 동기화는 구현하지 않았으며 중요한 결정은 이 문서에 계속 갱신해야 한다.
-- 메신저 파일 수신/저장/전달, 일일보고서 실제 양식 입력·제출, 일반 이미지 편집과 산출물 파일 생성은 각각 실제 도구 연결을 확인하고 확장해야 한다. Codex 모델 연결만으로 모든 도구가 자동 제공되지는 않는다.
+- 메신저 파일 수신/저장/전달과 일일보고서 실제 양식 입력·제출은 각각 실제 연결을 확인하고 확장해야 한다. 네이티브 작업 사본의 코드·문서 결과 생성과 게시를 연결했지만 모든 이미지 편집 도구·문서 라이브러리까지 자동 제공되지는 않는다.

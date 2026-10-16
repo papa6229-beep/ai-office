@@ -11,11 +11,11 @@
     $('workStageProcess').hidden=tab!=='process';$('workStageResults').hidden=tab!=='results';
   }
   function mediaURL(value) {
-    try {const url=new URL(value,location.origin);return url.origin===location.origin && ['/api/work/media','/api/work/attachment'].includes(url.pathname) && /^[a-f0-9-]{32,36}$/i.test(url.searchParams.get('id') || '') ? url.href : '';}
+    try {const url=new URL(value,location.origin);return url.origin===location.origin && ['/api/work/media','/api/work/attachment','/api/work/agent-artifact'].includes(url.pathname) && /^[a-f0-9-]{32,36}$/i.test(url.searchParams.get('id') || '') ? url.href : '';}
     catch {return '';}
   }
   function downloadURL(value) {
-    try{const url=new URL(value,location.origin);return url.origin===location.origin && ['/api/work/attachment','/api/work/media'].includes(url.pathname) && /^[a-f0-9-]{32,36}$/i.test(url.searchParams.get('id') || '') && url.searchParams.get('download')==='1' ? url.href : '';}
+    try{const url=new URL(value,location.origin);return url.origin===location.origin && ['/api/work/attachment','/api/work/media','/api/work/agent-artifact'].includes(url.pathname) && /^[a-f0-9-]{32,36}$/i.test(url.searchParams.get('id') || '') && url.searchParams.get('download')==='1' ? url.href : '';}
     catch{return '';}
   }
   function content(artifact,expanded=false) {

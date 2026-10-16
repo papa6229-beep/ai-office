@@ -20,6 +20,7 @@ import lmstudio_runtime
 import model_requests
 import chat_stream
 import office_reload
+import agent_workspace
 import work_attachments
 import companion_assets
 import browser_workspace
@@ -177,7 +178,7 @@ def work_service():
     return work_assistant.WorkAssistant(DB,config,call_gemma,
         native_model=lambda messages,tools:call_assistant_model(messages,tools,settings),
         intent_model=lambda messages,tools:call_assistant_intent(messages,tools,settings),
-        source_model=(lambda messages,tools,dispatch:assistant_model.run_source(messages,tools,settings,dispatch))
+        agent_model=(lambda messages,tools,dispatch,**hooks:assistant_model.run_agent(messages,tools,settings,dispatch,**hooks))
                      if settings.get('api_type')=='codex' else None,
         registry_factory=lambda:ToolRegistry(DB,
             work_factory=lambda:work_assistant.WorkAssistant(DB,config,call_gemma),
@@ -229,11 +230,33 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/work/attachment','/api/work/companion-assets','/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/work/agent-artifact','/api/work/attachment','/api/work/companion-assets','/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
         if path=='/api/work/companion-assets':
             try:return self.reply(companion_assets.manifest(DB))
             except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'캐릭터 자료를 읽지 못했습니다.'},400)
+        if path=='/api/work/agent-artifact':
+            from urllib.parse import parse_qs,quote
+            query=parse_qs(urlparse(self.path).query)
+            started=False
+            try:
+                with agent_workspace.open_artifact(query.get('id',[''])[0]) as (stream,meta):
+                    download=query.get('download',['0'])[0]=='1'
+                    disposition='inline' if meta['kind'] in {'image','video'} and not download else 'attachment'
+                    self.send_response(200);self.send_header('Content-Type',meta['mime'])
+                    self.send_header('Content-Length',str(meta['size']))
+                    self.send_header('Content-Disposition',disposition+"; filename*=UTF-8''"+quote(meta['name']))
+                    self.send_header('X-Content-Type-Options','nosniff');self.send_header('Cache-Control','private, no-store')
+                    self.send_header('Content-Security-Policy',"sandbox; default-src 'none'");self.end_headers();started=True
+                    while True:
+                        chunk=stream.read(65536)
+                        if not chunk:break
+                        self.wfile.write(chunk)
+                return
+            except (BrokenPipeError,ConnectionResetError):return
+            except (ValueError,OSError):
+                if started:self.close_connection=True;return
+                return self.reply({'error':'결과 파일을 찾을 수 없거나 파일이 변경되었습니다.'},404)
         if path=='/api/work/attachment':
             from urllib.parse import parse_qs
             query=parse_qs(urlparse(self.path).query)
