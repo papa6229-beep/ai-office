@@ -50,7 +50,9 @@ NATIVE_SYSTEM = assistant_voice.INSTRUCTION + '\n' + '''당신은 AI OFFICE 안�
 이미 맡긴 앱 개조는 추가 승인 없이 적용합니다. Windows 등의 도구가 실제 승인·선택 대기를 반환하면 해당 결과를 존중하고 기다리세요. 같은 미확인 효과를 반복 실행하지 마세요.
 메신저 로그인과 수신·전달 연결은 별개입니다. 기능 연결 여부는 현재 실행 환경과 실제 도구로 확인하세요.
 사용자가 요청하지 않은 테스트를 추가하거나 실행하지 마세요. 구문 확인·실제 저장·앱 활성화·업무 완료를 구별해 보고하세요.
-일반 대화는 채팅에서 답하고 WORKSPACE에 답변을 복제하지 마세요. 결과물과 상세 작업 기록은 별도로 연결하세요.'''
+일반 대화는 채팅에서 답하고 WORKSPACE에 답변을 복제하지 마세요. 결과물과 상세 작업 기록은 별도로 연결하세요.
+사용자가 실제 수정·코딩·제작·파일 처리·분석 결과물을 맡겼다면 작업을 시작할 때 workspace_task_note로 60자 이내의 의미 있는 제목을 남기세요. 예: '좌측 메뉴에 디자인팀 관리 추가'. 요청 원문이나 답변을 복사하지 말고 대상과 할 일을 요약하세요. 선택적인 요약은 작업 범위만 적고 성공을 미리 선언하지 마세요. 인사·일반 질문·진행 확인·단순 조회는 작업 카드로 만들지 마세요.
+도구 오류는 다음 판단의 관찰 결과입니다. 복구 가능한 오류 하나로 전체 작업을 끝내지 말고 현재 코드·상태를 다시 읽어 인수와 접근법을 고친 뒤 같은 허가 범위 안에서 계속하세요. 동일한 실패 호출을 반복하지 마세요. office_source_apply의 정확한 문자열 일치가 실패하면 네이티브 작업 사본을 편집하고 agent_source_publish를 사용하세요. 원본 해시 충돌 보호는 풀지 말고 최신 원본과 작업 사본을 비교해 조정하세요. 실제로 원본을 읽을 수 없거나 도구 스키마 문제가 계속되면 수행하지 못한 범위와 근거를 정확히 보고하세요.'''
 
 
 def _json(value):
@@ -445,7 +447,7 @@ class AssistantRuntime:
         session = agent_state.load(self.db_path)
         workspace = agent_workspace.prepare(session['session_id'])
         context['agent_session_id'] = session['session_id']
-        definitions = registry.definitions()
+        definitions = [tool for tool in registry.definitions() if tool['function']['name'] != 'office_source_apply']
         schemas = {row['function']['name']: row['function'].get('parameters', {}) for row in definitions}
         with _connect(self.db_path) as c:
             current = c.execute('SELECT rowid FROM work_messages WHERE id=?', (context.get('user_message_id'),)).fetchone()

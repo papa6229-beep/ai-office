@@ -37,7 +37,7 @@
   }
   function renderArtifacts() {
     const root=$('workStageResultContent');if(!root)return;root.replaceChildren();
-    if(!artifacts.length){const p=document.createElement('p');p.className='work-stage-empty';p.textContent='이 요청에는 아직 별도 결과물이 없습니다. 답변은 채팅에서 확인하세요.';root.append(p);return;}
+    if(!artifacts.length){const p=document.createElement('p');p.className='work-stage-empty';p.textContent='별도 결과 파일이 없습니다. 아래에서 실제 작업 내역을 확인할 수 있어요.';root.append(p);return;}
     for(const artifact of artifacts){
       const card=document.createElement('article');card.className='work-stage-artifact';
       const header=document.createElement('header'),title=document.createElement('strong'),badge=document.createElement('small');
@@ -55,7 +55,7 @@
       }
       card.append(actions);root.append(card);
     }
-    if(artifacts.length && !resultRevealed){resultRevealed=true;if(!userSelected)select('results');}
+    // Results open only when the user chooses a task card or an explicit preview.
   }
   function expand(artifact) {
     const dialog=$('workStageDialog');$('workStageDialogTitle').textContent=artifact.title || '결과 미리보기';$('workStageExpanded').replaceChildren(content(artifact,true));
@@ -66,6 +66,7 @@
     const steps=Array.isArray(data.steps)?data.steps:[],diagnostics=Array.isArray(data.diagnostics)?data.diagnostics:[];
     if(!steps.length&&!diagnostics.length)return;
     const details=document.createElement('details');details.className='work-execution-log';
+    details.open=!artifacts.length;
     const summary=document.createElement('summary');summary.textContent='작업 기록';details.append(summary);
     const list=document.createElement('ol');
     for(const step of steps){const item=document.createElement('li'),label=document.createElement('strong'),message=document.createElement('p');label.textContent=(step.label||'작업 처리')+' · '+({running:'진행 중',ok:'완료',error:'오류',pending:'대기',unknown:'확인 필요'}[step.status]||'확인 필요');message.textContent=step.message||'';item.dataset.status=step.status||'unknown';item.append(label,message);list.append(item);}
@@ -83,14 +84,22 @@
       const summary=document.createElement('span');summary.textContent=item.summary||item.request.title||'작업 요청';const badge=document.createElement('small');badge.textContent={running:'진행 중',done:'완료',attention:'확인 필요'}[item.request.status]||'상태 확인 중';card.append(summary,badge);root.append(card);if(focused===item.request.id)card.focus({preventScroll:true});}
   }
   function render(data) {
-    const request=data.request;if(!request)return;let item=requests.find(entry=>entry.request.id===request.id);
-    const summary=String(request.summary||request.title||'작업 요청');
+    const request=data.request;if(!request)return;
+    if(!data.workspace_eligible){
+      requests=requests.filter(entry=>entry.request.id!==request.id);
+      if(selectedRequest===request.id){selectedRequest='';last='';artifacts=[];$('workStageRequest').textContent='';$('workStageStatus').textContent='대기';$('workStageResultContent').replaceChildren();select('process');}
+      renderRequestCards();return;
+    }
+    let item=requests.find(entry=>entry.request.id===request.id);
+    const summary=String(request.title||'작업 요청');
     if(!item){item={request,summary,data};requests.unshift(item);}else{item.request=request;item.summary=summary;item.data=data;}
     if(!selectedRequest)selectedRequest=request.id;renderRequestCards();
     if(request.id!==selectedRequest)return;
     const signature=JSON.stringify(data);if(signature===last)return;last=signature;
     $('workStageRequest').textContent=item.summary;$('workStageStatus').textContent={running:'진행 중',done:'완료',attention:'확인 필요'}[request.status]||'상태 확인 중';$('workStage').dataset.status=request.status;
-    artifacts=Array.isArray(data.artifacts)?data.artifacts.slice():[];renderArtifacts();renderExecutionLog(data);
+    artifacts=Array.isArray(data.artifacts)?data.artifacts.slice():[];renderArtifacts();
+    if(request.summary){const scope=document.createElement('p');scope.className='work-task-scope';scope.textContent=request.summary;$('workStageResultContent').prepend(scope);}
+    renderExecutionLog(data);
   }
   async function loadRequest(id){
     if(!id)return;selectedRequest=id;preview=false;userSelected=true;resultRevealed=false;last='';artifacts=[];renderArtifacts();renderRequestCards();notice();
@@ -110,7 +119,7 @@
       if(!response.ok || data.error)throw Error(data.error || '작업 화면 연결을 확인할 수 없습니다.');
       failures=0;attempts++;
       if(Array.isArray(data.requests)){
-        requests=data.requests.filter(item=>item?.request?.id).slice(0,30);requestsLoaded=true;renderRequestCards();
+        requests=data.requests.filter(item=>item?.request?.id && item.data?.workspace_eligible).slice(0,30);requestsLoaded=true;renderRequestCards();
         if(!active && requests.length){selectedRequest=requests[0].request.id;active=selectedRequest;const chosen=requests[0];render(chosen.data);finished=['done','attention'].includes(chosen.request.status);}
         else if(!requests.length){finished=true;}
       }
@@ -118,13 +127,8 @@
         if(!active)active=data.request.id;
         render(data);finished=['done','attention'].includes(data.request.status);notice();
       }else if(!active){finished=true;}
-      else if(terminal && attempts>3){
-        finished=true;$('workStageStatus').textContent=terminal.phase==='done' ? '대기' : '확인 필요';$('workStage').dataset.status=terminal.phase==='done' ? 'done' : 'attention';
-        artifacts=[];renderArtifacts();
-        notice('이 요청에는 별도의 작업 결과물이 없습니다. 답변은 채팅에서 확인하세요.');
-      }
-      else if(attempts>30){finished=true;$('workStageStatus').textContent='상태 확인 필요';notice('처리 단계가 도착하지 않았습니다. 채팅에서 요청 결과를 확인해 주세요.');}
-      else if(attempts>12){notice('처리 단계가 아직 도착하지 않았습니다. 요청 결과를 기다립니다.');}
+      else if(terminal && attempts>3){finished=true;}
+      else if(attempts>30){finished=true;}
       schedule(attempts>12 ? 3000 : 1100);
     }catch(error){
       if(version!==epoch || serial!==pollSerial)return;failures++;notice(error.message);if(failures<5)schedule(Math.min(10000,1500*failures));
@@ -135,14 +139,13 @@
     if(!detail.requestId)return;
     if(detail.phase==='start'){
       const same=active===detail.requestId;active=detail.requestId;epoch++;stop();attempts=0;failures=0;finished=false;preview=false;terminal=null;
-      if(!same){userSelected=false;resultRevealed=false;selectedRequest=active;last='';artifacts=[];renderArtifacts();if(!requests.some(entry=>entry.request.id===active))requests.unshift({request:{id:active,title:'작업 요청',status:'running'},summary:detail.message||'작업 요청',data:null});renderRequestCards();}
-      $('workStageRequest').textContent=detail.message || '요청 처리';$('workStageStatus').textContent='진행중';$('workStage').dataset.status='running';notice();if(!same)select('process');poll(epoch);return;
+      // A chat submission is not evidence of work. Wait for the server's task eligibility.
+      poll(epoch);return;
     }
     if(detail.requestId!==active || preview)return;
-    if(detail.phase==='uncertain'){notice('응답이 불확실합니다. 같은 요청의 진행 상태를 확인하고 있어요.');schedule(2000);}
+    if(detail.phase==='uncertain'){schedule(2000);}
     else if(detail.phase==='done' || detail.phase==='error'){
       terminal=detail;finished=false;attempts=0;poll(epoch);
-      if(detail.phase==='error'){notice(detail.result?.message || '요청을 확인해 주세요.');$('workStageStatus').textContent='확인 필요';}
     }
   }
   document.addEventListener('DOMContentLoaded',()=>{

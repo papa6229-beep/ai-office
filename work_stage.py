@@ -25,6 +25,8 @@ STEP_LABELS.update({'office_source_list':'앱 원본 찾기','office_source_read
                     'office_source_apply':'앱 변경 저장','office_source_history':'앱 변경 이력',
                     'office_source_rollback':'앱 변경 되돌리기'})
 STEP_LABELS.update({'agent_workspace_status':'작업 사본 확인','agent_source_publish':'앱 변경 게시','agent_output_publish':'결과물 게시'})
+STEP_LABELS.update({'codex_command':'코드·작업 실행','codex_file_change':'작업 파일 수정',
+                    'codex_image_view':'이미지 확인','codex_web_search':'자료 검색','codex_context':'작업 문맥 정리'})
 CODE_TYPES = {'.py':'python','.js':'javascript','.ts':'typescript','.html':'html','.css':'css','.json':'json','.sql':'sql','.sh':'bash','.ps1':'powershell','.jsx':'jsx','.tsx':'tsx'}
 
 def connect(path):
@@ -36,7 +38,52 @@ def initialize(c):
     c.executescript('''CREATE TABLE IF NOT EXISTS stage_artifacts (
         id TEXT PRIMARY KEY,request_id TEXT NOT NULL,artifact TEXT NOT NULL,created REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS stage_media (
-        id TEXT PRIMARY KEY,selection TEXT NOT NULL,created REAL NOT NULL);''')
+        id TEXT PRIMARY KEY,selection TEXT NOT NULL,created REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS stage_task_notes (
+        request_id TEXT PRIMARY KEY,title TEXT NOT NULL,summary TEXT NOT NULL,updated REAL NOT NULL);''')
+
+
+def task_note(db, request_id, title, summary=''):
+    """Model-authored intent, bound to the host request; never completion evidence."""
+    if not isinstance(request_id,str) or not re.fullmatch('[0-9a-f]{32}',request_id):
+        raise ValueError('현재 작업 요청이 필요합니다.')
+    if not isinstance(title,str) or not title.strip() or len(title)>60 or not isinstance(summary,str) or len(summary)>240:
+        raise ValueError('작업 제목은 60자, 요약은 240자 이내로 작성하세요.')
+    title=' '.join(_text(title,60).split());summary=' '.join(_text(summary,240).split())
+    with connect(db) as c,c:
+        initialize(c)
+        if not c.execute('SELECT 1 FROM assistant_requests WHERE id=?',(request_id,)).fetchone():
+            raise ValueError('현재 작업 요청을 확인할 수 없습니다.')
+        c.execute('INSERT INTO stage_task_notes VALUES (?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET title=excluded.title,summary=excluded.summary,updated=excluded.updated',
+                  (request_id,title,summary,time.time()))
+    return {'title':title,'summary':summary,'intent_only':True}
+
+
+def _task_identity(note, operations, artifacts):
+    # Old read/list receipts alone do not turn an ordinary conversation into work.
+    actual=[op for op in operations if op['name']!='workspace_task_note' and
+            (op['effect'] in {'write','external','approval'} and op['name']!='codex_command')]
+    analysis={'documents_read','attachment_read','browser_read','browser_view','codex_command','codex_image_view','codex_web_search'}
+    eligible=bool(actual or artifacts or (note and any(op['name'] in analysis for op in operations)))
+    if note:return eligible,note['title'],note['summary']
+    names={op['name'] for op in actual}
+    if names & {'office_source_apply','agent_source_publish','office_source_rollback','codex_file_change'}:
+        title='AI OFFICE 화면·기능 수정'
+        paths=[]
+        for op in actual:
+            path=op['arguments'].get('path','')
+            if isinstance(path,str) and path:
+                label=re.split(r'[/\\]',path)[-1]
+                if label not in paths:paths.append(label)
+        summary='수정 대상: '+', '.join(paths[:3]) if paths else '앱 변경 작업과 실제 실행 기록'
+    elif artifacts:
+        title=_text(artifacts[0].get('title'),60) or '결과물 작성'
+        summary='게시한 결과물과 작업 기록'
+    elif actual:
+        title=STEP_LABELS.get(actual[-1]['name'],'업무 작업 처리')
+        summary='실제 수행 단계와 처리 결과'
+    else:title='작업 요청';summary=''
+    return eligible,title,summary
 
 def _text(value, maximum):
     text=document_reader._redact(str(value or ''))
@@ -192,7 +239,7 @@ def request_list(db):
         if not c.execute("SELECT 1 FROM sqlite_master WHERE name='assistant_requests'").fetchone(): return []
         rows=c.execute('SELECT id,payload,created FROM assistant_requests r WHERE EXISTS '
                        '(SELECT 1 FROM assistant_steps s WHERE s.request_id=r.id) '
-                       'ORDER BY created DESC,rowid DESC LIMIT 30').fetchall()
+                       'ORDER BY created DESC,rowid DESC LIMIT 300').fetchall()
     items=[]
     for row in rows:
         try: payload=json.loads(row['payload']).get('payload',{})
@@ -200,8 +247,9 @@ def request_list(db):
         message=_text(payload.get('message',''),500)
         if not message: message='작업 요청'
         detail=snapshot(db,row['id'])
-        if detail['request']:
-            items.append({'request':detail['request'],'summary':detail['request']['summary'],'data':detail})
+        if detail['request'] and detail.get('workspace_eligible'):
+            items.append({'request':detail['request'],'summary':detail['request']['title'],'data':detail})
+            if len(items)>=30:break
     return items
 
 def snapshot(db, request_id=None):
@@ -215,11 +263,24 @@ def snapshot(db, request_id=None):
         row=c.execute('SELECT * FROM assistant_requests WHERE id=?',(request_id,)).fetchone() if request_id else c.execute('SELECT * FROM assistant_requests ORDER BY created DESC,rowid DESC LIMIT 1').fetchone()
         if not row: return empty
         payload=json.loads(row['payload']).get('payload',{})
-        steps=[]; artifacts=[]; attention=False
-        for step in c.execute('SELECT id,name,status,result,created FROM assistant_steps WHERE request_id=? ORDER BY created,rowid LIMIT 50',(row['id'],)):
+        steps=[]; artifacts=[]; attention=False;operations=[];unresolved={};source_refs={}
+        for step in c.execute('SELECT id,name,effect,arguments,status,result,created FROM assistant_steps WHERE request_id=? ORDER BY created,rowid',(row['id'],)):
             result=json.loads(step['result']) if step['result'] else {}
+            try:arguments=json.loads(step['arguments'])
+            except (ValueError,TypeError):arguments={}
+            if not isinstance(arguments,dict):arguments={}
+            operations.append({'name':step['name'],'effect':step['effect'],'arguments':arguments})
+            if step['name']=='workspace_task_note':continue
+            data=result.get('data') if isinstance(result.get('data'),dict) else {}
+            if step['name']=='office_source_read' and data.get('path') and arguments.get('ref'):
+                source_refs[arguments['ref']]=data['path']
             status='running' if step['status']=='running' else 'pending' if result.get('pending') else 'ok' if result.get('status')=='ok' else 'error' if result.get('status')=='error' else 'unknown'
-            attention=attention or status in {'error','pending','unknown'}
+            source_path=source_refs.get(arguments.get('ref')) if isinstance(arguments,dict) else None
+            if step['name']=='agent_source_publish':source_path=arguments.get('path')
+            if source_path:source_path=str(source_path).replace('\\','/').removeprefix('source/')
+            key=('source',source_path) if source_path and step['name'] in {'office_source_apply','agent_source_publish'} else (step['name'],json.dumps(arguments,sort_keys=True))
+            if status in {'error','pending','unknown'}:unresolved[key]=status
+            elif status=='ok':unresolved.pop(key,None)
             steps.append({'id':step['id'],'name':step['name'],'label':STEP_LABELS.get(step['name'],'작업 처리'),'status':status,'created':step['created'],'message':_text(result.get('message'),500)})
             artifact=result.get('data',{}).get('artifact') if isinstance(result.get('data'),dict) else None
             safe_artifact=_artifact(artifact)
@@ -229,27 +290,21 @@ def snapshot(db, request_id=None):
             artifacts.extend(value for a in c.execute('SELECT artifact FROM stage_artifacts WHERE request_id=? ORDER BY created LIMIT 12',(row['id'],)) if (value:=_artifact(json.loads(a[0]))))
         response=json.loads(row['response']) if row['response'] else {}
         result=response.get('result',{})
-        answer=_text(result.get('answer',''),12000)
-        attention=attention or any(r.get('status')=='error' for r in result.get('tool_results',[]) if isinstance(r,dict))
-        drafts = result.get('drafts', [])
-        drafts = drafts[:4] if isinstance(drafts,list) else []
-        drafts += [{'text':match[2],'language':match[1]} for match in
-                   list(re.finditer(r'```([\w+.-]{0,30})[ \t]*\r?\n([\s\S]*?)```',answer))[:4]]
-        for index,draft in enumerate(drafts):
-            if not isinstance(draft,dict) or not isinstance(draft.get('text'),str):continue
-            text=_text(draft['text'],6000)
-            if any(a.get('kind')=='code' and a.get('text','').strip()==text.strip() for a in artifacts):continue
-            artifacts.append({'id':row['id']+'-draft-'+str(index),'kind':'code','title':'코드 초안',
-                              'language':_text(draft.get('language'),30),'text':text,'origin':'draft'})
+        attention=bool(unresolved) or (not operations and any(r.get('status')=='error' for r in result.get('tool_results',[]) if isinstance(r,dict)))
+        # Fenced code in a chat answer is not a published deliverable. Only
+        # explicit stage publications and actual tool artifacts belong here.
         artifacts=list({a['id']:a for a in artifacts if isinstance(a,dict) and 'id' in a}.values())[:12]
         # A stale running request is uncertain, never a reason to dispatch it again.
         stale=False
         try:stale=(datetime.datetime.now().astimezone()-datetime.datetime.fromisoformat(row['created'])).total_seconds()>600
         except (ValueError,TypeError):stale=True
         status=('attention' if attention else 'done') if row['status']=='done' else 'running'
-        summary=' '.join(_text(payload.get('message',''),500).split()) or '작업 요청'
-        request={'id':row['id'],'status':status,'created':row['created'],'title':summary[:70],
-                 'summary':summary[:180],'uncertain':stale and status=='running',
+        note=None
+        if c.execute("SELECT 1 FROM sqlite_master WHERE name='stage_task_notes'").fetchone():
+            note=c.execute('SELECT title,summary FROM stage_task_notes WHERE request_id=?',(row['id'],)).fetchone()
+        eligible,title,summary=_task_identity(note,operations,artifacts)
+        request={'id':row['id'],'status':status,'created':row['created'],'title':title,
+                 'summary':summary,'workspace_eligible':eligible,'uncertain':stale and status=='running',
                  'outcome':'확인이 필요합니다.' if status=='attention' else '요청 처리가 종료되었습니다.' if status=='done' else '작업 중입니다.'}
         if payload.get('task_id'):request['task_id']=payload['task_id']
         # The chat explanation is not a deliverable. Keep the response key for
@@ -261,4 +316,4 @@ def snapshot(db, request_id=None):
                 if message and message not in {entry['message'] for entry in diagnostics}:
                     diagnostics.append({'status':receipt['status'],'message':message})
                 if len(diagnostics)>=20:break
-        return {'request':request,'steps':steps,'artifacts':artifacts,'diagnostics':diagnostics,'answer':''}
+        return {'request':request,'workspace_eligible':eligible,'steps':steps[-100:],'artifacts':artifacts,'diagnostics':diagnostics,'answer':''}

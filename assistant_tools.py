@@ -113,6 +113,7 @@ _SPECS.update(windows_actions.SPECS)
 _SPECS.update(assistant_extensions.SPECS)
 _SPECS.update(attachment_tools.SPECS)
 _SPECS.update({
+    'workspace_task_note': ('write','실제 맡은 수정·제작·파일 처리·조사 결과물 작업을 시작할 때 WORKSPACE 카드의 짧은 의미 제목을 기록합니다. 예: 좌측 메뉴에 디자인팀 관리 추가. 일반 인사·질문·진행 확인에는 호출하지 마세요. 의도 메타데이터이며 완료·성공 증거가 아닙니다. 요청 원문·대화·도구 오류를 제목에 복사하지 마세요.',{'title':_string(maxLengthOverride=60),'summary':_string(maxLengthOverride=240)},['title']),
     'agent_workspace_status': ('read','네이티브 Codex 작업 사본 위치와 아직 게시하지 않은 소스 변경·충돌을 확인합니다.',{},[]),
     'agent_source_publish': ('write','사용자가 요청한 앱 변경을 네이티브 도구로 source 파일에 작성한 뒤 실행 원본으로 게시합니다. 서버 기준 해시·구문·백업을 확인합니다. path는 source/name.py 또는 파일명이며 모델이 SHA256이나 정확 문자열을 복사할 필요가 없습니다.',{'path':_string(maxLengthOverride=200)},['path']),
     'agent_output_publish': ('write','outputs에 완성한 실제 결과물을 WORKSPACE 미리보기와 다운로드로 게시합니다. path는 outputs 아래 상대 경로입니다. HTML/SVG는 실행하지 않고 다운로드합니다.',{'path':_string(maxLengthOverride=500),'title':_string(maxLengthOverride=120)},['path']),
@@ -413,6 +414,9 @@ class ToolRegistry:
         return dict(_ok(message,data),evidence=True)
 
     def _execute(self,name,a,c):
+        if name=='workspace_task_note':
+            import work_stage
+            return _ok('작업 카드 제목을 기록했습니다. 작업 완료를 의미하지 않습니다.',work_stage.task_note(self.db_path,c['request_id'],a['title'],a.get('summary','')))
         if name=='agent_workspace_status':
             return _ok('작업 사본과 게시 대기 변경입니다.',agent_workspace.status(c.get('agent_session_id')))
         if name=='agent_source_publish':
