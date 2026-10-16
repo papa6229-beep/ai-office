@@ -20,6 +20,8 @@ import lmstudio_runtime
 import model_requests
 import chat_stream
 import office_reload
+import work_attachments
+import companion_assets
 import browser_workspace
 import windows_workspace
 import capabilities
@@ -203,6 +205,7 @@ def call_assistant_intent(messages,tools,settings=None):
 def work_view():
     data=work_service().overview()
     data['action_token']=DESK_TOKEN
+    data['companion_assets']=companion_assets.manifest(DB)
     return data
 
 def launcher_view():
@@ -218,13 +221,25 @@ class Handler(BaseHTTPRequestHandler):
         n=int(self.headers.get('Content-Length','0'))
         # A maximum cover plus maximum small icon occupies 6MiB in base64;
         # leave a bounded allowance for JSON and escaped metadata.
-        limit=6*1024*1024+65536 if urlparse(self.path).path in {'/api/launcher/save','/api/launcher/appearance','/api/launcher/card-style'} else 200000
+        path=urlparse(self.path).path
+        limit=14*1024*1024+65536 if path=='/api/work/upload' else 6*1024*1024+65536 if path in {'/api/launcher/save','/api/launcher/appearance','/api/launcher/card-style'} else 200000
         if n<0 or n>limit:raise ValueError('요청 크기 초과')
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/work/attachment','/api/work/companion-assets','/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
+        if path=='/api/work/companion-assets':
+            try:return self.reply(companion_assets.manifest(DB))
+            except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'캐릭터 자료를 읽지 못했습니다.'},400)
+        if path=='/api/work/attachment':
+            from urllib.parse import parse_qs
+            query=parse_qs(urlparse(self.path).query)
+            try:return work_attachments.serve(self,DB,query.get('id',[''])[0],download=query.get('download',['0'])[0]=='1')
+            except (BrokenPipeError,ConnectionResetError):return
+            except (ValueError,OSError,sqlite3.Error):
+                if getattr(self,'_attachment_started',False):self.close_connection=True;return
+                return self.reply({'error':'첨부 자료를 찾을 수 없거나 자료가 변경되었습니다.'},404)
         if path=='/api/work/reload-status':return self.reply(office_reload.snapshot())
         if path in _AEMEATH_ASSETS:
             b=(ROOT/path.lstrip('/')).read_bytes()
@@ -397,6 +412,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
                 payload={k:v for k,v in d.items() if k!='token'}
+                if p=='/api/work/upload':
+                    if set(payload)-{'request_id','upload_id','name','data_url'}:raise ValueError('첨부 요청을 확인하세요.')
+                    result=work_attachments.upload(DB,payload.get('name'),payload.get('data_url'),payload.get('upload_id'),request_id=payload.get('request_id'))
+                    return self.reply({'attachment':result})
+                if p=='/api/work/upload-remove':
+                    if set(payload)-{'request_id','attachment_id'}:raise ValueError('첨부 취소 요청을 확인하세요.')
+                    return self.reply(work_attachments.discard(DB,payload.get('attachment_id'),payload.get('request_id')))
                 if p=='/api/work/stream':
                     if set(payload)-{'request_id'}:raise ValueError('대화 진행 요청을 확인하세요.')
                     return self.reply(chat_stream.snapshot(payload.get('request_id')))

@@ -32,6 +32,29 @@
     if (log.lastElementChild) chatResizeObserver.observe(log.lastElementChild);
   }
   let companionState = null, companionOutcome = null, companionError = '';
+  let companionManifest=null, companionVariant=-1, companionRevision=null, companionManifestLoading=false;
+  function companionVariantUpdate(next,rotate=false) {
+    const stage=$('workCompanion'), animation=$('workCompanionAnimation'), still=$('workCompanionStill');
+    const variants=(companionManifest?.states?.[next] || []).filter(item=>attachmentURL(item.url) || /^\/assets\/aemeath\/[a-z]+\.(gif|png)$/.test(item.url || ''));
+    if(rotate && variants.length>1)companionVariant=(companionVariant+1)%variants.length;
+    else if(!rotate)companionVariant=variants.length-1;
+    const variant=variants[companionVariant];
+    const source=variant?.url || '/assets/aemeath/'+next+'.gif';
+    const stillSource=attachmentURL(variant?.still_url) || (/^\/assets\/aemeath\/[a-z]+\.png$/.test(variant?.still_url || '') ? variant.still_url : '/assets/aemeath/'+next+'.png');
+    if(animation.getAttribute('src')!==source){stage.classList.remove('is-gif-unavailable');animation.src=source;}
+    if(still.getAttribute('src')!==stillSource){stage.classList.remove('is-still-unavailable');still.src=stillSource;}
+  }
+  function acceptCompanionManifest(manifest) {
+    if(!manifest?.states || manifest.revision===companionRevision)return;
+    companionManifest=manifest;companionRevision=manifest.revision;
+    companionVariantUpdate(companionState || 'idle');
+  }
+  async function refreshCompanionManifest() {
+    if(companionManifestLoading)return;companionManifestLoading=true;
+    try{const response=await fetch('/api/work/companion-assets',{cache:'no-store'});const data=await response.json();if(response.ok && !data.error)acceptCompanionManifest(data);}
+    catch{/* Built-in animation remains available when the manifest cannot be read. */}
+    finally{companionManifestLoading=false;}
+  }
   function waitingForSelection() {
     const messages = overview?.messages || [];
     return [...(overview?.launcher_choices || []), ...(overview?.assistant_actions || [])].some(card => card.options?.length && messages.some(m => m.role === 'assistant' && m.id === card.message_id));
@@ -48,7 +71,7 @@
     if (next !== companionState) {
       companionState=next;stage.setAttribute?.('data-state',next);
       stage.classList.toggle('is-gif-unavailable',false);stage.classList.toggle('is-still-unavailable',false);
-      animation.src='/assets/aemeath/'+next+'.gif';still.src='/assets/aemeath/'+next+'.png';
+      companionVariantUpdate(next);
     }
     if (status.textContent !== label) status.textContent=label;
   }
@@ -69,10 +92,56 @@
     const reload=$('workUtilities')?.querySelector('[data-work-action="reload"]');
     if(reload)reload.disabled=busy || !!uncertain || loading;
     $('workRetry').hidden = !uncertain;
-    $('workSend').textContent = busy ? '처리 중…' : '요청 보내기';
+    if(uploading || attachments.some(item=>!item.id)) $('workSend').disabled=true;
+    if($('workAttach')) $('workAttach').disabled=blocked || uploading || attachments.length>=6;
+    if($('workAttachmentInput')) $('workAttachmentInput').disabled=blocked || uploading;
+    renderAttachments();
+    $('workSend').textContent = busy ? '처리 중…' : uploading ? '첨부 중…' : '요청 보내기';
     $('workConnection').textContent = busy ? '요청 처리 중' : overview ? '업무 기록 연결됨' : '연결 필요';
     companionUpdate();
     settleChatScroll();
+  }
+  let attachmentDraft='', attachments=[], uploading=false;
+  const acceptedExtensions=new Set('gif png jpg jpeg webp ico pdf docx txt md csv tsv json py js ts jsx tsx html css xml yaml yml sql log rst toml zip'.split(' '));
+  function attachmentURL(value,download=false) {
+    try {const url=new URL(value,location.origin);return url.origin===location.origin && url.pathname==='/api/work/attachment' && /^[a-f0-9-]{32,36}$/i.test(url.searchParams.get('id') || '') && (!download || url.searchParams.get('download')==='1') ? url.href : '';}
+    catch{return '';}
+  }
+  function attachmentMarkup(items,pending=false) {
+    return items.map(item=>{
+      const thumb=item.kind==='image' ? attachmentURL(item.preview_url) : '';
+      const href=attachmentURL(item.download_url,true);
+      return `<span class="work-attachment-chip">${thumb ? `<img src="${escape(thumb)}" alt="" loading="lazy">` : '<span aria-hidden="true">▤</span>'}<span><b>${escape(item.name)}</b><small>${escape(item.error || (item.uploading ? '업로드 중…' : '첨부됨'))}</small></span>${pending ? `<button type="button" data-attachment-remove="${escape(item.upload_id)}" aria-label="${escape(item.name)} 첨부 취소">×</button>` : href ? `<a href="${escape(href)}" download aria-label="${escape(item.name)} 다운로드">↓</a>` : ''}</span>`;
+    }).join('');
+  }
+  function renderAttachments() {
+    const root=$('workAttachments');if(!root)return;
+    root.hidden=!attachments.length;root.innerHTML=attachmentMarkup(attachments,true);
+    root.querySelectorAll('button').forEach(button=>button.disabled=busy || !!uncertain || uploading);
+    settleChatScroll();
+  }
+  async function addAttachments(files) {
+    if(busy || uncertain || uploading || !overview?.action_token)return;
+    const list=Array.from(files || []);if(!list.length)return;
+    if(attachments.length+list.length>6){notice('파일은 한 번에 6개까지 첨부할 수 있어요.',true);return;}
+    for(const file of list){
+      if(!acceptedExtensions.has(file.name.split('.').pop().toLowerCase()) || !file.size || file.size>10*1024*1024){notice('지원하는 파일 형식인지, 파일 크기가 10MB 이하인지 확인해 주세요.',true);return;}
+      if(!/\.(gif|png|jpe?g|webp|ico|zip)$/i.test(file.name) && file.size>8*1024*1024){notice('문서·코드는 8MB, 이미지·ZIP은 10MB 이하로 올려줘.',true);return;}
+    }
+    if(attachments.reduce((sum,item)=>sum+(item.size || 0),0)+list.reduce((sum,file)=>sum+file.size,0)>30*1024*1024){notice('첨부 파일 합계는 30MB까지 가능해요.',true);return;}
+    attachmentDraft ||= requestID();uploading=true;locks();notice();
+    try {
+      for(const file of list){
+        const item={upload_id:requestID(),name:file.name,size:file.size,uploading:true};attachments.push(item);renderAttachments();
+        try {
+          const dataURL=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('파일을 읽지 못했습니다.'));reader.readAsDataURL(file);});
+          const response=await fetch('/api/work/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:overview.action_token,request_id:attachmentDraft,upload_id:item.upload_id,name:file.name,data_url:dataURL})});
+          const data=await response.json();if(!response.ok || data.error || !data.attachment?.id)throw Error(data.error || '파일 업로드에 실패했습니다.');
+          Object.assign(item,data.attachment,{uploading:false});
+        }catch(error){item.uploading=false;item.error=error.message;notice(error.message,true);}
+        renderAttachments();
+      }
+    }finally{uploading=false;renderAttachments();locks();}
   }
   const taskHistory = new Map();
   let historySequence = 0, historyNotice = '';
@@ -117,7 +186,7 @@
     log.innerHTML = messages.length ? messages.map(m=>{
       const options = m.role === 'assistant' ? choices.filter(c=>c.message_id === m.id).map(c=>`<div class="work-launcher-choice" role="group" aria-label="${escape(c.name)} 프로그램 선택"><span>${escape(c.name)} · 사용할 프로그램을 골라주세요.</span>${(c.options || []).map(option=>`<button type="button" class="work-secondary" data-work-launcher-choice="${escape(c.id)}" data-work-launcher-target="${escape(option.target)}"><strong>${escape(option.title)}</strong>${option.detail ? `<small>${escape(option.detail)}</small>` : ''}</button>`).join('')}</div>`).join('') : '';
       const pending = m.role === 'assistant' ? actions.filter(a=>a.message_id === m.id).map(a=>`<div class="work-assistant-action${a.kind === 'approval' ? ' work-action-approval' : ''}" role="group" aria-label="${escape(a.title)}"><b>${escape(a.title)}</b>${a.description ? `<p>${escape(a.description)}</p>` : ''}<div>${(a.options || []).map(option=>`<button type="button" class="work-secondary" data-work-assistant-action="${escape(a.id)}" data-work-assistant-option="${escape(option.id)}">${escape(option.label)}${option.description ? `<small>${escape(option.description)}</small>` : ''}</button>`).join('')}</div></div>`).join('') : '';
-      return `<div class="work-message ${m.role === 'user' ? 'work-user' : ''}"><strong>${m.role === 'user' ? '나' : 'Aemeath'}</strong>${escape(m.content)}${options}${pending}</div>`;
+      return `<div class="work-message ${m.role === 'user' ? 'work-user' : ''}"><strong>${m.role === 'user' ? '나' : 'Aemeath'}</strong>${escape(m.content)}${m.attachments?.length ? `<div class="work-message-attachments">${attachmentMarkup(m.attachments)}</div>` : ''}${options}${pending}</div>`;
     }).join('') : '<p class="work-empty">무슨 일을 해야 하나요?<br>업무를 등록하거나 바로가기에 추가할 프로그램을 알려주세요.</p>';
     renderDetail();
     locks();
@@ -131,7 +200,7 @@
       const response = await fetch('/api/work', {cache:'no-store'}), data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || '업무를 불러오지 못했습니다.');
       const initialLoad = !overview;
-      overview = data; taskHistory.clear(); notice(); render();
+      overview = data; if(data.companion_assets)acceptCompanionManifest(data.companion_assets); taskHistory.clear(); notice(); render();
       if(initialLoad){try{const draft=sessionStorage.getItem('ai-office-command-draft');if(draft && !$('workCommand').value)$('workCommand').value=draft;sessionStorage.removeItem('ai-office-command-draft');}catch(_){}}
       settleChatScroll(initialLoad);
       if ($('workTaskDialog').open && selected) loadHistory(selected);
@@ -208,7 +277,7 @@
   }
   async function write(endpoint, payload, cleanup, existing) {
     if (busy || (!existing && uncertain) || !overview?.action_token) return;
-    const request = existing || {endpoint, body:{...payload, token:overview.action_token, request_id:requestID()}, cleanup};
+    const request = existing || {endpoint, body:{...payload, token:overview.action_token, request_id:payload.request_id || requestID()}, cleanup};
     companionError=''; companionOutcome=null; busy = true; notice(); locks();
     let confirmedResponse = false;
     const stageRequest=['command','assistant-action','choose-launcher'].includes(request.endpoint);
@@ -253,6 +322,8 @@
         const summary = (toolFailure?.message || data.result?.message || '업무 기록을 저장했습니다.').split('\n')[0];
         notice(summary.length > 160 ? summary.slice(0,160)+'…' : summary, !!toolFailure);
       }
+      if(data.companion_assets)acceptCompanionManifest(data.companion_assets);
+      if(data.result?.companion_changed){companionOutcome=null;companionState=null;await refreshCompanionManifest();}
       if (data.result?.launcher_changed) document.dispatchEvent(new CustomEvent('work-launcher-changed'));
       if (data.result?.desk_changed) document.dispatchEvent(new CustomEvent('work-desk-changed'));
       if (data.result?.source_reload) reflectSourceReload(data.result.source_reload);
@@ -271,7 +342,8 @@
     if (busy || uncertain) return;
     if (form.id === 'workCommandForm') {
       const message = $('workCommand').value.trim(); if (!message) return;
-      write('command',{message,...(selected ? {task_id:selected} : {})},()=>{$('workCommand').value='';});
+      if(uploading || attachments.some(item=>!item.id))return;
+      write('command',{message,request_id:attachmentDraft || requestID(),attachment_ids:attachments.map(item=>item.id),...(selected ? {task_id:selected} : {})},()=>{$('workCommand').value='';attachments=[];attachmentDraft='';renderAttachments();});
     } else if (form.id === 'workTaskForm') {
       const title = $('workTaskTitle').value.trim(); if (!title) return;
       write('task',{title,detail:$('workTaskDetail').value.trim(),due_date:$('workTaskDue').value},()=>{form.reset(); form.hidden=true;});
@@ -348,6 +420,29 @@
     document.fonts?.ready?.then(()=>settleChatScroll());
     observeChatLayout();
     const command = $('workCommand');
+    $('workAttach')?.addEventListener('click',()=>$('workAttachmentInput').click());
+    $('workAttachmentInput')?.addEventListener('change',event=>{addAttachments(event.target.files);event.target.value='';});
+    $('workAttachments')?.addEventListener('click',async event=>{
+      const button=event.target.closest('[data-attachment-remove]');if(!button || busy || uncertain || uploading || !overview?.action_token)return;
+      const item=attachments.find(item=>item.upload_id===button.dataset.attachmentRemove);if(!item)return;
+      uploading=true;locks();notice();
+      try{
+        const response=await fetch('/api/work/upload-remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:overview.action_token,request_id:attachmentDraft,attachment_id:item.id || item.upload_id})});
+        const data=await response.json();if(!response.ok || data.error || data.ok!==true)throw Error(data.error || '첨부 파일을 취소하지 못했습니다.');
+        attachments=attachments.filter(candidate=>candidate!==item);
+        if(!attachments.length)attachmentDraft='';
+      }catch(error){notice(error.message,true);}
+      finally{uploading=false;renderAttachments();locks();}
+    });
+    const composer=$('workCommandForm');
+    const draggingFiles=event=>Array.from(event.dataTransfer?.types || []).includes('Files');
+    composer.addEventListener('dragover',event=>{if(draggingFiles(event)){event.preventDefault();event.dataTransfer.dropEffect=busy || uncertain || uploading ? 'none' : 'copy';composer.classList.add('is-file-drag');}});
+    composer.addEventListener('dragleave',event=>{if(!composer.contains(event.relatedTarget))composer.classList.remove('is-file-drag');});
+    composer.addEventListener('drop',event=>{if(draggingFiles(event)){event.preventDefault();composer.classList.remove('is-file-drag');addAttachments(event.dataTransfer.files);}});
+    command.addEventListener('paste',event=>{if(event.clipboardData?.files?.length){event.preventDefault();addAttachments(event.clipboardData.files);}});
+    // File drops outside the composer must not navigate away from an unfinished conversation.
+    document.addEventListener('dragover',event=>{if(draggingFiles(event))event.preventDefault();});
+    document.addEventListener('drop',event=>{if(draggingFiles(event))event.preventDefault();});
     let composing = false;
     command.addEventListener('input',()=>{companionOutcome=null;companionUpdate();});
     command.addEventListener('change',()=>{companionOutcome=null;companionUpdate();});
@@ -364,6 +459,9 @@
       if (event.repeat || command.disabled || busy || uncertain || !overview?.action_token || !command.value.trim()) return;
       $('workCommandForm').requestSubmit($('workSend'));
     });
+    document.addEventListener('work-companion-changed',refreshCompanionManifest);
+    setInterval(()=>{if(!document.hidden && !busy && companionState==='idle' && !matchMedia('(prefers-reduced-motion: reduce)').matches)companionVariantUpdate('idle',true);},8000);
+    refreshCompanionManifest();
     locks(); window.workLoad();
   });
 })();

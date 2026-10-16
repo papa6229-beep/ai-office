@@ -60,7 +60,7 @@ def call(messages, tools, settings, *, output_schema=None):
     kind = settings.get('api_type')
     if kind not in {'ollama', 'openai'}:
         raise ValueError('지원하는 AI 서버 형식을 선택하세요.')
-    if not isinstance(tools, list) or len(tools) > 80:
+    if not isinstance(tools, list) or len(tools) > 96:
         raise ValueError('비서 도구 목록을 확인하세요.')
     payload = {'model': settings.get('gemma_model'), 'messages': _messages(messages, kind),
                'tools': tools, 'stream': False}
@@ -189,7 +189,7 @@ execute의 observation은 제공된 실제 도구 이름과 해당 스키마의 
         if len(history) >= 10:
             break
     fact_prefixes = ('사용자 PC의 오늘 날짜:', '서버가 확인한 현재 실행 환경입니다.',
-                     '사용자가 현재 선택한 업무 ID:')
+                     '사용자가 현재 선택한 업무 ID:', '이번 대화 첨부 자료:')
     runtime_context = [message['content'][:16000] for message in messages
                        if message.get('role') == 'system'
                        and isinstance(message.get('content'), str)

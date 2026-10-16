@@ -25,7 +25,7 @@
         <form id="workCommandForm">
           <div class="work-context"><span id="workContext">새 업무 또는 오늘 전체 업무에 대해 이야기합니다.</span><button type="button" id="workClearContext" class="work-text-button" data-work-action="clear-context" hidden>선택 해제</button></div>
           <label class="work-sr-only" for="workCommand">업무 요청</label><textarea id="workCommand" rows="2" maxlength="6000" placeholder="평소 말하듯 요청하세요. 앱 열기, 업무 기록, 자료 조사와 정리를 도와드립니다." required></textarea>
-          <div class="work-compose-footer"><span>Enter 전송 · Shift+Enter 줄바꿈</span><button type="submit" id="workSend">요청 보내기</button></div>
+          <input id="workAttachmentInput" type="file" multiple hidden accept=".gif,.png,.jpg,.jpeg,.webp,.ico,.pdf,.docx,.txt,.md,.csv,.tsv,.json,.py,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.sql,.log,.rst,.toml,.zip"><div id="workAttachments" class="work-attachments" aria-live="polite" hidden></div><div class="work-compose-footer"><div class="work-compose-tools"><button type="button" id="workAttach" class="work-quiet" aria-label="파일 첨부" title="파일 첨부 · 최대 6개 · 문서 8MB · 이미지/ZIP 10MB">＋ 첨부</button><span>Enter 전송 · Shift+Enter 줄바꿈</span></div><button type="submit" id="workSend">요청 보내기</button></div>
         </form>
           </div>
         <div class="work-examples" aria-label="요청 예시"><span>이렇게 요청해 보세요</span><button type="button" data-work-example="포토샵 좀 켜줘">포토샵 좀 켜줘</button><button type="button" data-work-example="바탕화면에 뭐가 있는지 살펴봐줘">바탕화면에 뭐가 있는지 살펴봐줘</button><button type="button" data-work-example="내일까지 행사 시안 준비해야 해. 할 일에 넣어줘">내일까지 행사 시안 준비해야 해. 할 일에 넣어줘</button></div>

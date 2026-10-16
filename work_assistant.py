@@ -15,6 +15,7 @@ import quick_launcher
 import chat_launcher
 import windows_app_catalog
 import assistant_voice
+import work_attachments
 
 _LOCKS = quick_launcher._LOCKS
 _LOCKS_GUARD = quick_launcher._LOCKS_GUARD
@@ -91,6 +92,7 @@ class WorkAssistant:
                 CREATE TABLE IF NOT EXISTS work_requests (id TEXT PRIMARY KEY,payload TEXT,response TEXT);
                 CREATE TABLE IF NOT EXISTS work_launcher_choices (id TEXT PRIMARY KEY,message_id TEXT,name TEXT,options TEXT,created TEXT,resolved INTEGER DEFAULT 0);
             ''')
+            work_attachments.initialize(c)
 
     @contextlib.contextmanager
     def _connect(self):
@@ -120,6 +122,8 @@ class WorkAssistant:
                     resource['exists'] = False
         events = [dict(row) for row in c.execute('SELECT * FROM work_events ORDER BY created DESC LIMIT 200')]
         messages = [dict(row) for row in c.execute('SELECT id,role,content,created FROM (SELECT rowid seq,* FROM work_messages ORDER BY rowid DESC LIMIT 100) ORDER BY seq')]
+        for message in messages:
+            message['attachments']=work_attachments.for_message(c,message['id'])
         row = c.execute('SELECT id,day,body,created FROM work_reports WHERE day=? ORDER BY created DESC LIMIT 1', (day,)).fetchone()
         counts = {status: 0 for status in ('todo', 'doing', 'review', 'done')}
         for count in c.execute('SELECT status,count(*) n FROM tasks GROUP BY status'):

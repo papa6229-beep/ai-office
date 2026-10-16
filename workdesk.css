@@ -360,3 +360,18 @@
 #work .work-file-result p{margin-top:5px;color:#a9adb0;font-size:12px;overflow-wrap:anywhere}
 #work .work-file-result button{flex-shrink:0;font-size:12px}
 #work #workFileCoverage{margin-top:13px;white-space:pre-wrap;font-size:11px;line-height:1.7}
+
+/* Attachments stay inside the composer and message scroll areas. */
+#work .work-compose-tools{display:flex;align-items:center;gap:9px;min-width:0}
+#work .work-compose-tools #workAttach{white-space:nowrap;padding:5px 9px;border:1px solid #424a3c;border-radius:7px;color:var(--ao-accent-text,#c5e78f);font-size:12px}
+#work .work-attachments{display:flex;gap:6px;flex-wrap:wrap;max-height:100px;overflow:auto;padding:7px 0}
+#work .work-attachments[hidden]{display:none}
+#work .work-attachment-chip{display:inline-flex;align-items:center;gap:7px;min-width:0;max-width:100%;padding:6px 8px;background:#202622;border:1px solid #3b4939;border-radius:9px;white-space:normal;font-size:12px;box-sizing:border-box}
+#work .work-attachment-chip>img{width:34px;height:34px;object-fit:contain;border-radius:5px;background:#121713;flex:none}
+#work .work-attachment-chip>span{min-width:0}
+#work .work-attachment-chip b{display:block;color:#e7ece3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;font-size:11px}
+#work .work-attachment-chip small{display:block;color:#adb8a7;font-size:10px;max-width:220px;overflow-wrap:anywhere}
+#work .work-attachment-chip button,#work .work-attachment-chip a{padding:3px 6px;font-size:16px;color:#c5e78f;background:transparent;border:0;text-decoration:none;box-shadow:none}
+#work .work-message-attachments{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;white-space:normal}
+#work #workCommandForm.is-file-drag{outline:2px dashed var(--ao-accent,#a5d947);outline-offset:4px;border-radius:9px}
+#work .work-stage-download{display:inline-flex;align-items:center;padding:5px 9px;border:1px solid #495544;border-radius:5px;color:#c5e78f;text-decoration:none;font-size:12px}

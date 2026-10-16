@@ -445,7 +445,7 @@ def status(settings):
 def _snapshot(messages, tools, output_schema):
     if not isinstance(messages, list) or not 1 <= len(messages) <= 80:
         raise ValueError('비서 대화의 크기를 확인하세요.')
-    if not isinstance(tools, list) or len(tools) > 80:
+    if not isinstance(tools, list) or len(tools) > 96:
         raise ValueError('비서 도구 목록을 확인하세요.')
     systems, history, names = [], [], []
     for message in messages:

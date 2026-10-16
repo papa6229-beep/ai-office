@@ -19,6 +19,8 @@ VIDEO_MAX = 256 * 1024 * 1024
 IMAGE_TYPES = {'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif'}
 VIDEO_TYPES = {'.mp4':'video/mp4','.webm':'video/webm'}
 STEP_LABELS={'files_find':'파일 찾기','files_preview':'자료 미리보기','files_reveal':'탐색기 열기','documents_read':'문서 읽기','documents_find':'문서 찾기','stage_publish':'초안 표시','browser_open':'웹사이트 열기','browser_read':'웹페이지 읽기','browser_scroll':'웹페이지 살펴보기','apps_launch':'프로그램 실행','work_create':'업무 등록','work_status':'업무 상태 변경','work_report':'보고서 정리'}
+STEP_LABELS.update({'attachments_list':'첨부 자료 확인','attachment_read':'첨부 자료 읽기·분석',
+                    'attachment_preview':'첨부 미리보기','companion_assets':'캐릭터 목록 확인','companion_apply':'캐릭터 적용'})
 STEP_LABELS.update({'office_source_list':'앱 원본 찾기','office_source_read':'앱 원본 읽기',
                     'office_source_apply':'앱 변경 저장','office_source_history':'앱 변경 이력',
                     'office_source_rollback':'앱 변경 되돌리기'})
@@ -170,15 +172,18 @@ def serve_media(handler, db, files, media_id):
 def _artifact(value):
     if not isinstance(value,dict) or value.get('kind') not in {'code','text','image','video'}:return None
     result={'id':_text(value.get('id'),80),'kind':value['kind'],'title':_text(value.get('title'),120),
-            'origin':value.get('origin') if value.get('origin') in {'source','applied'} else 'draft'}
+            'origin':value.get('origin') if value.get('origin') in {'source','applied','attachment'} else 'draft'}
     if not result['id']:return None
     if result['kind'] in {'image','video'}:
         url=value.get('url','')
-        if not isinstance(url,str) or not re.fullmatch(r'/api/work/media\?id=[0-9a-f]{32}',url):return None
+        if not isinstance(url,str) or not re.fullmatch(r'/api/work/(?:media|attachment)\?id=[0-9a-f]{32}',url):return None
         result['url']=url
     else:
         result.update(text=_text(value.get('text'),12000),language=_text(value.get('language'),30),
                       truncated=bool(value.get('truncated')) or len(str(value.get('text','')))>12000)
+    download_url=value.get('download_url')
+    if isinstance(download_url,str) and re.fullmatch(r'/api/work/attachment\?id=[0-9a-f]{32}&download=1',download_url):
+        result['download_url']=download_url
     return result
 
 def snapshot(db, request_id=None):

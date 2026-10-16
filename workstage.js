@@ -12,8 +12,12 @@
     $('workStage').querySelectorAll('[data-stage-tab]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.stageTab===tab)));
   }
   function mediaURL(value) {
-    try {const url=new URL(value,location.origin);return url.origin===location.origin && url.pathname==='/api/work/media' && url.searchParams.has('id') ? url.href : '';}
+    try {const url=new URL(value,location.origin);return url.origin===location.origin && ['/api/work/media','/api/work/attachment'].includes(url.pathname) && /^[a-f0-9-]{32,36}$/i.test(url.searchParams.get('id') || '') ? url.href : '';}
     catch {return '';}
+  }
+  function downloadURL(value) {
+    try{const url=new URL(value,location.origin);return url.origin===location.origin && ['/api/work/attachment','/api/work/media'].includes(url.pathname) && /^[a-f0-9-]{32,36}$/i.test(url.searchParams.get('id') || '') && url.searchParams.get('download')==='1' ? url.href : '';}
+    catch{return '';}
   }
   function content(artifact,expanded=false) {
     const area=document.createElement('div');area.className='work-stage-artifact-content';
@@ -39,11 +43,13 @@
       const card=document.createElement('article');card.className='work-stage-artifact';
       const header=document.createElement('header'),title=document.createElement('strong'),badge=document.createElement('small');
       title.textContent=artifact.title || '작업 결과';
-      const origin={source:'원본 자료',applied:'실제 적용된 소스 변경',draft:artifact.kind==='code' ? '코드 초안' : '텍스트 초안',summary:'AI 요약',ai:'AI 결과'}[artifact.origin] || (artifact.kind==='code' ? '코드 초안' : '작업 결과');
+      const origin={source:'원본 자료',attachment:'첨부 원본',applied:'실제 적용된 소스 변경',draft:artifact.kind==='code' ? '코드 초안' : '텍스트 초안',summary:'AI 요약',ai:'AI 결과'}[artifact.origin] || (artifact.kind==='code' ? '코드 초안' : '작업 결과');
       badge.textContent=[origin,artifact.language,artifact.truncated ? '일부 표시' : ''].filter(Boolean).join(' · ');header.append(title,badge);card.append(header,content(artifact));
       const actions=document.createElement('div');actions.className='work-stage-artifact-actions';
       const enlarge=document.createElement('button');enlarge.type='button';enlarge.textContent='크게 보기';enlarge.addEventListener('click',()=>expand(artifact));actions.append(enlarge);
       if(['code','text'].includes(artifact.kind)){const copy=document.createElement('button');copy.type='button';copy.textContent='복사';copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(String(artifact.text || ''));notice('내용을 복사했습니다.');}catch{notice('복사 권한을 확인해 주세요. 크게 보기에서 텍스트를 선택할 수 있습니다.');}});actions.append(copy);}
+      const href=downloadURL(artifact.download_url);
+      if(href){const link=document.createElement('a');link.href=href;link.download='';link.className='work-stage-download';link.textContent='다운로드';actions.append(link);}
       card.append(actions);root.append(card);
     }
     if(artifacts.length && !resultRevealed){resultRevealed=true;if(!userSelected)select('results');}
