@@ -42,6 +42,11 @@
           <div class="work-form-actions"><button type="button" class="work-quiet" data-work-action="cancel-task">취소</button><button type="submit">업무 저장</button></div>
         </form>
         <div id="workTaskList" class="work-task-list"><p class="work-empty">업무를 불러오고 있습니다.</p></div>
+      <article id="workInbox" class="work-inbox" aria-labelledby="workInboxTitle">
+        <div class="work-panel-heading"><h3 id="workInboxTitle">업무 확인·기록</h3><span class="work-muted">오늘의 업무와 연결</span></div>
+        <nav class="work-inbox-tabs" aria-label="업무 기록 분류"><button type="button" id="workInboxPendingTab" data-work-inbox-tab="pending" aria-pressed="true" aria-controls="workInboxPending">확인 필요</button><button type="button" id="workInboxRecordsTab" data-work-inbox-tab="records" aria-pressed="false" aria-controls="workInboxRecords">업무 기록</button><button type="button" id="workInboxResourcesTab" data-work-inbox-tab="resources" aria-pressed="false" aria-controls="workInboxResources">연결 자료</button></nav>
+        <div id="workInboxPending" class="work-inbox-content"><p class="work-inbox-empty">업무 기록을 불러오고 있습니다.</p></div><div id="workInboxRecords" class="work-inbox-content" hidden></div><div id="workInboxResources" class="work-inbox-content" hidden></div>
+      </article>
       </article>
     </div>
     <aside class="work-rail" aria-label="바로가기 런처">
@@ -53,13 +58,17 @@
         <div id="workLauncherBoard" class="work-launcher-board" role="region" tabindex="0" aria-label="바로가기 카드 보드 · 아래로 스크롤"><div id="workLauncherGrid" class="work-launcher-grid"><p class="work-launcher-empty">바로가기를 불러오는 중…</p></div></div>
         <div class="work-launcher-footer"><div><p id="workLauncherCount" class="work-launcher-count"></p><p class="work-launcher-tip">드래그로 순서 변경 · 우클릭으로 수정</p></div><button type="button" class="work-launcher-refresh" data-launcher-action="reload">목록 새로고침</button></div>
       </article>
-      <article id="workInbox" class="work-inbox" aria-labelledby="workInboxTitle">
-        <div class="work-panel-heading"><h3 id="workInboxTitle">INBOX</h3><span class="work-muted">업무에서 이어지는 항목</span></div>
-        <nav class="work-inbox-tabs" aria-label="인박스 분류"><button type="button" id="workInboxPendingTab" data-work-inbox-tab="pending" aria-pressed="true" aria-controls="workInboxPending">확인 필요</button><button type="button" id="workInboxRecordsTab" data-work-inbox-tab="records" aria-pressed="false" aria-controls="workInboxRecords">업무 기록</button><button type="button" id="workInboxResourcesTab" data-work-inbox-tab="resources" aria-pressed="false" aria-controls="workInboxResources">연결 자료</button></nav>
-        <div id="workInboxPending" class="work-inbox-content"><p class="work-inbox-empty">업무 기록을 불러오고 있습니다.</p></div><div id="workInboxRecords" class="work-inbox-content" hidden></div><div id="workInboxResources" class="work-inbox-content" hidden></div>
+      <article id="workStage" class="work-stage" aria-labelledby="workStageTitle" tabindex="-1">
+        <div class="work-panel-heading"><h3 id="workStageTitle">WORKSPACE</h3><span id="workStageStatus" class="work-stage-status">준비됨</span></div>
+        <p id="workStageRequest" class="work-stage-request">Aemeath의 작업 과정과 결과를 확인하세요.</p>
+        <nav class="work-stage-tabs" aria-label="작업 화면"><button type="button" data-stage-tab="process" aria-pressed="true">과정</button><button type="button" data-stage-tab="results" aria-pressed="false">결과 <span id="workStageCount">0</span></button></nav>
+        <div id="workStageProcess" class="work-stage-process"><p class="work-stage-empty">채팅으로 업무를 요청하면 실제 처리 단계가 여기에 표시됩니다.</p></div>
+        <div id="workStageResults" class="work-stage-results" hidden><p class="work-stage-empty">파일 찾기의 ‘미리보기’나 업무에 연결된 자료를 열어 확인하세요.</p></div>
+        <p id="workStageNotice" class="work-stage-notice" role="status" aria-live="polite"></p>
       </article>
     </aside>
   </div>
+  <dialog id="workStageDialog" class="work-stage-dialog" aria-labelledby="workStageDialogTitle"><header><h3 id="workStageDialogTitle">결과 미리보기</h3><button type="button" data-stage-action="close">닫기 ×</button></header><div id="workStageExpanded"></div></dialog>
   <dialog id="workFileDialog" class="work-dialog work-file-dialog" aria-labelledby="workFileTitle">
     <div class="work-dialog-heading"><h3 id="workFileTitle">파일 찾기</h3><button type="button" class="work-quiet" data-files-action="close" aria-label="파일 찾기 닫기">닫기 ×</button></div>
     <p class="work-muted">채팅에서도 파일을 찾아서 위치를 열어달라고 말할 수 있어요.</p>

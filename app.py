@@ -19,6 +19,8 @@ import assistant_model
 import browser_workspace
 import windows_workspace
 import capabilities
+import work_stage
+import file_workspace
 import json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -180,17 +182,30 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
         if path in _AEMEATH_ASSETS:
             b=(ROOT/path.lstrip('/')).read_bytes()
             self.send_response(200);self.send_header('Content-Type','image/gif' if path.endswith('.gif') else 'image/png');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(b);return
-        if path in {'/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js','/retro.css','/assets/fonts/PretendardVariable.woff2','/assets/fonts/BarlowCondensed-Bold.ttf','/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'}:
+        if path in {'/workstage.css','/workstage.js','/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js','/retro.css','/assets/fonts/PretendardVariable.woff2','/assets/fonts/BarlowCondensed-Bold.ttf','/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'}:
             b=(ROOT/path.lstrip('/')).read_bytes()
             mime='font/woff2' if path.endswith('.woff2') else 'font/ttf' if path.endswith('.ttf') else 'text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8'
             self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.end_headers();self.wfile.write(b);return
         if path=='/first-release.html':
             b=(ROOT/'first-release.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
+        if path=='/api/work/stage':
+            from urllib.parse import parse_qs
+            try:return self.reply(work_stage.snapshot(DB,parse_qs(urlparse(self.path).query).get('request_id',[None])[0]))
+            except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'작업 진행 기록을 읽지 못했습니다.'},400)
+        if path=='/api/work/media':
+            from urllib.parse import parse_qs
+            try:
+                files=file_workspace.FileWorkspace(db_path=DB,workspace=config().get('workspace'))
+                return work_stage.serve_media(self,DB,files,parse_qs(urlparse(self.path).query).get('id',[''])[0])
+            except (BrokenPipeError,ConnectionResetError):return
+            except (ValueError,OSError,sqlite3.Error):
+                if getattr(self,'_stage_media_started',False):self.close_connection=True;return
+                return self.reply({'error':'미리보기가 만료되었거나 자료가 변경되었습니다.'},404)
         if path=='/api/work':
             try:return self.reply(work_view())
             except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'업무 기록을 읽지 못했습니다. 기존 자료를 보존했습니다.'},400)
@@ -296,6 +311,9 @@ class Handler(BaseHTTPRequestHandler):
                 if p=='/api/files/search':
                     if set(d)-{'token','query','kind','limit'}:raise ValueError('파일 검색 요청을 확인하세요.')
                     return self.reply(service.search(d.get('query',''),d.get('kind','all'),d.get('limit',50)))
+                if p=='/api/files/preview':
+                    if set(d)-{'token','id','selection_token'}:raise ValueError('검색한 파일만 선택할 수 있습니다.')
+                    return self.reply(service.preview(d.get('id'),d.get('selection_token')))
                 if p=='/api/files/reveal':
                     if set(d)-{'token','id','selection_token','request_id'}:raise ValueError('검색한 파일만 선택할 수 있습니다.')
                     return self.reply(service.reveal(d.get('id'),d.get('selection_token'),d.get('request_id')))
@@ -331,6 +349,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
                 payload={k:v for k,v in d.items() if k!='token'}
+                if p=='/api/work/preview-resource':
+                    if set(payload)-{'resource_id'}:raise ValueError('등록한 업무 자료만 미리 볼 수 있습니다.')
+                    files=file_workspace.FileWorkspace(db_path=DB,workspace=config().get('workspace'))
+                    return self.reply(work_stage.resource_preview(DB,files,payload.get('resource_id')))
                 service=work_service()
                 if p=='/api/work/open-resource':
                     if set(payload)-{'resource_id','request_id'}:raise ValueError('등록한 업무 자료만 열 수 있습니다.')

@@ -97,6 +97,16 @@ class CapabilityService:
             return self.files.reveal(item_id, expected=json.loads(row[1]))
         return self._once('files_reveal', {'id': item_id, 'selection_token': selection_token}, request_id, operation)
 
+    def preview(self, item_id, selection_token):
+        if not isinstance(item_id,str) or not isinstance(selection_token,str):
+            raise ValueError('검색 결과에서 파일을 다시 선택하세요.')
+        with self._db() as c:
+            row=c.execute('SELECT item_id,snapshot,created FROM capability_selections WHERE token=?',(selection_token,)).fetchone()
+        if not row or row[0]!=item_id or row[2]<time.time()-SELECTION_TTL:
+            raise ValueError('파일 선택이 만료되었거나 변경되었습니다. 다시 검색하세요.')
+        import work_stage
+        return work_stage.preview(self.db_path,self.files,json.loads(row[1]))
+
     def policy_snapshot(self):
         with organizer_policy.LOCK:
             saved = organizer_policy._read()
@@ -164,7 +174,7 @@ class CapabilityService:
                      else 'files' if prefix in {'files', 'documents', 'scan'} else prefix)
             items.append({'name': name, 'category': group, 'description': spec[1][:80], 'effect': spec[0],
                           'status': 'connected', 'channels': ['chat']})
-        click_connected = {'files_find', 'files_reveal', 'apps_list', 'apps_find', 'launcher_list',
+        click_connected = {'files_find', 'files_reveal', 'files_preview', 'apps_list', 'apps_find', 'launcher_list',
                            'launcher_add', 'launcher_add_web', 'launcher_edit', 'launcher_remove',
                            'launcher_reorder', 'launcher_launch', 'bookmarks_list', 'bookmark_add',
                            'work_list', 'work_create', 'work_status', 'work_note', 'work_resources', 'work_report',
