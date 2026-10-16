@@ -1,19 +1,24 @@
 /* Small desk instrument: independent of the page and panel geometry. */
-#workAmbient.work-ambient{position:relative;min-width:0;margin-top:8px;padding:9px 9px 7px;border:1px solid #3e4938;border-radius:10px;background:repeating-linear-gradient(0deg,transparent 0 3px,#a7d64a04 3px 4px),#141a16;box-shadow:inset 0 0 15px #0005;color:#a9d953;overflow:hidden;container-type:inline-size}
+#workAmbient.work-ambient{position:relative;min-width:0;margin-top:8px;padding:9px 9px 8px;border:1px solid #536448;border-radius:10px;background:repeating-linear-gradient(0deg,transparent 0 3px,#a7d64a04 3px 4px),#141a16;box-shadow:inset 0 0 15px #0005;color:#b6ed64;overflow:hidden;container-type:inline-size}
 #workAmbientTime{display:block;font-family:Consolas,'Courier New',monospace;font-weight:700;font-size:clamp(20px,1.65vw,29px);line-height:1.05;letter-spacing:.025em;white-space:nowrap;text-align:center;font-variant-numeric:tabular-nums;text-shadow:0 0 9px #a8da4833}
-#workAmbient .work-ambient-weather{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:5px}
-#workAmbientWeatherIcon{font-family:'Segoe UI Symbol',sans-serif;font-size:23px;line-height:1;filter:grayscale(1);color:#b3d17f}
-#workAmbient .work-ambient-weather>span:last-child{display:flex;align-items:baseline;gap:5px;min-width:0}
-#workAmbientTemperature{font-family:Consolas,monospace;font-size:22px;line-height:1;font-weight:700;color:#e9eddf}
-#workAmbientWeather{font-size:9px;color:#b1bcaa;line-height:1.3}
-#workAmbientUpdated{display:block;margin-top:5px;text-align:center;color:#7b8c78;font-family:Consolas,monospace;font-size:8px;line-height:1.3;letter-spacing:-.15px}
+#workAmbient .work-ambient-weather{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:5px}
+#workAmbientWeatherIcon{font-family:'Segoe UI Symbol',sans-serif;font-size:20px;line-height:1;filter:grayscale(1);color:#b3d17f}
+#workAmbient .work-ambient-weather>span:last-child{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:6px;min-width:0}
+#workAmbientTemperature{font-family:Consolas,monospace;font-size:25px;line-height:1;font-weight:700;color:#f3f5ec}
+#workAmbientWeather{font-size:12px;font-weight:600;color:#e1e8d8;line-height:1.3;overflow-wrap:anywhere}
+#workAmbientUpdated{display:block;margin-top:6px;text-align:center;color:#b9c7ad;font-family:Pretendard,sans-serif;font-size:11px;line-height:1.3}
 #workAmbientUpdated a{color:inherit;text-decoration:none}
 #workAmbientUpdated a:hover,#workAmbientUpdated a:focus-visible{color:#b7e16c;text-decoration:underline}
 #workAmbient[data-weather-status="stale"] #workAmbientTemperature{color:#a9afa3}
 @container (max-width:125px){
-  #workAmbientTime{font-size:18px;letter-spacing:0}
+  #workAmbientTime{font-size:20px;letter-spacing:0}
   #workAmbient .work-ambient-weather{gap:5px}
-  #workAmbient .work-ambient-weather>span:last-child{display:block}
-  #workAmbientWeather{display:block;font-size:8px;margin-top:3px}
-  #workAmbientUpdated{font-size:7px;letter-spacing:-.3px}
+  #workAmbient .work-ambient-weather>span:last-child{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
 }
+/* The clock and composer share a row ending; examples sit beneath both. */
+body.work-desktop #work .work-conversation-layout{grid-template-rows:minmax(0,1fr) auto;row-gap:6px}
+body.work-desktop #work .work-companion-rail{display:flex;flex-direction:column;grid-column:1;grid-row:1;gap:10px}
+body.work-desktop #work .work-companion-rail>.work-companion,body.work-desktop #work .work-companion-rail>.work-calendar{flex-shrink:0;margin-top:0}
+body.work-desktop #work .work-companion-rail>#workAmbient{flex-shrink:0;margin-top:auto}
+body.work-desktop #work .work-conversation-content{grid-column:2;grid-row:1}
+body.work-desktop #work .work-examples{grid-column:2;grid-row:2;margin-top:0}
