@@ -30,7 +30,8 @@ def validate_endpoint(url):
     return url.rstrip('/')
 
 def analyze(files, settings, reader, model):
-    validate_endpoint(settings.get('gemma_url',''))
+    if settings.get('api_type') != 'codex':
+        validate_endpoint(settings.get('gemma_url',''))
     if not isinstance(files,list) or not 1<=len(files)<=MAX_FILES:
         raise ValueError(f'분석할 파일을 1~{MAX_FILES}개 선택하세요.')
     documents=[]
@@ -60,4 +61,4 @@ def analyze(files, settings, reader, model):
         confidence=max(0,min(1,float(confidence)))
         source=by_id[str(item['id'])]
         results.append({'name':source['name'],'project':str(item.get('project',''))[:120],'task':str(item.get('task',''))[:120],'confidence':round(confidence,2),'reason':str(item.get('reason',''))[:300],'state':'검토 후보' if confidence>=MIN_CONFIDENCE else '보류'})
-    return {'items':results,'note':'선택한 파일 내용으로 설정된 Gemma 서버가 만든 검토 후보입니다. 자동 분류 확정이나 파일 변경은 하지 않습니다.'}
+    return {'items':results,'note':'선택한 파일 내용으로 설정된 모델이 만든 검토 후보입니다. 자동 분류 확정이나 파일 변경은 하지 않습니다.'}

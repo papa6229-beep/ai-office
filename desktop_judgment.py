@@ -212,7 +212,8 @@ def start(force=False):
                 raise ValueError()
             settings = copy.deepcopy(_supplier())
             settings['_judgment_background'] = True
-            validate_endpoint(settings.get('gemma_url', ''))
+            if settings.get('api_type') != 'codex':
+                validate_endpoint(settings.get('gemma_url', ''))
             engine_settings = {k: settings.get(k) for k in ('gemma_url', 'gemma_model', 'api_type')}
             engine_settings['vision_model'] = str(settings.get('vision_model') or '').strip() or settings.get('gemma_model', '')
             signature = hashlib.sha256(json.dumps(engine_settings, sort_keys=True).encode()).hexdigest()
@@ -341,7 +342,8 @@ def _analyze(item, settings, signature, local_only=False):
         model_name = str(settings.get('vision_model') or '').strip() or settings.get('gemma_model', '')
         import lmstudio_runtime
         supported_transport = settings.get('api_type', 'ollama') == 'ollama' or (
-            lmstudio_runtime.is_managed(settings) and model_name == 'google/gemma-4-e4b')
+            lmstudio_runtime.is_managed(settings) and model_name == 'google/gemma-4-e4b') or (
+            settings.get('api_type') == 'codex' and model_name == 'gpt-6-luna')
         if not supported_transport or not local_image_review._vision_model(model_name):
             row['reason'] = '설정된 모델은 이미지 이해를 지원하지 않아 보류했습니다.'
             return row

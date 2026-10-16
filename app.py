@@ -34,7 +34,7 @@ _AEMEATH_ASSETS = frozenset(f'/assets/aemeath/{state}.{extension}'
 DB=ROOT/'office.db'
 CFG=ROOT/'settings.json'
 HOST='127.0.0.1'; PORT=8765
-DEFAULT={'gemma_url':'http://127.0.0.1:1234/v1','gemma_model':'google/gemma-4-e4b','vision_model':'','api_type':'openai','lmstudio_auto_start':True,'api_key':'','workspace':str(pathlib.Path.home()/'Documents'/'AI-Office'),'timeout':60}
+DEFAULT={'gemma_url':'http://127.0.0.1:1234/v1','gemma_model':'gpt-6-luna','vision_model':'gpt-6-luna','api_type':'codex','lmstudio_auto_start':False,'ai_on_demand_only':True,'api_key':'','workspace':str(pathlib.Path.home()/'Documents'/'AI-Office'),'timeout':60}
 def config():
     if not CFG.exists(): CFG.write_text(json.dumps(DEFAULT,ensure_ascii=False,indent=2),encoding='utf-8')
     return {**DEFAULT,**json.loads(CFG.read_text(encoding='utf-8'))}
@@ -46,7 +46,11 @@ def db():
     c.commit();return c
 def now():return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 def call_gemma(prompt,settings=None):
-    s=settings if settings is not None else config();base=local_content_review.validate_endpoint(s['gemma_url']); t=int(s.get('timeout',60));model=s['gemma_model']
+    s=settings if settings is not None else config()
+    if s.get('api_type')=='codex':
+        import codex_bridge
+        return codex_bridge.ask(prompt,s,background=s.get('_judgment_background') is True)
+    base=local_content_review.validate_endpoint(s['gemma_url']); t=int(s.get('timeout',60));model=s['gemma_model']
     lmstudio_runtime.ensure_ready(s)
     managed=lmstudio_runtime.is_managed(s)
     if s['api_type']=='openai':
@@ -75,6 +79,13 @@ def call_gemma(prompt,settings=None):
     return response['message']['content']
 def call_gemma_vision(prompt,image_b64,settings=None):
     s=settings if settings is not None else config()
+    if s.get('api_type')=='codex':
+        import codex_bridge
+        header=base64.b64decode(image_b64[:32],validate=True)
+        mime='image/png' if header.startswith(b'\x89PNG\r\n\x1a\n') else (
+            'image/webp' if header.startswith(b'RIFF') and header[8:12]==b'WEBP' else 'image/jpeg')
+        return codex_bridge.ask(prompt,s,image_data_url='data:'+mime+';base64,'+image_b64,
+                                background=s.get('_judgment_background') is True)
     managed=lmstudio_runtime.is_managed(s)
     if s.get('api_type')!='ollama' and not managed:raise ValueError('이미지 내용 분석은 Ollama Gemma 또는 관리되는 로컬 E4B 연결에서 지원합니다.')
     lmstudio_runtime.ensure_ready(s)
@@ -120,12 +131,16 @@ def configure_ai():
 def start_ai_supervisor():
     global _AI_THREAD
     configure_ai()
+    settings=config()
+    if settings.get('api_type')=='codex' or settings.get('ai_on_demand_only') is True:return
     with _AI_LOCK:
         if _AI_THREAD and _AI_THREAD.is_alive():return
         _AI_STOP.clear()
         def supervise():
             while not _AI_STOP.is_set():
                 try:
+                    settings=config()
+                    if settings.get('api_type')=='codex' or settings.get('ai_on_demand_only') is True:break
                     state=desktop_judgment.status()
                     if state.get('enabled') and not state.get('running'):desktop_judgment.start()
                 except (ValueError,OSError):pass
@@ -502,15 +517,17 @@ class Handler(BaseHTTPRequestHandler):
                     new['lmstudio_auto_start']=d['lmstudio_auto_start']
                 if 'api_key' in d and d['api_key']!='(설정됨)':new['api_key']=d['api_key']
                 s=config();s.update(new)
-                if s['api_type'] not in ['ollama','openai']:raise ValueError('지원하지 않는 API 형식')
-                local_content_review.validate_endpoint(s['gemma_url'])
+                if s['api_type'] not in ['ollama','openai','codex']:raise ValueError('지원하지 않는 API 형식')
+                if s['api_type']=='codex':
+                    s.update(gemma_model='gpt-6-luna',vision_model='gpt-6-luna',lmstudio_auto_start=False,ai_on_demand_only=True)
+                else:local_content_review.validate_endpoint(s['gemma_url'])
                 CFG.write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding='utf-8');return self.reply({'ok':True})
             if p=='/api/ask':
                 text=str(d.get('prompt','')).strip()[:12000]
                 if not text:raise ValueError('업무 지시를 입력해 주세요.')
                 try:
-                    answer=call_gemma(text);runlog('Gemma','완료',text[:100],answer[:12000]);return self.reply({'answer':answer})
-                except Exception as e:runlog('Gemma','실패',text[:100],str(e));raise
+                    answer=call_gemma(text);runlog('모델','완료',text[:100],answer[:12000]);return self.reply({'answer':answer})
+                except Exception as e:runlog('모델','실패',text[:100],str(e));raise
             if p in ('/api/plan-files','/api/execute-files'):
                 return self.reply({'error':'파일 정리는 저장한 정리 범위에서 실행하도록 변경되었습니다. 자동 폴더 정리 화면을 이용하세요.','page':'files'},409)
             if p=='/api/test':

@@ -30,7 +30,7 @@ def _vision_model(name):
     family, _, tag = name.partition(':')
     if 'cloud' in name:
         return False
-    if name == 'google/gemma-4-e4b':
+    if name in {'google/gemma-4-e4b', 'gpt-6-luna'}:
         return True
     if family == 'gemma4':
         return True
@@ -207,10 +207,11 @@ def _prediction(raw, name):
 
 
 def analyze(files, settings, model):
-    validate_endpoint(settings.get('gemma_url', ''))
+    if settings.get('api_type') != 'codex':
+        validate_endpoint(settings.get('gemma_url', ''))
     model_name = str(settings.get('vision_model') or '').strip() or settings.get('gemma_model', '')
     if not _vision_model(model_name):
-        raise ValueError('이미지 입력을 지원하는 Gemma 4 또는 Gemma 3 4B·12B·27B 모델을 설정하세요.')
+        raise ValueError('이미지 입력을 지원하는 모델(GPT-6 Luna 또는 지원 Gemma)을 설정하세요.')
     if not isinstance(files, list) or not 1 <= len(files) <= MAX_FILES:
         raise ValueError(f'분석할 이미지를 1~{MAX_FILES}개 선택하세요.')
     # Validate and prepare the whole selection before transmitting any image to the configured model.

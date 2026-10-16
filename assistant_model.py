@@ -48,6 +48,9 @@ def _messages(messages, kind):
 
 def call(messages, tools, settings, *, output_schema=None):
     """Return normalized tool calls; this function never executes a tool."""
+    if settings.get('api_type') == 'codex':
+        import codex_bridge
+        return codex_bridge.call(messages, tools, settings, output_schema=output_schema)
     lmstudio_runtime.ensure_ready(settings)
     managed = lmstudio_runtime.is_managed(settings)
     try:

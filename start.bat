@@ -30,7 +30,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-echo Preparing selected local model...
+echo Checking optional local model preparation...
 %PYEXE% -u lmstudio_runtime.py >> "%LOG%" 2>&1
 if errorlevel 1 (
   echo [WARNING] Local model is not ready. See startup.log and AI OFFICE connection settings.
