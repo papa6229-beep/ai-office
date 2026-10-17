@@ -9,6 +9,8 @@
     snapshot=data;
     document.dispatchEvent(new CustomEvent('office-notifications-state',{detail:{unread:data.unread}}));
     $('workNotificationUnread').textContent=String(data.unread||0);
+    const badge=$('notificationNavUnread');
+    if(badge){badge.textContent=String(data.unread||0);badge.hidden=!data.unread;}
     $('workNotificationReceiver').textContent=data.receiver?.message||'알림 수신 상태 확인 중';
     $('workNotificationsConfirmAll').disabled=writing||!data.unread;
     const signature=JSON.stringify(data.items);
@@ -65,6 +67,7 @@
       if(typeof window.workNotificationCommand!=='function')throw Error('오피스를 새로고침한 뒤 다시 요청해 주세요.');
       const promise=window.workNotificationCommand(request);
       $('workNotificationDialog').close();
+      if(typeof window.show==='function')window.show('work');
       await promise;
     }catch(error){if(!$('workNotificationDialog').open)$('workNotificationDialog').showModal();message(error.message);}
   }
