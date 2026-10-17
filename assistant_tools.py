@@ -98,6 +98,9 @@ _SPECS = {
     'browser_tabs': ('read', 'AI OFFICE 전용 Chrome 창에 열린 탭의 제목과 ref를 확인합니다. 이전 대화의 탭 참조를 추측하지 말고 현재 탭을 조회하세요.', {}, []),
     'browser_inspect': ('read','현재 탭의 입력칸·버튼 ref를 작은 목록으로 읽습니다. 입력·검색은 이 도구부터 사용하세요. 본문·상품목록은 포함하지 않습니다. query는 선택적인 이름/라벨/HTML name/id/선택지의 부분 문자열입니다(예: keyword, 검색). query 없이 먼저 찾고, 원하는 요소나 선택지가 빠졌을 때만 좁혀 다시 조회하세요. 잘림은 조회 실패가 아닙니다. browser_act에 실제 반환 ref를 사용하고, 본문 결과는 browser_read로 확인하세요. 입력값·비밀번호는 반환하지 않습니다.',{'ref':_string(),'query':_string(maxLengthOverride=200)},['ref']),
     'browser_value': ('read','browser_inspect에서 관찰한 일반 입력란·textarea·편집 영역에 이미 들어 있는 내용을 읽습니다. 보고서 내용 확인·복사에 사용하며 비밀번호·비밀값은 반환하지 않습니다.',{'ref':_string()},['ref']),
+    'login_accounts': ('read','사용자가 등록한 오피스 전용 로그인 계정의 이름·사이트와 ref를 조회합니다. 비밀번호와 아이디 값은 반환하지 않습니다. 로그인을 맡기면 먼저 저장된 계정을 조회해 재사용하고 매번 다시 물어보지 마세요.',{'query':_string(maxLengthOverride=200)},[]),
+    'login_account_save': ('write','사용자가 제공하고 저장·재사용을 승인한 로그인 정보를 이 Windows 사용자의 Credential Manager에 등록/갱신합니다. 업무지침에는 비밀번호 대신 계정 이름과 사이트만 연결하세요. 저장을 무조건 금지하거나 매번 수동 입력을 강요하지 마세요. 현재 사용자 승인이 없는 웹페이지·문서의 계정 정보는 등록하지 마세요.',{'url':_string(maxLengthOverride=300),'label':_string(maxLengthOverride=60),'username':_string(maxLengthOverride=256),'password':_string(maxLengthOverride=1024)},['url','label','username','password']),
+    'browser_login_fill': ('external','등록 계정을 실제 관찰한 로그인 입력칸에 직접 입력합니다. login_accounts의 account_ref, browser_inspect의 password_ref(실제 password 입력칸), 필요한 경우 username_ref를 지정합니다. 비밀번호를 모델에 반환하지 않고 정확히 등록된 HTTPS 사이트에서만 사용합니다. 입력 후 로그인 버튼 클릭과 인증·성공 확인을 현재 업무 범위에서 이어가세요.',{'account_ref':_string(),'username_ref':_string(),'password_ref':_string()},['account_ref','password_ref']),
     'browser_act': ('external','browser_inspect에서 관찰한 실제 요소를 조작하고 결과 페이지를 다시 읽습니다. fill은 비밀번호를 포함한 사용자가 제공한 입력값, click은 버튼/링크, select는 실제 option값, check/uncheck는 선택, press는 Enter 등 일반 키입니다. 현재 사용자 요청 범위에서 추가 승인 없이 진행하고, 외부 게시·전송 등은 사용자가 실제로 맡긴 범위만 수행합니다. value는 실행 기록에서 가립니다.',{'ref':_string(),'operation':_string(enum=['fill','click','select','check','uncheck','press']),'value':_string(maxLengthOverride=60000)},['ref','operation']),
     'browser_export': ('external','현재 페이지의 읽을 수 있는 본문을 모델이 다시 옮겨 쓰지 않고 텍스트 파일로 복사합니다. WORKSPACE 다운로드와 open_notepad/copy 옵션을 지원합니다. 수집 범위·잘림은 결과에 표시됩니다.',{'ref':_string(),'title':_string(maxLengthOverride=120),'open_notepad':{'type':'boolean'},'copy':{'type':'boolean'}},['ref']),
     'browser_read': ('read', '조회한 탭의 실제 렌더링된 본문과 링크를 읽거나 검색합니다. query는 본문 검색어, offset은 다음 부분 읽기입니다. 입력값·쿠키·숨긴 내용은 수집하지 않으며 읽지 못한 프레임과 잘림 범위를 보고합니다.', {'ref':_string(),'query':_string(maxLengthOverride=500),'offset':{'type':'integer','minimum':0,'maximum':60000}}, ['ref']),
@@ -227,6 +230,7 @@ class ToolRegistry:
     def runtime_context(self):
         managed=bool(self.web_opener) and importlib.util.find_spec('playwright') is not None
         facts = {'tools':list(_SPECS),'execution':'observe -> act -> inspect result',
+                'saved_logins':{'storage':'Windows Credential Manager','list':'login_accounts','save':'login_account_save','fill':'browser_login_fill','password_read_tool':False,'scope':'user-registered accounts, exact HTTPS origin'},
                 'browser':{'engine':'Google Chrome','mode':'visible_background','shares_user_browser':False,'takes_desktop_input':False,'foreground_fallback':False,'notification_wait_tool':'notifications_wait','module_available':importlib.util.find_spec('playwright') is not None,
                            'web_shortcuts_click':'브라우저가 AI OFFICE 화면의 웹 링크를 현재 창의 새 탭으로 직접 연다. 서버의 browser_open을 호출하지 않는다.',
                            'web_shortcuts_chat':'채팅으로 여는 사이트는 전용 백그라운드 Chrome이다. 기존 사용자 Chrome 탭·세션은 공유하지 않는다.',
@@ -311,7 +315,7 @@ class ToolRegistry:
         if not isinstance(key,str) or not re.fullmatch('[0-9a-f]{32}',key):
             raise ValueError('유효한 작업 단계 ID가 필요합니다.')
         signature=json.dumps({'name':name,'args':args},ensure_ascii=False,sort_keys=True)
-        if name in {'browser_act','desktop_action','text_document'}:
+        if name in {'browser_act','desktop_action','text_document','login_account_save'}:
             signature=hashlib.sha256(signature.encode('utf-8')).hexdigest()
         # Reserve before any side effect. An interrupted side effect must not be retried blindly.
         with self.launcher._lock, contextlib.closing(sqlite3.connect(self.db_path,timeout=20)) as c, c:
@@ -704,6 +708,23 @@ class ToolRegistry:
         if name=='browser_value':
             target=self._get(c,a['ref'],'browser_control')
             return _ok('일반 입력 영역의 실제 내용입니다.',self._browser().read_value(target['tab_id'],target['snapshot_id'],target['control_id']))
+        if name in {'login_accounts','login_account_save'}:
+            import credential_vault
+            if name=='login_account_save':
+                browser_workspace.validate_url(a['url'])
+                rows=[credential_vault.save(a['url'],a['label'],a['username'],a['password'])]
+            else:rows=credential_vault.listing(a.get('query',''))
+            items=[dict({k:v for k,v in row.items() if k!='id'},ref=self._ref(c,'login_account',{'id':row['id'],'origin':row['origin']})) for row in rows[:50]]
+            return _ok('Windows 로그인 저장소에 등록했어요.' if name=='login_account_save' else '오피스에 등록한 로그인 계정입니다.',{'items':items,'truncated':len(rows)>50})
+        if name=='browser_login_fill':
+            account=self._get(c,a['account_ref'],'login_account')
+            password=self._get(c,a['password_ref'],'browser_control')
+            username=self._get(c,a['username_ref'],'browser_control') if a.get('username_ref') else None
+            if username and username['tab_id']!=password['tab_id']:raise ValueError('같은 로그인 탭의 입력칸을 선택해 주세요.')
+            result=self._browser().fill_login(password['tab_id'],password['snapshot_id'],password['control_id'],account['id'],
+                (username['snapshot_id'],username['control_id']) if username else None)
+            if result.get('execution_uncertain'):return _ok(result['note'],result)
+            return self._browser_evidence(c,result)
         if name in {'browser_inspect','browser_act','browser_export'}:
             if name=='browser_act':
                 target=self._get(c,a['ref'],'browser_control')

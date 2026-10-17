@@ -40,7 +40,7 @@ desk-collections.js desk-judgment.js desk-organizer.js desk-policy.js desk.js
 model-connections.js model-connections.css workambient.js workdesk.js workstage.js work-notifications.js work-notifications.css work-observer.js desk.css retro.css workambient.css
 workdesk.css workstage.css first-release.html index.html workdesk.html'''.split())
 MANAGED = ROOT / 'local_backups' / 'codex-agent-state' / 'managed-sources.json'
-PROTECTED = frozenset({'self_edit.py','office_reload.py','agent_workspace.py','agent_state.py','office_feedback.py','workspace_tools.py','direct_phone.py','claude_office_agent.py','office_mcp_stdio.py','task_control.py'})
+PROTECTED = frozenset({'self_edit.py','office_reload.py','agent_workspace.py','agent_state.py','office_feedback.py','workspace_tools.py','direct_phone.py','claude_office_agent.py','office_mcp_stdio.py','task_control.py','credential_vault.py'})
 
 
 def _valid_new_name(name):

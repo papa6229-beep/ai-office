@@ -150,6 +150,30 @@ def read_value(workspace,tab_id,snapshot_id,control_id):
     text=element.input_value() if data['tag'] in {'input','textarea','select'} else element.inner_text()
     return dict(workspace._meta(tab_id,page),name=data['name'],text=_redact(text[:60000]),total_characters=len(text),truncated=len(text)>60000)
 
+def fill_login(workspace,tab_id,snapshot_id,control_id,account_id,username_target=None):
+    import credential_vault
+    from browser_workspace import BrowserWorkspaceError
+    page,password,data=target(workspace,tab_id,snapshot_id,control_id)
+    if data['type']!='password' or 'fill' not in password['operations']:raise BrowserWorkspaceError('실제 비밀번호 입력칸을 선택해 주세요.')
+    site=credential_vault.origin(page.url)
+    if credential_vault.origin(password['frame'].url)!=site:raise BrowserWorkspaceError('로그인 입력칸의 사이트를 다시 확인해 주세요.')
+    username=None
+    if username_target:
+        _,username,user_data=target(workspace,tab_id,*username_target)
+        if user_data['tag']!='input' or user_data['type'] not in {'text','email','tel'} or 'fill' not in username['operations']:raise BrowserWorkspaceError('실제 아이디 입력칸을 선택해 주세요.')
+        if credential_vault.origin(username['frame'].url)!=site:raise BrowserWorkspaceError('아이디 입력칸의 사이트를 다시 확인해 주세요.')
+    user,secret=credential_vault.load_for_origin(account_id,site)
+    try:
+        if username:username['handle'].fill(user,timeout=10000)
+        password['handle'].fill(secret,timeout=10000)
+    except Exception:
+        return {'action_dispatched':None,'execution_uncertain':True,'note':'로그인 입력 결과를 확정하지 못했어요. 재시도 전에 현재 화면을 확인해 주세요.'}
+    finally:secret=None;user=None
+    try:result=inspect(workspace,tab_id)
+    except Exception:result=workspace._meta(tab_id,page)
+    return dict(result,action_dispatched=True,operation='saved_login_fill',note='저장된 계정을 입력했어요. 로그인 버튼과 실제 인증 결과 확인을 이어가세요. 비밀번호는 반환하지 않습니다.')
+
+
 def act(workspace,tab_id,snapshot_id,control_id,operation,value=None):
     from browser_workspace import BrowserWorkspaceError,validate_url
     page,item,data=target(workspace,tab_id,snapshot_id,control_id)

@@ -384,6 +384,12 @@ class BrowserWorkspace:
         import browser_controls
         return browser_controls.act(self,*args)
 
+    def fill_login(self,*args):return self._dispatch('fill_login',*args)
+
+    def _do_fill_login(self,*args):
+        import browser_controls
+        return browser_controls.fill_login(self,*args)
+
     def _do_open(self, url):
         validate_url(url)
         for attempt in range(2):
