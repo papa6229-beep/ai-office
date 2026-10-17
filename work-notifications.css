@@ -24,9 +24,6 @@ body.work-desktop #work #workOtherRequestList{height:auto;min-height:0;max-heigh
 #work .work-notification-dialog{width:min(610px,90vw);max-height:85vh;overflow:auto}
 #work .work-notification-body{white-space:pre-wrap;overflow-wrap:anywhere;background:#131718;border:1px solid #45454a;border-radius:8px;padding:16px;max-height:35vh;overflow:auto;font-size:14px;line-height:1.8}
 #work .work-notification-actions{display:flex;gap:8px;margin:14px 0}
-#workNotificationReplyForm label{display:block;margin:8px 0}
-#workNotificationReplyForm textarea{width:100%;box-sizing:border-box}
-#workNotificationReplyForm .work-muted{font-size:11px;line-height:1.6;margin:8px 0}
 #work .work-companion.has-notification{border:1px solid #e8b1ca;animation:office-notification-pulse 1.8s ease-in-out infinite}
 #workNotificationAcknowledge{font-size:11px;flex:none;color:#ffd8e8;border:1px solid #9d7387;background:#372a32;margin:3px auto 7px}
 #workNotificationAcknowledge[hidden]{display:none}

@@ -62,7 +62,7 @@ def reconcile_source(db,event):
     """Only a connected, complete repeated inventory proves source removal."""
     entries=event.get('entries',[])
     if not isinstance(entries,list) or len(entries)>160:return
-    keys={row['key']:bool(row.get('can_reply')) for row in entries if isinstance(row,dict) and isinstance(row.get('key'),str) and row['key'].startswith('phone-link:') and len(row['key'])<=200}
+    keys={row['key'] for row in entries if isinstance(row,dict) and isinstance(row.get('key'),str) and row['key'].startswith('phone-link:') and len(row['key'])<=200}
     fingerprints={}
     for entry in entries:
         if isinstance(entry,dict) and entry.get('key') in keys and isinstance(entry.get('fingerprint'),str):fingerprints.setdefault(entry['fingerprint'],[]).append(entry['key'])
@@ -74,7 +74,7 @@ def reconcile_source(db,event):
             legacy=fingerprints.get(row['fingerprint'],[]) if not row['event_key'] else []
             key=row['event_key'] if row['event_key'] in keys else legacy[0] if len(legacy)==1 else None
             if key:
-                c.execute("UPDATE office_notifications SET source_state='present',source_missing=NULL,can_reply=?,event_key=COALESCE(event_key,?),phone_sync=CASE WHEN phone_sync='source_removed' THEN 'local_only' ELSE phone_sync END WHERE id=?",(int(keys[key]),key,row['id']))
+                c.execute("UPDATE office_notifications SET source_state='present',source_missing=NULL,can_reply=0,event_key=COALESCE(event_key,?),phone_sync=CASE WHEN phone_sync='source_removed' THEN 'local_only' ELSE phone_sync END WHERE id=?",(key,row['id']))
             elif legacy:
                 c.execute("UPDATE office_notifications SET source_state='present',source_missing=NULL,can_reply=0 WHERE id=?",(row['id'],))
             elif not complete:
@@ -113,7 +113,7 @@ def _phone_action(payload,timeout=25):
             creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         data=json.loads(result.stdout[:1024*1024])
     except (OSError,ValueError,subprocess.TimeoutExpired):
-        raise ValueError('원본 알림 동작 결과를 확인하지 못했어요. 다시 보내기 전에 원래 앱을 확인해 주세요.') from None
+        raise ValueError('원본 알림 동작 결과를 확인하지 못했어요. 휴대폰 연결 상태를 확인해 주세요.') from None
     if not isinstance(data,dict) or result.returncode or data.get('error'):
         raise ValueError(data.get('error','원본 알림 동작을 완료하지 못했어요.') if isinstance(data,dict) else '원본 알림 응답을 확인하지 못했어요.')
     return data
@@ -154,50 +154,14 @@ def confirm(db,identifier=None,through=None):
 def get(db,identifier):
     if not isinstance(identifier,str) or len(identifier)!=32:raise ValueError('알림을 다시 선택해 주세요.')
     with _db(db) as c:
-        row=c.execute('SELECT id,source,title,body,received,confirmed,origin,phone_sync,event_key,source_state,can_reply FROM office_notifications WHERE id=?',(identifier,)).fetchone()
+        row=c.execute('SELECT id,source,title,body,received,confirmed,origin,phone_sync,event_key,source_state FROM office_notifications WHERE id=?',(identifier,)).fetchone()
     if row is None:raise ValueError('알림을 찾지 못했어요. 목록을 새로 불러와 주세요.')
     return dict(row)
 
 
-def prepare_reply(db,identifier):
-    item=get(db,identifier)
-    if item['origin']!='phone_link_panel':return {'can_reply':False,'reason':'이 카드는 PC에서 감지한 알림 신호라 답장 대상이 없어요. 원래 앱에서 확인해 주세요.'}
-    if item['source_state']=='removed':return {'can_reply':False,'reason':'휴대폰 쪽에서 이미 정리된 알림이에요. 이 기록에서는 바로 답장할 수 없어요.'}
-    try:return _phone_action({'operation':'inspect','item':item},timeout=8)
-    except ValueError:return {'can_reply':False,'reason':'지금 휴대폰 원본 알림에 연결하지 못했어요. 연결이 복구되면 카드를 다시 열어 주세요.'}
-
-def reply(db,identifier,text,request_id):
-    item=get(db,identifier)
-    if item['origin']!='phone_link_panel':raise ValueError('이 알림은 휴대폰 답장 동기화 대상이 아니에요.')
-    if item['source_state']=='removed':raise ValueError('휴대폰에서 이미 정리된 알림이에요. 원래 앱에서 답장해 주세요.')
-    if not isinstance(text,str):raise ValueError('답장 내용을 확인해 주세요.')
-    text=''.join(c for c in text if ord(c)>=32 or c in '\n\t').strip()
-    if not text or len(text)>3000:raise ValueError('답장은 1~3000자까지 입력해 주세요.')
-    if not isinstance(request_id,str) or len(request_id)!=32 or any(c not in '0123456789abcdef' for c in request_id):
-        raise ValueError('오피스를 새로고침한 뒤 답장해 주세요.')
-    signature=hashlib.sha256(json.dumps([identifier,text],ensure_ascii=False).encode()).hexdigest()
-    with _ACTION_LOCK:
-        with _db(db) as c:
-            prior=c.execute('SELECT signature,response FROM office_notification_actions WHERE request_id=?',(request_id,)).fetchone()
-            if prior:
-                if prior['signature']!=signature:raise ValueError('답장 요청이 달라졌어요. 알림 카드를 다시 열어 주세요.')
-                if prior['response']:
-                    result=json.loads(prior['response'])
-                    if result.get('error'):raise ValueError(result['error'])
-                    return result
-                raise ValueError('이 답장의 전송 결과가 불명확해 다시 보내지 않았어요. 원래 앱을 확인해 주세요.')
-            c.execute('INSERT INTO office_notification_actions VALUES (?,?,NULL,?)',(request_id,signature,time.time()))
-        try:result=_phone_action({'operation':'reply','item':item,'text':text})
-        except ValueError as error:
-            with _db(db) as c:c.execute('UPDATE office_notification_actions SET response=? WHERE request_id=?',(json.dumps({'error':str(error)},ensure_ascii=False),request_id))
-            raise
-        with _db(db) as c:c.execute('UPDATE office_notification_actions SET response=? WHERE request_id=?',(json.dumps(result,ensure_ascii=False),request_id))
-        return result
-
-
 def snapshot(db):
     with _db(db) as c:
-        rows=c.execute('SELECT id,source,title,body,received,confirmed,origin,phone_sync,source_state,can_reply FROM office_notifications WHERE superseded_by IS NULL ORDER BY received DESC,rowid DESC LIMIT 80').fetchall()
+        rows=c.execute('SELECT id,source,title,body,received,confirmed,origin,phone_sync,source_state FROM office_notifications WHERE superseded_by IS NULL ORDER BY received DESC,rowid DESC LIMIT 80').fetchall()
         unread=c.execute('SELECT count(*) FROM office_notifications WHERE confirmed IS NULL AND superseded_by IS NULL').fetchone()[0]
     service=_service
     status=service.status() if service else {'state':'stopped','message':'알림 수신기를 준비하고 있어요.'}

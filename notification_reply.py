@@ -1,4 +1,4 @@
-"""Exact Phone Link card actions. No shell, other chats or automatic retry."""
+"""Phone Link notification acknowledgement and connection refresh. No messaging."""
 import ctypes
 from ctypes import wintypes
 from contextlib import contextmanager
@@ -66,18 +66,6 @@ def reveal_dismiss(card):
         if minimized:user32.ShowWindowAsync(handle,7)
 
 
-def inspect(backend,item):
-    card=target(backend,item,missing_ok=True)
-    if card is None:return {'matched':False,'can_reply':False,'reason':'원본 알림이 이미 정리됐거나 갱신됐어요. 이 기록에서는 바로 답장할 수 없어요.'}
-    result={'matched':True,
-            'reply_input':control(backend,card,'ReplyTextBox','Edit') is not None,
-            'reply_send':control(backend,card,'NotificationReplySend','Button') is not None,
-            'dismiss':control(backend,card,'DeleteSingleNotification','Button') is not None}
-    result['can_reply']=result['reply_input'] and result['reply_send']
-    result['reason']='원본 알림으로 답장할 수 있어요.' if result['can_reply'] else '이 앱의 원본 알림은 바로 답장을 제공하지 않아요. 원래 앱에서 답장해 주세요.'
-    return result
-
-
 def reconnect(backend):
     import phone_link_runtime
     matches=[]
@@ -89,32 +77,6 @@ def reconnect(backend):
     if len(matches)!=1 or not matches[0].is_enabled():return {'requested':False}
     matches[0].invoke()
     return {'requested':True}
-
-
-def reply(backend,item,text):
-    card=target(backend,item)
-    box=control(backend,card,'ReplyTextBox','Edit')
-    send=control(backend,card,'NotificationReplySend','Button')
-    if box is None or send is None:raise ValueError('이 원본 알림에는 답장 입력란이 없어요. 원래 앱에서 답장해 주세요.')
-    if not box.is_enabled():raise ValueError('휴대폰과 연결의 답장 입력란이 비활성 상태예요.')
-    current=box.get_value().strip()
-    if current and current!=text:raise ValueError('원본 알림에 다른 답장 초안이 있어 덮어쓰지 않았어요.')
-    box.set_edit_text(text)
-    deadline=time.monotonic()+2
-    while not send.is_enabled() and time.monotonic()<deadline:time.sleep(.1)
-    if box.get_value()!=text or not send.is_enabled():
-        raise ValueError('답장 입력 또는 보내기 버튼 준비를 확인하지 못해 전송하지 않았어요.')
-    # Resolve the unchanged app/sender/body again immediately before the effect.
-    target(backend,item)
-    send.invoke()
-    deadline=time.monotonic()+3
-    while time.monotonic()<deadline:
-        try:
-            if not box.get_value().strip():
-                return {'submitted':True,'input_cleared':True,'message':'휴대폰과 연결에 답장을 전달했고 입력란이 비워진 것을 확인했어요. 상대방 수신 여부는 원래 앱에서 확인해 주세요.'}
-        except Exception:break
-        time.sleep(.15)
-    return {'submitted':True,'input_cleared':False,'message':'보내기를 요청했지만 전송 결과를 확인하지 못했어요. 다시 보내기 전에 원래 앱에서 확인해 주세요.'}
 
 
 def acknowledge(backend,item):
@@ -141,10 +103,8 @@ def main():
     payload=json.loads(sys.stdin.read(2*1024*1024))
     backend=windows_workspace._PywinautoBackend()
     try:
-        operation=payload.get('operation','inspect')
+        operation=payload.get('operation')
         if operation=='reconnect':return reconnect(backend)
-        if operation=='inspect':return inspect(backend,payload['item'])
-        if operation=='reply':return reply(backend,payload['item'],payload['text'])
         if operation=='acknowledge':
             results=[]
             for item in payload['items'][:80]:

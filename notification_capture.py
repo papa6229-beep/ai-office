@@ -95,10 +95,7 @@ def phone_notification_cards(backend,window,metadata=None):
             if not source or not (title or body):continue
             if not body and re.fullmatch(r'\d+개 알림 더보기',title):continue
             key=hashlib.sha256(json.dumps([source,label(element),title,body],ensure_ascii=False).encode()).hexdigest()
-            actions={node.element_info.automation_id for node in nodes(backend,card,75,7)
-                     if node.element_info.control_type in {'Edit','Button'}} if metadata is not None else set()
             events.append((card,{'source':source[:160],'title':title[:400],'body':body[:12000],
-                                 'can_reply':{'ReplyTextBox','NotificationReplySend'}<=actions,
                                  'origin':'phone_link_panel','event_key':'phone-link:'+key}))
     if metadata is not None:
         coverage=metadata.get('coverage',[])
@@ -174,7 +171,7 @@ def run(parent):
                             inventory_flags.append(metadata)
                             for event in events:
                                 fingerprint=hashlib.sha256(json.dumps([event['source'],event['title'],event['body']],ensure_ascii=False).encode()).hexdigest()
-                                inventories.append({'key':event['event_key'],'fingerprint':fingerprint,'can_reply':event['can_reply']})
+                                inventories.append({'key':event['event_key'],'fingerprint':fingerprint})
                                 inventory_sources[event['source']]=inventory_sources.get(event['source'],0)+1
                             if not metadata.get('connected'):phone_state='disconnected'
                             elif not metadata.get('complete'):phone_state='partial'
