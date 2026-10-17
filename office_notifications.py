@@ -15,6 +15,8 @@ import uuid
 
 ROOT=Path(__file__).resolve().parent
 _guard=threading.Lock()
+_SCHEMA_LOCK=threading.Lock()
+_ACTION_LOCK=threading.Lock()
 _service=None
 
 @contextlib.contextmanager
@@ -27,6 +29,14 @@ def _db(path):
                 id TEXT PRIMARY KEY, source TEXT NOT NULL, title TEXT NOT NULL,
                 body TEXT NOT NULL, received REAL NOT NULL, confirmed REAL,
                 fingerprint TEXT NOT NULL, origin TEXT NOT NULL)''')
+            with _SCHEMA_LOCK:
+                columns={row[1] for row in connection.execute('PRAGMA table_info(office_notifications)')}
+                if 'phone_sync' not in columns:
+                    connection.execute("ALTER TABLE office_notifications ADD COLUMN phone_sync TEXT NOT NULL DEFAULT 'local_only'")
+                if 'event_key' not in columns:
+                    connection.execute('ALTER TABLE office_notifications ADD COLUMN event_key TEXT')
+            connection.execute('''CREATE TABLE IF NOT EXISTS office_notification_actions (
+                request_id TEXT PRIMARY KEY, signature TEXT NOT NULL, response TEXT, created REAL NOT NULL)''')
             connection.execute('CREATE INDEX IF NOT EXISTS office_notification_time ON office_notifications(received DESC)')
             connection.execute('CREATE TABLE IF NOT EXISTS office_notification_receipts (event_key TEXT PRIMARY KEY, recorded REAL NOT NULL)')
             yield connection
@@ -53,30 +63,93 @@ def ingest(db,event):
             inserted=c.execute('INSERT OR IGNORE INTO office_notification_receipts VALUES (?,?)',(event_key,now))
             if not inserted.rowcount:return
         if not event_key and c.execute('SELECT 1 FROM office_notifications WHERE fingerprint=? AND received>?',(digest,now-90)).fetchone():return
-        c.execute('INSERT INTO office_notifications VALUES (?,?,?,?,?,NULL,?,?)',
-                  (uuid.uuid4().hex,source,title,body,now,digest,origin))
+        c.execute('INSERT INTO office_notifications (id,source,title,body,received,confirmed,fingerprint,origin,event_key) VALUES (?,?,?,?,?,NULL,?,?,?)',
+                  (uuid.uuid4().hex,source,title,body,now,digest,origin,event_key))
+
+def _phone_action(payload,timeout=25):
+    try:
+        result=subprocess.run([sys.executable,str(ROOT/'notification_reply.py')],
+            input=json.dumps(payload,ensure_ascii=False),capture_output=True,text=True,encoding='utf-8',
+            timeout=timeout,env=dict(os.environ,PYTHONIOENCODING='utf-8'),
+            creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        data=json.loads(result.stdout[:1024*1024])
+    except (OSError,ValueError,subprocess.TimeoutExpired):
+        raise ValueError('원본 알림 동작 결과를 확인하지 못했어요. 다시 보내기 전에 원래 앱을 확인해 주세요.') from None
+    if not isinstance(data,dict) or result.returncode or data.get('error'):
+        raise ValueError(data.get('error','원본 알림 동작을 완료하지 못했어요.') if isinstance(data,dict) else '원본 알림 응답을 확인하지 못했어요.')
+    return data
+
 
 def confirm(db,identifier=None,through=None):
-    with _db(db) as c:
-        if identifier is not None:
-            if not isinstance(identifier,str) or len(identifier)!=32:raise ValueError('알림을 다시 선택해 주세요.')
-            c.execute('UPDATE office_notifications SET confirmed=? WHERE id=? AND confirmed IS NULL',(time.time(),identifier))
-        elif type(through) in (int,float) and 0<through<=time.time()+5:
-            # A new event arriving after the user's displayed snapshot stays unread.
-            c.execute('UPDATE office_notifications SET confirmed=? WHERE confirmed IS NULL AND received<=?',(time.time(),through))
-        else:raise ValueError('확인할 알림 범위를 다시 불러와 주세요.')
-    return snapshot(db)
+    with _ACTION_LOCK:
+        with _db(db) as c:
+            if identifier is not None:
+                if not isinstance(identifier,str) or len(identifier)!=32:raise ValueError('알림을 다시 선택해 주세요.')
+                rows=c.execute('SELECT * FROM office_notifications WHERE id=?',(identifier,)).fetchall()
+            elif type(through) in (int,float) and 0<through<=time.time()+5:
+                rows=c.execute("SELECT * FROM office_notifications WHERE received<=? AND (confirmed IS NULL OR phone_sync IN ('local_only','unavailable','pending')) ORDER BY received DESC LIMIT 80",(through,)).fetchall()
+            else:raise ValueError('확인할 알림 범위를 다시 불러와 주세요.')
+            if identifier and not rows:raise ValueError('알림을 찾지 못했어요.')
+            items=[dict(row) for row in rows]
+            for item in items:
+                c.execute("UPDATE office_notifications SET confirmed=COALESCE(confirmed,?),phone_sync='pending' WHERE id=?",(time.time(),item['id']))
+        results=[]
+        if items:
+            try:results=_phone_action({'operation':'acknowledge','items':items},timeout=35)['results']
+            except (ValueError,KeyError):results=[{'id':item['id'],'state':'unavailable'} for item in items]
+            by_id={item['id']:item for item in results}
+            with _db(db) as c:
+                for item in items:
+                    state=by_id.get(item['id'],{}).get('state','unavailable')
+                    if state not in {'dismissed','not_present','unsupported'}:state='unavailable'
+                    c.execute('UPDATE office_notifications SET phone_sync=? WHERE id=?',(state,item['id']))
+        data=snapshot(db)
+        counts={key:sum(row.get('state')==key for row in results) for key in ('dismissed','not_present','unsupported','unavailable')}
+        data['sync_summary']=counts
+        data['confirmation_message']=('오피스에서 확인했어요. 일부 휴대폰 알림 정리는 아직 연결되지 않았어요. 해당 카드에서 다시 확인할 수 있어요.' if counts['unavailable'] else
+            '오피스와 Phone Link 알림을 정리했어요. 휴대폰 알림에도 동기화되며, 메신저 대화의 읽음 상태와는 별개예요.' if counts['dismissed'] else
+            '확인했어요. 해당 원본 알림은 Phone Link에 이미 없거나 휴대폰 동기화 대상이 아니에요.')
+        return data
+
 
 def get(db,identifier):
     if not isinstance(identifier,str) or len(identifier)!=32:raise ValueError('알림을 다시 선택해 주세요.')
     with _db(db) as c:
-        row=c.execute('SELECT id,source,title,body,received,confirmed FROM office_notifications WHERE id=?',(identifier,)).fetchone()
+        row=c.execute('SELECT id,source,title,body,received,confirmed,origin,phone_sync,event_key FROM office_notifications WHERE id=?',(identifier,)).fetchone()
     if row is None:raise ValueError('알림을 찾지 못했어요. 목록을 새로 불러와 주세요.')
     return dict(row)
 
+def reply(db,identifier,text,request_id):
+    item=get(db,identifier)
+    if item['origin']!='phone_link_panel':raise ValueError('이 알림은 휴대폰 답장 동기화 대상이 아니에요.')
+    if not isinstance(text,str):raise ValueError('답장 내용을 확인해 주세요.')
+    text=''.join(c for c in text if ord(c)>=32 or c in '\n\t').strip()
+    if not text or len(text)>3000:raise ValueError('답장은 1~3000자까지 입력해 주세요.')
+    if not isinstance(request_id,str) or len(request_id)!=32 or any(c not in '0123456789abcdef' for c in request_id):
+        raise ValueError('오피스를 새로고침한 뒤 답장해 주세요.')
+    signature=hashlib.sha256(json.dumps([identifier,text],ensure_ascii=False).encode()).hexdigest()
+    with _ACTION_LOCK:
+        with _db(db) as c:
+            prior=c.execute('SELECT signature,response FROM office_notification_actions WHERE request_id=?',(request_id,)).fetchone()
+            if prior:
+                if prior['signature']!=signature:raise ValueError('답장 요청이 달라졌어요. 알림 카드를 다시 열어 주세요.')
+                if prior['response']:
+                    result=json.loads(prior['response'])
+                    if result.get('error'):raise ValueError(result['error'])
+                    return result
+                raise ValueError('이 답장의 전송 결과가 불명확해 다시 보내지 않았어요. 원래 앱을 확인해 주세요.')
+            c.execute('INSERT INTO office_notification_actions VALUES (?,?,NULL,?)',(request_id,signature,time.time()))
+        try:result=_phone_action({'operation':'reply','item':item,'text':text})
+        except ValueError as error:
+            with _db(db) as c:c.execute('UPDATE office_notification_actions SET response=? WHERE request_id=?',(json.dumps({'error':str(error)},ensure_ascii=False),request_id))
+            raise
+        with _db(db) as c:c.execute('UPDATE office_notification_actions SET response=? WHERE request_id=?',(json.dumps(result,ensure_ascii=False),request_id))
+        return result
+
+
 def snapshot(db):
     with _db(db) as c:
-        rows=c.execute('SELECT id,source,title,body,received,confirmed,origin FROM office_notifications ORDER BY received DESC,rowid DESC LIMIT 80').fetchall()
+        rows=c.execute('SELECT id,source,title,body,received,confirmed,origin,phone_sync FROM office_notifications ORDER BY received DESC,rowid DESC LIMIT 80').fetchall()
         unread=c.execute('SELECT count(*) FROM office_notifications WHERE confirmed IS NULL').fetchone()[0]
     service=_service
     status=service.status() if service else {'state':'stopped','message':'알림 수신기를 준비하고 있어요.'}

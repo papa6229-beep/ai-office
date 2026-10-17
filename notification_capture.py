@@ -39,7 +39,8 @@ def label(info):
     return ''.join(c for c in str(info.name or '') if unicodedata.category(c)!='Cf').strip()
 
 
-def phone_notifications(backend,window):
+def phone_notification_cards(backend,window):
+    """Return exact notification ListItems with their public message fields."""
     root=backend._desktop.window(handle=window['handle']).wrapper_object()
     pane=next((node for node in nodes(backend,root,120,9)
                if node.element_info.automation_id=='PaneContent'
@@ -75,9 +76,14 @@ def phone_notifications(backend,window):
             if not source or not (title or body):continue
             if not body and re.fullmatch(r'\d+개 알림 더보기',title):continue
             key=hashlib.sha256(json.dumps([source,label(element),title,body],ensure_ascii=False).encode()).hexdigest()
-            events.append({'source':source[:160],'title':title[:400],'body':body[:12000],
-                           'origin':'phone_link_panel','event_key':'phone-link:'+key})
+            events.append((card,{'source':source[:160],'title':title[:400],'body':body[:12000],
+                                 'origin':'phone_link_panel','event_key':'phone-link:'+key}))
     return events
+
+
+def phone_notifications(backend,window):
+    cards=phone_notification_cards(backend,window)
+    return None if cards is None else [event for _,event in cards]
 
 
 def between_banner(window):

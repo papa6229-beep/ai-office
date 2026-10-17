@@ -482,8 +482,8 @@ class Handler(BaseHTTPRequestHandler):
                     if set(payload) not in ({'id'},{'through'}):raise ValueError('확인할 알림을 다시 선택해 주세요.')
                     return self.reply(office_notifications.confirm(DB,payload.get('id'),payload.get('through')))
                 if p=='/api/work/notifications-reply':
-                    if set(payload)!={'id','text'}:raise ValueError('답장 요청 내용을 확인해 주세요.')
-                    return self.reply(office_notifications.reply(DB,payload.get('id'),payload.get('text')))
+                    if set(payload)!={'id','text','request_id'}:raise ValueError('답장 요청 내용을 확인해 주세요.')
+                    return self.reply(office_notifications.reply(DB,payload.get('id'),payload.get('text'),payload.get('request_id')))
                 if p=='/api/work/feedback':
                     if set(payload)-{'client','report'}:raise ValueError('화면 확인 요청을 확인하세요.')
                     feedback=office_feedback.update_client(DB,payload.get('client'),payload.get('report'))
