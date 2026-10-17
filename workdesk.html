@@ -75,10 +75,21 @@
       </article>
       <article id="workStage" class="work-stage" aria-labelledby="workStageTitle" tabindex="-1">
         <div class="work-panel-heading"><h3 id="workStageTitle">WORKSPACE</h3><span id="workStageStatus" class="work-stage-status">준비됨</span></div>
+        <div class="work-stage-primary-tabs" role="tablist" aria-label="워크스페이스 보기">
+          <button id="workStageTasksTab" type="button" role="tab" aria-selected="true" aria-controls="workStageTasks">작업내역</button>
+          <button id="workStageNotificationsTab" type="button" role="tab" aria-selected="false" aria-controls="workNotifications" tabindex="-1">알림 <small id="workNotificationUnread">0</small></button>
+        </div>
+        <div id="workStageTasks" class="work-stage-tasks" role="tabpanel" aria-labelledby="workStageTasksTab">
         <p id="workStageRequest" class="work-stage-request">요청 카드에서 작업 내용과 결과를 확인하세요.</p>
         <div id="workStageProcess" class="work-stage-process" aria-label="작업 요청 목록"><p class="work-stage-empty">요청한 작업이 여기에 표시됩니다.</p></div>
         <div id="workStageResults" class="work-stage-results" hidden><button type="button" class="work-stage-back" data-stage-action="back">← 작업 목록</button><div id="workStageResultContent"></div></div>
         <p id="workStageNotice" class="work-stage-notice" role="status" aria-live="polite"></p>
+        </div>
+      <article id="workNotifications" class="work-notifications" role="tabpanel" aria-labelledby="workStageNotificationsTab" hidden aria-labelledby="workNotificationsTitle">
+        <div class="work-panel-heading"><div><h3 id="workNotificationsTitle" class="work-sr-only">알림</h3><p id="workNotificationReceiver" class="work-muted">알림 수신기 연결 중</p></div><button id="workNotificationsConfirmAll" type="button" class="work-secondary">모두 확인</button></div>
+        <div id="workNotificationList" class="work-notification-list"><p class="work-muted">새 알림을 기다리고 있어요.</p></div>
+        <details class="work-notification-help"><summary>알림 수신 설정</summary><p>휴대폰과 연결 → 설정 → 기능 → 알림에서 휴대폰 알림을 허용하고, PC의 알림 배너를 켜 주세요. 방해 금지 등으로 배너가 표시되지 않으면 수신하지 못할 수 있어요.</p><p>이 알림 목록은 PC에 표시되는 휴대폰·메신저 알림을 보관해요. 확인 완료는 오피스의 표시만 바꾸며 휴대폰 원본 알림을 삭제하지 않아요.</p></details>
+      </article>
       </article>
     </aside>
   </div>
@@ -124,13 +135,6 @@
       <div class="work-form-actions"><button type="button" class="work-quiet" data-launcher-action="close">취소</button><button type="submit" id="workLauncherSave">바로가기 저장</button></div>
     </form>
   </dialog>
-</section>
-<section id="notifications" class="hide" aria-labelledby="workNotificationsTitle">
-      <article id="workNotifications" class="work-notifications" aria-labelledby="workNotificationsTitle">
-        <div class="work-panel-heading"><div><h3 id="workNotificationsTitle">알림 <small id="workNotificationUnread">0</small></h3><p id="workNotificationReceiver" class="work-muted">알림 수신기 연결 중</p></div><button id="workNotificationsConfirmAll" type="button" class="work-secondary">모두 확인</button></div>
-        <div id="workNotificationList" class="work-notification-list"><p class="work-muted">새 알림을 기다리고 있어요.</p></div>
-        <details class="work-notification-help"><summary>알림 수신 설정</summary><p>휴대폰과 연결 → 설정 → 기능 → 알림에서 휴대폰 알림을 허용하고, PC의 알림 배너를 켜 주세요. 방해 금지 등으로 배너가 표시되지 않으면 수신하지 못할 수 있어요.</p><p>이 알림 목록은 PC에 표시되는 휴대폰·메신저 알림을 보관해요. 확인 완료는 오피스의 표시만 바꾸며 휴대폰 원본 알림을 삭제하지 않아요.</p></details>
-      </article>
       <dialog id="workNotificationDialog" class="work-dialog work-notification-dialog" aria-labelledby="workNotificationTitle">
         <div class="work-dialog-heading"><h3 id="workNotificationTitle">알림</h3><button id="workNotificationClose" type="button" class="work-quiet">닫기 ×</button></div>
         <p id="workNotificationMeta" class="work-muted"></p><div id="workNotificationBody" class="work-notification-body"></div>

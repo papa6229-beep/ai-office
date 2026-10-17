@@ -24,7 +24,7 @@
       const title=document.createElement('strong');title.textContent=item.title||'새 알림';
       const body=document.createElement('span');body.className='work-notification-excerpt';body.textContent=item.body;
       const badge=document.createElement('small');badge.className='work-notification-badge';badge.textContent=item.confirmed?'확인':'미확인';
-      card.append(meta,title,body,badge);card.addEventListener('click',()=>open(item));root.append(card);
+      card.append(title,badge,meta);card.addEventListener('click',()=>open(item));root.append(card);
       if(focused===item.id)card.focus({preventScroll:true});
     }
   }
@@ -71,9 +71,27 @@
       await promise;
     }catch(error){if(!$('workNotificationDialog').open)$('workNotificationDialog').showModal();message(error.message);}
   }
+  function selectWorkspaceTab(next){
+    const notifications=next==='notifications';
+    $('workStageStatus').hidden=notifications;
+    $('workStageTasks').hidden=notifications;$('workNotifications').hidden=!notifications;
+    for(const [id,selected] of [['workStageTasksTab',!notifications],['workStageNotificationsTab',notifications]]){
+      const button=$(id);button.setAttribute('aria-selected',String(selected));button.tabIndex=selected?0:-1;
+    }
+  }
   function init(){
     if(!$('workNotifications'))return;
     const style=document.createElement('link');style.rel='stylesheet';style.href='/work-notifications.css';document.head.append(style);
+    window.workStageSelect=selectWorkspaceTab;
+    $('workStageTasksTab').addEventListener('click',()=>selectWorkspaceTab('tasks'));
+    $('workStageNotificationsTab').addEventListener('click',()=>selectWorkspaceTab('notifications'));
+    document.querySelector('.work-stage-primary-tabs').addEventListener('keydown',event=>{
+      if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+      event.preventDefault();
+      const next=event.key==='Home'?'tasks':event.key==='End'?'notifications':$('workStageTasks').hidden?'tasks':'notifications';
+      selectWorkspaceTab(next);$(next==='tasks'?'workStageTasksTab':'workStageNotificationsTab').focus();
+    });
+    selectWorkspaceTab('tasks');
     $('workNotificationClose').addEventListener('click',()=>$('workNotificationDialog').close());
     $('workNotificationConfirm').addEventListener('click',()=>confirm());
     $('workNotificationsConfirmAll').addEventListener('click',()=>confirm(true));
