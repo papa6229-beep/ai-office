@@ -46,13 +46,13 @@ def ingest(db,event):
     now=time.time()
     event_key=event.get('event_key')
     if event_key is not None and (not isinstance(event_key,str) or not 1<=len(event_key)<=200):return
-    origin='phone_link_panel' if event.get('origin')=='phone_link_panel' else 'windows_banner'
+    origin=event.get('origin') if event.get('origin') in {'phone_link_panel','native_between_banner'} else 'windows_banner'
     with _db(db) as c:
         c.execute('BEGIN IMMEDIATE')
         if event_key:
             inserted=c.execute('INSERT OR IGNORE INTO office_notification_receipts VALUES (?,?)',(event_key,now))
             if not inserted.rowcount:return
-        if c.execute('SELECT 1 FROM office_notifications WHERE fingerprint=? AND received>?',(digest,now-90)).fetchone():return
+        if not event_key and c.execute('SELECT 1 FROM office_notifications WHERE fingerprint=? AND received>?',(digest,now-90)).fetchone():return
         c.execute('INSERT INTO office_notifications VALUES (?,?,?,?,?,NULL,?,?)',
                   (uuid.uuid4().hex,source,title,body,now,digest,origin))
 

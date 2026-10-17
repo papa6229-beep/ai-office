@@ -4,7 +4,10 @@
   const $=id=>document.getElementById(id);
   let snapshot=null,selected=null,writing=false,loading=false,lastSignature='';
   const date=value=>new Date(value*1000).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
-  const message=text=>{$('workNotificationDialogNotice').textContent=text;};
+  const message=text=>{
+    $('workNotificationDialogNotice').textContent=text;
+    const panel=$('workNotificationPanelNotice');panel.textContent=text;panel.hidden=!text;
+  };
   function render(data){
     snapshot=data;
     document.dispatchEvent(new CustomEvent('office-notifications-state',{detail:{unread:data.unread}}));

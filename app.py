@@ -448,9 +448,6 @@ class Handler(BaseHTTPRequestHandler):
                         return self.reply({'path':selected,'cancelled':not bool(selected)})
                     except (OSError,subprocess.TimeoutExpired):raise ValueError('프로그램 선택창을 열지 못했습니다. 경로를 직접 입력할 수 있습니다.') from None
                 payload={k:v for k,v in d.items() if k!='token'}
-                if p=='/api/work/notifications-confirm':
-                    if set(payload) not in ({'id'},{'through'}):raise ValueError('확인할 알림을 다시 선택해 주세요.')
-                    return self.reply(office_notifications.confirm(DB,payload.get('id'),payload.get('through')))
                 result=launcher_service().perform(p.rsplit('/',1)[-1],payload)
                 result['action_token']=DESK_TOKEN
                 return self.reply(result)
@@ -459,6 +456,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
                 payload={k:v for k,v in d.items() if k!='token'}
+                if p=='/api/work/notifications-confirm':
+                    if set(payload) not in ({'id'},{'through'}):raise ValueError('확인할 알림을 다시 선택해 주세요.')
+                    return self.reply(office_notifications.confirm(DB,payload.get('id'),payload.get('through')))
                 if p=='/api/work/feedback':
                     if set(payload)-{'client','report'}:raise ValueError('화면 확인 요청을 확인하세요.')
                     feedback=office_feedback.update_client(DB,payload.get('client'),payload.get('report'))

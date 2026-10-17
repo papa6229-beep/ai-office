@@ -10,6 +10,7 @@ import time
 import hashlib
 import itertools
 import unicodedata
+import uuid
 from collections import deque
 
 SOURCES=re.compile(r'휴대폰과\s*연결|Phone\s*Link|YourPhone|카카오|Kakao|비트윈|Between|네이트온|Nate\s*On|한비로|Hanbiro|메시지|Messages|문자',re.I)
@@ -78,6 +79,20 @@ def phone_notifications(backend,window):
                            'origin':'phone_link_panel','event_key':'phone-link:'+key})
     return events
 
+
+def between_banner(window):
+    """The observed Between banner is a 310x80 window, separate from chat."""
+    if window['process'].lower()!='between.exe' or window['title']!='Between':return False
+    user32=ctypes.WinDLL('user32',use_last_error=True)
+    user32.GetClassNameW.argtypes=[wintypes.HWND,wintypes.LPWSTR,ctypes.c_int]
+    user32.GetWindowRect.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.RECT)]
+    user32.IsIconic.argtypes=[wintypes.HWND]
+    if user32.IsIconic(window['handle']):return False
+    cls=ctypes.create_unicode_buffer(160);rect=wintypes.RECT()
+    if not user32.GetClassNameW(window['handle'],cls,len(cls)):return False
+    if not user32.GetWindowRect(window['handle'],ctypes.byref(rect)):return False
+    return cls.value=='Chrome_WidgetWin_1' and 220<=rect.right-rect.left<=500 and 45<=rect.bottom-rect.top<=180
+
 def emit(kind,**data):
     print(json.dumps(dict(kind=kind,**data),ensure_ascii=False),flush=True)
 
@@ -114,6 +129,22 @@ def run(parent):
                             emit('notification',**event);phone_seen.add(event['event_key'])
                         if len(phone_seen)>4000:phone_seen={event['event_key'] for event in events or []}
                     except Exception:phone_state='pane_unavailable'
+                if between_banner(window):
+                    texts=[]
+                    try:
+                        for control in backend.controls(window,35,5):
+                            info=control.element_info
+                            if info.control_type not in {'Text','Document'}:continue
+                            text=label(info)
+                            if text and text not in {'Between','닫기','Close'} and text not in texts:texts.append(text)
+                    except Exception:pass
+                    key='between:'+str(window['handle']);fingerprint='\n'.join(texts)
+                    active[key]=fingerprint
+                    if key not in seen or seen[key]!=fingerprint:
+                        emit('notification',source='Between',title=texts[0][:400] if texts else '비트윈에 새 알림이 왔어요',
+                             body='\n'.join(texts[1:])[:12000] if texts else 'PC 비트윈 알림을 감지했어요. 메시지 내용은 비트윈 앱에서 확인해 주세요.',
+                             origin='native_between_banner',event_key='between:'+uuid.uuid4().hex)
+                    continue
                 if process not in SHELL|MESSENGERS:continue
                 if not BANNERS.search(name):continue
                 texts=[]
