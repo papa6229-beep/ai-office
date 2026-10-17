@@ -20,20 +20,20 @@ PROFILE_FIELDS = ('api_type', 'gemma_url', 'gemma_model', 'vision_model',
 CATALOG = (
     ('codex', 'Codex', 'ChatGPT 구독', True),
     ('local', 'Gemma · 로컬 모델', '내 PC / 설정한 모델 서버', True),
-    ('gemini', 'Gemini', 'Google 계정 · Gemini CLI', False),
-    ('claude', 'Claude', 'Claude 계정 · Claude Code CLI', False),
+    ('gemini', 'Gemini', 'Google 계정 · Gemini CLI', True),
+    ('claude', 'Claude', 'Claude 계정 · Claude Code CLI', True),
 )
 
 
 def active_id(settings):
-    return 'codex' if settings.get('api_type') == 'codex' else 'local'
+    return settings['api_type'] if settings.get('api_type') in {'codex','gemini','claude'} else 'local'
 
 
 def require_runnable(settings):
     provider = settings.get('model_provider', active_id(settings))
-    if provider not in {'codex', 'local'} or provider != active_id(settings):
+    if provider not in {'codex', 'local','gemini','claude'} or provider != active_id(settings):
         raise ValueError('선택한 모델의 오피스 연결이 준비되지 않았어요. 연결 설정을 확인해줘.')
-    if settings.get('api_type') not in {'codex', 'openai', 'ollama'}:
+    if settings.get('api_type') not in {'codex', 'openai', 'ollama','gemini','claude'}:
         raise ValueError('지원하지 않는 모델 연결 방식이에요.')
 
 
@@ -45,6 +45,8 @@ def profiles(settings):
                       gemma_model='google/gemma-4-e4b', vision_model='google/gemma-4-e4b',
                       api_key='', timeout=120, lmstudio_auto_start=True),
     }
+    for provider,model in [('gemini',''),('claude','haiku')]:
+        result[provider]=dict(api_type=provider,gemma_url='',gemma_model=model,vision_model='',api_key='',timeout=120,lmstudio_auto_start=False)
     saved = settings.get('model_profiles', {})
     if isinstance(saved, dict):
         for key in result:
@@ -76,10 +78,10 @@ def save_settings(path, db, current, changes=None, *, provider=None):
     if _busy(db):
         raise ValueError('에이메스가 작업 중이야. 작업이 끝난 뒤 연결을 바꿔줘.')
     changes = dict(changes or {})
-    if provider is not None and provider not in {'codex', 'local'}:
+    if provider is not None and provider not in {'codex', 'local','gemini','claude'}:
         raise ValueError('이 연결은 오피스 실행 어댑터가 아직 준비되지 않았어요.')
     saved = profiles(current)
-    target = provider or ('codex' if changes.get('api_type', current['api_type']) == 'codex' else 'local')
+    target = provider or active_id(dict(current,**changes))
     result = copy.deepcopy(current)
     result.update(saved[target])
     result.update(changes)
@@ -88,6 +90,12 @@ def save_settings(path, db, current, changes=None, *, provider=None):
     if target == 'codex':
         result.update(gemma_model='gpt-6-luna', vision_model='gpt-6-luna',
                       api_key='', lmstudio_auto_start=False)
+    elif target in {'gemini','claude'}:
+        import provider_cli
+        provider_cli.command(target)
+        if not isinstance(result.get('gemma_model'),str) or len(result['gemma_model'])>160:
+            raise ValueError('사용할 모델 이름을 확인해줘.')
+        result.update(api_key='',gemma_url='',vision_model='',lmstudio_auto_start=False)
     else:
         validate_endpoint(result['gemma_url'])
         if not isinstance(result.get('gemma_model'), str) or not result['gemma_model'].strip():
@@ -118,13 +126,9 @@ def save_settings(path, db, current, changes=None, *, provider=None):
 
 
 def _cli(name):
-    found = shutil.which(name)
-    if found:
-        return Path(found)
-    roots = {'claude': Path.home() / '.local/bin/claude.exe',
-             'gemini': Path(os.environ.get('APPDATA', '')) / 'npm/gemini.cmd'}
-    candidate = roots[name]
-    return candidate if candidate.is_file() else None
+    import provider_cli
+    try:return Path(provider_cli.command(name)[-1])
+    except ValueError:return None
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -164,28 +168,9 @@ def inspect_readiness(settings):
                                      'models': models, 'model_listed': listed}
         except (OSError, ValueError, TypeError):
             observations['local'] = {'text': '모델 서버 응답을 확인하지 못했어요', 'models': []}
-        for key in ('gemini', 'claude'):
-            executable = _cli(key)
-            text = 'CLI 설치 필요' if not executable else 'CLI 설치 확인 · 로그인 미확인'
-            if key == 'claude' and executable and executable.suffix.lower() == '.exe':
-                try:
-                    response = subprocess.run([str(executable), 'auth', 'status', '--json'],
-                        stdin=subprocess.DEVNULL, capture_output=True, timeout=4,
-                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-                    status = json.loads(response.stdout[:16384])
-                    # Never return account identifiers or raw CLI output.
-                    if status.get('loggedIn') and status.get('authMethod') == 'claude.ai':
-                        text = 'Claude 계정 로그인 확인 · 잔여 한도 미확인'
-                    elif status.get('loggedIn'):
-                        text = '로그인 확인 · 구독 인증 방식 확인 필요'
-                    else:
-                        text = 'CLI 설치 확인 · 계정 로그인 필요'
-                except (OSError, ValueError, subprocess.TimeoutExpired):
-                    pass
-            observations[key] = {'text': text, 'installed': bool(executable)}
-            keys = ('ANTHROPIC_API_KEY',) if key == 'claude' else ('GEMINI_API_KEY', 'GOOGLE_API_KEY')
-            if any(os.environ.get(name) for name in keys):
-                observations[key]['text'] += ' · API 키 환경설정 감지, 구독과 과금 경로 구분 필요'
+        import provider_cli
+        for key in ('gemini','claude'):
+            observations[key]=provider_cli.readiness(key)
         _observations.clear()
         _observations.update(observations=observations, checked_at=stamp)
         return snapshot(settings)
@@ -197,7 +182,7 @@ def connection_facts(settings):
             'transport': 'codex_app_server' if native else settings.get('api_type'),
             'automatic_fallback': False, 'inference_verified_by_readiness': False,
             'limits': [] if native else [
-                'Local path uses a separate conversation/function-tool loop, not the Codex native agent runner.',
+                'This provider uses the audited office function-tool loop rather than the Codex native runner.',
                 'Native command, patch, workspace publish tools require the native agent session; use only actually available compatible tools.',
                 'Tool calling, image understanding and execution quality depend on the selected model and require actual checks.']}
 
@@ -213,15 +198,16 @@ def snapshot(settings):
                 ['대화', '연결됨' if runnable else '어댑터 연결 필요'],
                 ['오피스·브라우저·PC 도구', ('공통 도구 연결됨' if native else '공통 도구 경로 있음 · 모델 동작 미확인') if runnable else '공통 도구 연결 필요'],
                 ['파일 수정·코드 실행', '네이티브 실행 연결됨' if native else ('호환 소스 수정 도구만 · 네이티브 실행 없음' if runnable else '실행 경로 연결 필요')],
-                ['이미지 이해', '이미지 입력 연결됨' if native else ('모델·연결 방식별 확인 필요' if runnable else '이미지 입력 연결 필요')],
+                ['이미지 이해', '이미지 입력 연결됨' if native else ('모델·연결 방식별 확인 필요' if key=='local' else '이미지 직접 입력 미지원')],
             ]
             cards.append({'id': key, 'title': title, 'billing': billing,
                           'active': key == active, 'selectable': runnable,
                           'readiness': observed.get(key, {'text': '준비 상태 확인 전'}),
                           'capabilities': capabilities,
+                          'login_available':key in {'gemini','claude'},
                           'note': ('낮은 추론 · Standard · 요청할 때만 호출' if native else
                                    '모델 목록 확인은 로드·응답·도구 성공 확인과 달라요.' if key == 'local' else
-                                   '계정 연결과 별도로 오피스 도구·실행 어댑터를 연결해야 사용할 수 있어요.')})
+                                   '구독 CLI · 공통 도구 실행 연결됨 · CLI 자체 도구는 비활성화 · 직접 이미지 입력/네이티브 코드 실행은 미지원 · 실제 모델 응답은 확인 필요')})
         return {'active': active, 'providers': cards, 'checked_at': _observations.get('checked_at'),
                 'uses_ai': False, 'automatic_fallback': False,
                 'local_model': profiles(settings)['local']['gemma_model']}

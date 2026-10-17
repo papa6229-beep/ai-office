@@ -64,6 +64,10 @@ def call(messages, tools, settings, *, output_schema=None):
     if settings.get('api_type') == 'codex':
         import codex_bridge
         return codex_bridge.call(messages, tools, settings, output_schema=output_schema)
+    if settings.get('api_type') in {'gemini','claude'}:
+        import provider_cli
+        with model_requests.request_slot(background=settings.get('_judgment_background') is True):
+            return provider_cli.call(_messages(messages,'ollama'),tools,settings,output_schema)
     lmstudio_runtime.ensure_ready(settings)
     managed = lmstudio_runtime.is_managed(settings)
     try:
@@ -73,7 +77,7 @@ def call(messages, tools, settings, *, output_schema=None):
     kind = settings.get('api_type')
     if kind not in {'ollama', 'openai'}:
         raise ValueError('지원하는 AI 서버 형식을 선택하세요.')
-    if not isinstance(tools, list) or len(tools) > 96:
+    if not isinstance(tools, list) or len(tools) > 512:
         raise ValueError('비서 도구 목록을 확인하세요.')
     payload = {'model': settings.get('gemma_model'), 'messages': _messages(messages, kind),
                'tools': tools, 'stream': False}

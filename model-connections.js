@@ -27,6 +27,7 @@
         <dl>${provider.capabilities.map(([label, value]) => `<div><dt>${safe(label)}</dt><dd>${safe(value)}</dd></div>`).join('')}</dl>
         ${provider.id === 'local' ? `<p class="model-provider-note">선택 모델: ${safe(data.local_model)}</p>` : ''}
         <p class="model-provider-note">${safe(provider.note)}</p>
+        ${provider.login_available ? `<button type="button" data-provider-login="${safe(provider.id)}" ${pending ? 'disabled' : ''}>계정 로그인</button>` : ''}
         <button type="button" data-provider="${safe(provider.id)}" ${!provider.selectable || provider.active || pending ? 'disabled' : ''}>${provider.active ? '사용 중' : provider.selectable ? '이 연결 사용' : '어댑터 연결 필요'}</button>
       </article>`).join('');
     document.getElementById('modelReadinessRefresh').disabled = pending;
@@ -50,6 +51,13 @@
     } catch (error) { pending = false; await load(); message(error.message); }
   });
   panel.addEventListener('click', async event => {
+    const login=event.target.closest('[data-provider-login]');
+    if(login&&!pending){
+      login.disabled=true;
+      try{const result=await request('model-login',{provider:login.dataset.providerLogin});message(result.message);}
+      catch(error){message(error.message);}finally{login.disabled=false;}
+      return;
+    }
     const button = event.target.closest('[data-provider]');
     if (!button || button.disabled || pending) return;
     pending = true;

@@ -59,6 +59,10 @@ def call_gemma(prompt,settings=None):
     if s.get('api_type')=='codex':
         import codex_bridge
         return codex_bridge.ask(prompt,s,background=s.get('_judgment_background') is True)
+    if s.get('api_type') in {'gemini','claude'}:
+        result=assistant_model.call([{'role':'user','content':prompt}],[],s)
+        if result.get('tool_calls'):raise ValueError('텍스트 응답 경로에서 도구 실행은 지원하지 않아요.')
+        return result['content']
     base=local_content_review.validate_endpoint(s['gemma_url']); t=int(s.get('timeout',60));model=s['gemma_model']
     lmstudio_runtime.ensure_ready(s)
     managed=lmstudio_runtime.is_managed(s)
@@ -89,6 +93,8 @@ def call_gemma(prompt,settings=None):
 def call_gemma_vision(prompt,image_b64,settings=None):
     s=settings if settings is not None else config()
     model_connections.require_runnable(s)
+    if s.get('api_type') in {'gemini','claude'}:
+        raise ValueError('선택한 구독 CLI는 현재 텍스트·공통 도구 경로예요. 이미지 직접 입력은 아직 연결되지 않았어요. 모델 연결 설정에서 이미지 지원 연결을 선택해줘.')
     if s.get('api_type')=='codex':
         import codex_bridge
         header=base64.b64decode(image_b64[:32],validate=True)
@@ -471,6 +477,13 @@ class Handler(BaseHTTPRequestHandler):
                     with model_connections.LOCK:
                         settings=model_connections.save_settings(CFG,DB,config(),provider=payload['provider'])
                     return self.reply(model_connections.snapshot(settings))
+                if p=='/api/work/model-login':
+                    if set(payload)!={'provider'} or payload['provider'] not in {'gemini','claude'}:raise ValueError('로그인할 계정을 선택해줘.')
+                    import provider_cli
+                    with model_connections.LOCK:
+                        if model_connections._busy(DB):raise ValueError('에이메스 작업이 끝난 뒤 계정 로그인을 진행해줘.')
+                        result=provider_cli.login(payload['provider'])
+                    return self.reply(result)
                 if p=='/api/settings':
                     fields={'gemma_url','gemma_model','vision_model','api_type','workspace','timeout','lmstudio_auto_start','api_key'}
                     if set(payload)-fields:raise ValueError('연결 설정 요청을 확인해줘.')

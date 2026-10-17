@@ -24,3 +24,5 @@ browser_runtime/
 __pycache__/
 *.py[cod]
 .playwright-mcp/
+# Provider CLIs, account/session state and private request transport.
+.provider_runtime/
