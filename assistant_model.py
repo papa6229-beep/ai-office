@@ -48,6 +48,8 @@ def _messages(messages, kind):
 
 def call(messages, tools, settings, *, output_schema=None):
     """Return normalized tool calls; this function never executes a tool."""
+    import model_connections
+    model_connections.require_runnable(settings)
     source_steps=[message for message in messages if message.get('role')=='tool'
                   and str(message.get('tool_name','')).startswith('office_source_')]
     if source_steps:

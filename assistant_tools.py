@@ -42,6 +42,7 @@ import office_feedback
 import agent_workspace
 import desktop_control
 import office_notifications
+import model_connections
 
 
 def _string(description='', **kwargs):
@@ -196,7 +197,8 @@ def _ok(message, data=None, refresh=None):
 
 
 class ToolRegistry:
-    def __init__(self, db_path, work_factory=None, configure_ai=None, browser_service=None, vision_model=None, workspace=None, web_opener=None, windows_service=None):
+    def __init__(self, db_path, work_factory=None, configure_ai=None, browser_service=None, vision_model=None, workspace=None, web_opener=None, windows_service=None, model_settings=None):
+        self.model_settings=copy.deepcopy(model_settings)
         self.db_path=str(db_path)
         self.browser_service=browser_service
         self.vision_model=vision_model
@@ -215,7 +217,7 @@ class ToolRegistry:
 
     def runtime_context(self):
         managed=bool(self.web_opener) and importlib.util.find_spec('playwright') is not None
-        return {'tools':list(_SPECS),'execution':'observe -> act -> inspect result',
+        facts = {'tools':list(_SPECS),'execution':'observe -> act -> inspect result',
                 'browser':{'engine':'Google Chrome','module_available':importlib.util.find_spec('playwright') is not None,
                            'web_shortcuts_click':'브라우저가 AI OFFICE 화면의 웹 링크를 현재 창의 새 탭으로 직접 연다. 서버의 browser_open을 호출하지 않는다.',
                            'web_shortcuts_chat':'채팅 도구로 여는 사이트는 서버에 연결된 자동화 브라우저 경로이며 사용자 화면 브라우저와 다를 수 있다.',
@@ -251,6 +253,13 @@ class ToolRegistry:
                                'read_tool':'attachment_read','preview_tool':'attachment_preview',
                                'companion_apply':'companion_apply','original_gif_preserved':True},
                 'reporting':'모듈 미설치·기능 미연결·요소 미지원·실제 OS 접근 거부를 구별하고 실행 결과로 확인하세요.'}
+
+        if self.model_settings is not None:
+            facts['model_connection']=model_connections.connection_facts(self.model_settings)
+            if not facts['model_connection']['native_agent']:
+                facts['source_edit']['workflow']=facts['source_edit']['compatibility_workflow']
+                facts['source_edit']['native_workspace_available']=False
+        return facts
 
     def effect(self,name):
         if name not in _SPECS: raise ValueError('지원하지 않는 도구입니다.')

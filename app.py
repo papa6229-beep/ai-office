@@ -18,6 +18,7 @@ import browser_bookmarks
 import assistant_model
 import lmstudio_runtime
 import model_requests
+import model_connections
 import chat_stream
 import office_reload
 import office_feedback
@@ -54,6 +55,7 @@ def db():
 def now():return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 def call_gemma(prompt,settings=None):
     s=settings if settings is not None else config()
+    model_connections.require_runnable(s)
     if s.get('api_type')=='codex':
         import codex_bridge
         return codex_bridge.ask(prompt,s,background=s.get('_judgment_background') is True)
@@ -86,6 +88,7 @@ def call_gemma(prompt,settings=None):
     return response['message']['content']
 def call_gemma_vision(prompt,image_b64,settings=None):
     s=settings if settings is not None else config()
+    model_connections.require_runnable(s)
     if s.get('api_type')=='codex':
         import codex_bridge
         header=base64.b64decode(image_b64[:32],validate=True)
@@ -177,6 +180,7 @@ def judgment_view():
 def work_service():
     from assistant_tools import ToolRegistry
     settings=dict(config())
+    model_connections.require_runnable(settings)
     return work_assistant.WorkAssistant(DB,config,call_gemma,
         native_model=lambda messages,tools:call_assistant_model(messages,tools,settings),
         intent_model=lambda messages,tools:call_assistant_intent(messages,tools,settings),
@@ -186,7 +190,8 @@ def work_service():
             work_factory=lambda:work_assistant.WorkAssistant(DB,config,call_gemma),
             configure_ai=configure_ai,browser_service=browser_workspace.manager(),
             vision_model=lambda prompt,image:call_gemma_vision(prompt,image,settings),
-            workspace=settings.get('workspace'),web_opener=open_managed_web,windows_service=windows_workspace.manager()))
+            workspace=settings.get('workspace'),web_opener=open_managed_web,windows_service=windows_workspace.manager(),
+            model_settings=settings))
 
 def capability_service():
     return capabilities.CapabilityService(DB,workspace=config().get('workspace'))
@@ -245,8 +250,10 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/work/notifications','/api/work/agent-artifact','/api/work/attachment','/api/work/companion-assets','/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/work/model-connections','/api/work/notifications','/api/work/agent-artifact','/api/work/attachment','/api/work/companion-assets','/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
+        if path=='/api/work/model-connections':
+            return self.reply(model_connections.snapshot(config()))
         if path=='/api/work/notifications':
             try:return self.reply(office_notifications.snapshot(DB))
             except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'알림 목록을 불러오지 못했어요.'},400)
@@ -287,7 +294,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in _AEMEATH_ASSETS:
             b=(ROOT/path.lstrip('/')).read_bytes()
             self.send_response(200);self.send_header('Content-Type','image/gif' if path.endswith('.gif') else 'image/png');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(b);return
-        if path in {'/work-notifications.js','/work-notifications.css','/work-observer.js','/workambient.css','/workambient.js','/workstage.css','/workstage.js','/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js','/retro.css','/assets/fonts/PretendardVariable.woff2','/assets/fonts/BarlowCondensed-Bold.ttf','/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'}:
+        if path in {'/model-connections.js','/model-connections.css','/work-notifications.js','/work-notifications.css','/work-observer.js','/workambient.css','/workambient.js','/workstage.css','/workstage.js','/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js','/retro.css','/assets/fonts/PretendardVariable.woff2','/assets/fonts/BarlowCondensed-Bold.ttf','/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'}:
             b=(ROOT/path.lstrip('/')).read_bytes()
             mime='font/woff2' if path.endswith('.woff2') else 'font/ttf' if path.endswith('.ttf') else 'text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8'
             self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.end_headers();self.wfile.write(b);return
@@ -401,7 +408,7 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:return self.reply({'error':'파일을 읽을 수 없습니다.'},400)
         if path=='/api/state':
             with db() as c:tasks=[dict(r) for r in c.execute('SELECT * FROM tasks ORDER BY created DESC')];runs=[dict(r) for r in c.execute('SELECT * FROM runs ORDER BY created DESC LIMIT 30')]
-            s=config();s['api_key']='' if not s.get('api_key') else '(설정됨)';return self.reply({'tasks':tasks,'runs':runs,'settings':s,'action_token':DESK_TOKEN})
+            s=model_connections.public_settings(config());return self.reply({'tasks':tasks,'runs':runs,'settings':s,'action_token':DESK_TOKEN})
         self.reply({'error':'not found'},404)
     def do_POST(self):
         with office_reload.action(readonly=urlparse(self.path).path in {'/api/work/stream','/api/work/feedback'}) as admitted:
@@ -451,14 +458,32 @@ class Handler(BaseHTTPRequestHandler):
                 result=launcher_service().perform(p.rsplit('/',1)[-1],payload)
                 result['action_token']=DESK_TOKEN
                 return self.reply(result)
-            if p.startswith('/api/work/') or p in {'/api/task','/api/task/status'}:
+            if p.startswith('/api/work/') or p in {'/api/task','/api/task/status','/api/settings'}:
                 allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
                 payload={k:v for k,v in d.items() if k!='token'}
+                if p=='/api/work/model-connections-refresh':
+                    if payload:raise ValueError('연결 확인 요청을 확인해줘.')
+                    return self.reply(model_connections.inspect_readiness(config()))
+                if p=='/api/work/model-select':
+                    if set(payload)!={'provider'}:raise ValueError('사용할 연결을 선택해줘.')
+                    with model_connections.LOCK:
+                        settings=model_connections.save_settings(CFG,DB,config(),provider=payload['provider'])
+                    return self.reply(model_connections.snapshot(settings))
+                if p=='/api/settings':
+                    fields={'gemma_url','gemma_model','vision_model','api_type','workspace','timeout','lmstudio_auto_start','api_key'}
+                    if set(payload)-fields:raise ValueError('연결 설정 요청을 확인해줘.')
+                    if payload.get('api_key')=='(설정됨)':payload.pop('api_key')
+                    with model_connections.LOCK:
+                        model_connections.save_settings(CFG,DB,config(),payload)
+                    return self.reply({'ok':True})
                 if p=='/api/work/notifications-confirm':
                     if set(payload) not in ({'id'},{'through'}):raise ValueError('확인할 알림을 다시 선택해 주세요.')
                     return self.reply(office_notifications.confirm(DB,payload.get('id'),payload.get('through')))
+                if p=='/api/work/notifications-reply':
+                    if set(payload)!={'id','text'}:raise ValueError('답장 요청 내용을 확인해 주세요.')
+                    return self.reply(office_notifications.reply(DB,payload.get('id'),payload.get('text')))
                 if p=='/api/work/feedback':
                     if set(payload)-{'client','report'}:raise ValueError('화면 확인 요청을 확인하세요.')
                     feedback=office_feedback.update_client(DB,payload.get('client'),payload.get('report'))
@@ -619,18 +644,6 @@ class Handler(BaseHTTPRequestHandler):
                 result=scanner.start(d.get('roots',[]));runlog('PC 조사','시작','읽기 전용 파일 목록 조사',json.dumps(result,ensure_ascii=False));return self.reply(result)
             if p=='/api/scan-duplicates':
                 result=scanner.duplicate_report();runlog('중복 조사','완료',str(result['total_groups'])+'개 동일 내용 그룹 확인');return self.reply(result)
-            if p=='/api/settings':
-                new={k:d[k] for k in ('gemma_url','gemma_model','vision_model','api_type','workspace','timeout') if k in d}
-                if 'lmstudio_auto_start' in d:
-                    if type(d['lmstudio_auto_start']) is not bool:raise ValueError('LM Studio 자동 준비 설정은 참/거짓이어야 합니다.')
-                    new['lmstudio_auto_start']=d['lmstudio_auto_start']
-                if 'api_key' in d and d['api_key']!='(설정됨)':new['api_key']=d['api_key']
-                s=config();s.update(new)
-                if s['api_type'] not in ['ollama','openai','codex']:raise ValueError('지원하지 않는 API 형식')
-                if s['api_type']=='codex':
-                    s.update(gemma_model='gpt-6-luna',vision_model='gpt-6-luna',lmstudio_auto_start=False,ai_on_demand_only=True)
-                else:local_content_review.validate_endpoint(s['gemma_url'])
-                CFG.write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding='utf-8');return self.reply({'ok':True})
             if p=='/api/ask':
                 text=str(d.get('prompt','')).strip()[:12000]
                 if not text:raise ValueError('업무 지시를 입력해 주세요.')
