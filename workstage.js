@@ -90,7 +90,7 @@
     const focused=document.activeElement?.dataset?.requestId;root.replaceChildren();
     if(!requests.length){const p=document.createElement('p');p.className='work-stage-empty';p.textContent='요청한 작업이 여기에 표시됩니다.';root.append(p);return;}
     for(const item of requests){const card=document.createElement('button');card.type='button';card.className='work-request-card';card.dataset.requestId=item.request.id;card.dataset.status=item.request.status||'unknown';card.setAttribute('aria-pressed',String(item.request.id===selectedRequest));
-      const summary=document.createElement('span');summary.textContent=item.summary||item.request.title||'작업 요청';const badge=document.createElement('small');badge.textContent=item.request.user_review==='confirmed'?'확인 완료':item.request.user_review==='needs_changes'?'수정·재확인 필요':({running:'진행 중',done:'완료',verifying:'반영·확인 중',attention:'확인 필요'}[item.request.status]||'상태 확인 중');card.append(summary,badge);root.append(card);if(focused===item.request.id)card.focus({preventScroll:true});}
+      const summary=document.createElement('span');summary.textContent=item.summary||item.request.title||'작업 요청';const badge=document.createElement('small');badge.textContent=item.request.user_review==='confirmed'?'확인 완료':item.request.user_review==='needs_changes'?'수정·재확인 필요':item.request.stopped?'중지':({running:'진행 중',done:'완료',verifying:'반영·확인 중',attention:'확인 필요'}[item.request.status]||'상태 확인 중');card.append(summary,badge);root.append(card);if(focused===item.request.id)card.focus({preventScroll:true});}
   }
   function render(data) {
     const request=data.request;if(!request)return;
@@ -105,7 +105,7 @@
     if(!selectedRequest)selectedRequest=request.id;renderRequestCards();
     if(request.id!==selectedRequest)return;
     const signature=JSON.stringify(data);if(signature===last)return;last=signature;
-    $('workStageRequest').textContent=item.summary;$('workStageStatus').textContent=request.user_review==='confirmed'?'사용자 확인 완료':request.user_review==='needs_changes'?'사용자 수정 요청':({running:'진행 중',done:'완료',verifying:'반영·확인 중',attention:'확인 필요'}[request.status]||'상태 확인 중');$('workStage').dataset.status=request.user_review==='confirmed'?'done':request.user_review==='needs_changes'?'attention':request.status;
+    $('workStageRequest').textContent=item.summary;$('workStageStatus').textContent=request.user_review==='confirmed'?'사용자 확인 완료':request.user_review==='needs_changes'?'사용자 수정 요청':request.stopped?'중지':({running:'진행 중',done:'완료',verifying:'반영·확인 중',attention:'확인 필요'}[request.status]||'상태 확인 중');$('workStage').dataset.status=request.user_review==='confirmed'?'done':request.user_review==='needs_changes'?'attention':request.status;
     artifacts=Array.isArray(data.artifacts)?data.artifacts.slice():[];renderArtifacts();
     if(request.status!=='running'){
       const review=document.createElement('section');review.id='workStageReview';review.className='work-stage-review';

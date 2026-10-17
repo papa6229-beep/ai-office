@@ -319,7 +319,8 @@ def snapshot(db, request_id=None):
         initialize(c)
         review=c.execute('SELECT decision FROM stage_reviews WHERE request_id=?',(row['id'],)).fetchone()
         result=response.get('result',{})
-        attention=bool(unresolved) or (not operations and any(r.get('status')=='error' for r in result.get('tool_results',[]) if isinstance(r,dict)))
+        stopped=result.get('execution_state')=='cancelled'
+        attention=stopped or bool(unresolved) or (not operations and any(r.get('status')=='error' for r in result.get('tool_results',[]) if isinstance(r,dict)))
         # Fenced code in a chat answer is not a published deliverable. Only
         # explicit stage publications and actual tool artifacts belong here.
         artifacts=list({a['id']:a for a in artifacts if isinstance(a,dict) and 'id' in a}.values())[:12]
@@ -328,7 +329,7 @@ def snapshot(db, request_id=None):
         try:stale=(datetime.datetime.now().astimezone()-datetime.datetime.fromisoformat(row['created'])).total_seconds()>600
         except (ValueError,TypeError):stale=True
         status=('attention' if attention else 'done') if row['status']=='done' else 'running'
-        if row['status']=='done' and verification:
+        if row['status']=='done' and verification and not stopped:
             if verification['state'] in {'failed','unverified'}:status='attention'
             elif verification['state']=='verified':status='done'
             else:status='verifying'
@@ -338,8 +339,8 @@ def snapshot(db, request_id=None):
             note=c.execute('SELECT title,summary FROM stage_task_notes WHERE request_id=?',(row['id'],)).fetchone()
         eligible,title,summary=_task_identity(note,operations,artifacts)
         request={'id':row['id'],'status':status,'created':row['created'],'title':title,
-                 'summary':summary,'workspace_eligible':eligible,'uncertain':stale and status=='running',
-                 'outcome':'사용자가 확인 완료했습니다.' if review and review['decision']=='confirmed' else '사용자가 수정·재확인을 요청했습니다.' if review else '확인이 필요합니다.' if status=='attention' else '요청 처리가 종료되었습니다.' if status=='done' else '작업 중입니다.',
+                 'summary':summary,'workspace_eligible':eligible,'uncertain':stale and status=='running','stopped':stopped,
+                 'outcome':'사용자가 확인 완료했습니다.' if review and review['decision']=='confirmed' else '사용자가 수정·재확인을 요청했습니다.' if review else '사용자가 작업을 중지했습니다.' if stopped else '확인이 필요합니다.' if status=='attention' else '요청 처리가 종료되었습니다.' if status=='done' else '작업 중입니다.',
                  'user_review':review['decision'] if review else None}
         if payload.get('task_id'):request['task_id']=payload['task_id']
         # The chat explanation is not a deliverable. Keep the response key for

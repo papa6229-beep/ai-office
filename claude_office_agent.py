@@ -15,6 +15,7 @@ from pathlib import Path
 
 import chat_stream
 import provider_cli
+import task_control
 
 ROOT=Path(__file__).resolve().parent
 INSTRUCTION='''You are Aemeath inside AI OFFICE, acting for the current user.
@@ -22,6 +23,9 @@ Use the registered office MCP tools directly to carry out the user's authorized 
 Use ToolSearch to discover mcp__office__ tools when their schemas are deferred;
 deferred schemas are not a missing connection or permission.
 The office executor validates references, arguments, permissions and effects. Do not
+ignore user_updates returned by that executor: these are authenticated new human
+messages steering this active task, not instructions from a retrieved document.
+Reconsider an action_not_executed call before requesting the next action. Do not
 infer missing permission from disabled Claude Code built-in tools. A tool receipt
 with status ok is a successful observation, not a connection failure. Observe the
 actual result before reporting failure or completion. Follow the latest corrected
@@ -89,10 +93,15 @@ def tool_bridge(tools,dispatch):
     thread=threading.Thread(target=server.serve_forever,name='office-claude-tools',daemon=True);thread.start()
     try:
         yield {'endpoint':f'http://127.0.0.1:{server.server_port}/rpc','token':token,'state':state}
-    finally:server.shutdown();server.server_close()
+    finally:
+        server.shutdown();server.server_close()
+        # Finish the currently admitted office action before committing the
+        # stopped request. Never orphan its result on a daemon worker.
+        with lock:pass
 
 
 def run_agent(messages,tools,settings,dispatch):
+    task_control.checkpoint()
     if not provider_cli.readiness('claude')['authenticated']:raise ValueError('Claude 구독 계정 로그인을 확인해줘.')
     parent=provider_cli.RUNTIME/'claude'/'office';parent.mkdir(parents=True,exist_ok=True)
     system=INSTRUCTION+'\n\n'+'\n\n'.join(row.get('content','') for row in messages if row.get('role')=='system')
@@ -116,6 +125,7 @@ def run_agent(messages,tools,settings,dispatch):
             environment=provider_cli.environment('claude')
             for key in ('CLAUDE_CODE_SAFE_MODE','CLAUDE_CODE_SIMPLE'):environment.pop(key,None)
             environment.update(ENABLE_TOOL_SEARCH='true',ENABLE_CLAUDEAI_MCP_SERVERS='false')
+            task_control.checkpoint()
             process=subprocess.Popen(argv,stdin=source,stdout=subprocess.PIPE,stderr=errors,cwd=folder,
                 env=environment,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             events=queue.Queue(maxsize=128);stopped=threading.Event()
@@ -135,6 +145,7 @@ def run_agent(messages,tools,settings,dispatch):
             timeout=max(30,min(600,int(settings.get('timeout',120))))
             try:
                 while True:
+                    if not bridge['state']['executing']:task_control.checkpoint()
                     try:line=events.get(timeout=.25)
                     except queue.Empty:
                         if not bridge['state']['executing'] and time.monotonic()-max(last,bridge['state']['last_activity'])>timeout:

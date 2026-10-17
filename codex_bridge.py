@@ -1055,6 +1055,9 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
     The model slot is released while application callbacks may call other models.
     No inference or uncertain effect is automatically retried.
     """
+    import task_control
+    task_control.checkpoint()
+    remove_stop=lambda:None
     _emit_draft('')
     folder = _agent_workspace(cwd)
     dynamic, names, tools_hash = _agent_definitions(tools)
@@ -1085,6 +1088,11 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
     try:
         acquire()
         client = _Client(180, native_agent=True, cwd=folder)
+        control=task_control.current()
+        if control:
+            def stop_model():
+                if client.proc.poll() is None:client.proc.terminate()
+            remove_stop=control.subscribe(stop_model)
         client.initialize()
         metadata, _ = _catalog(client, settings)
         phase = 'thread_resume' if resume else 'thread_start'
@@ -1220,6 +1228,7 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
         failure.elapsed_seconds = round(time.monotonic() - started_at, 3)
         raise failure from None
     finally:
+        remove_stop()
         release()
         if client is not None:
             client.close()

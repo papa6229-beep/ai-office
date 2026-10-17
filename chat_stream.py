@@ -53,7 +53,7 @@ def capture(request_id):
     with _lock:
         prior = _rows.get(request_id)
         # A duplicate HTTP request must not clear an in-flight owner's draft.
-        if prior and prior['phase'] not in {'done', 'error'}:
+        if prior and prior['phase'] not in {'done', 'error', 'cancelled'}:
             owner = None
         else:
             _prune()
@@ -62,7 +62,7 @@ def capture(request_id):
                                  'updated': time.monotonic()}
 
     def activity(phase, label, text=None):
-        if not owner or phase not in {'thinking', 'working', 'draft', 'waiting', 'done', 'error'}:
+        if not owner or phase not in {'thinking', 'working', 'draft', 'waiting', 'done', 'error','cancelled'}:
             return
         if not isinstance(label, str) or (text is not None and not isinstance(text, str)):
             return
@@ -92,6 +92,6 @@ def capture(request_id):
             with _lock:
                 row = _rows.get(request_id)
                 if row and row['owner'] == owner:
-                    phase = 'error' if failed else row['phase'] if row['phase'] in {'done', 'error', 'waiting'} else 'done'
+                    phase = 'error' if failed else row['phase'] if row['phase'] in {'done', 'error', 'waiting','cancelled'} else 'done'
                     row.update(text='', phase=phase, updated=time.monotonic())
                     row['revision'] += 1

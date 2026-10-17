@@ -34,6 +34,8 @@
   }
   let companionState = null, companionOutcome = null, companionError = '';
   let liveActivity = null;
+  let activeRequest=null, stopRequested=false;
+  const controlPending={}, controlSubmitting={};
   let outcomeVisibleUntil=0, outcomeTimer=null;
   let notificationUnread=0;
   document.addEventListener('office-notifications-state',event=>{
@@ -72,7 +74,7 @@
     let next='idle', label='이야기를 기다리고 있어요';
     if (busy) {
       next=['draft','done'].includes(liveActivity?.phase) ? 'answer' : liveActivity?.phase==='error' ? 'error' : liveActivity?.phase==='waiting' ? 'idle' : 'working';
-      label=liveActivity?.label || '요청을 살펴보고 있어요';
+      label=stopRequested ? '중지 요청을 처리하고 있어요' : liveActivity?.label || '요청을 살펴보고 있어요';
     }
     else if (companionError || uncertain) {next='error';label=uncertain ? '결과 확인이 필요해요' : companionError;}
     else if (companionOutcome && Date.now()<outcomeVisibleUntil) {next=companionOutcome.state;label=companionOutcome.label;}
@@ -98,6 +100,9 @@
   function locks() {
     const blocked = busy || !!uncertain || !overview?.action_token;
     $('work').querySelectorAll('button,input,textarea,select').forEach(el => {
+      if(el.id==='workStop'){el.hidden=!activeRequest;el.disabled=!activeRequest || stopRequested || !!controlSubmitting.stop;return;}
+      if(activeRequest && el.id==='workCommand'){el.disabled=false;return;}
+      if(activeRequest && el.id==='workSend'){el.disabled=stopRequested || !!controlSubmitting.message;return;}
       if (el.closest('#workNotifications,#workNotificationDialog,#workLauncher,#workLauncherDialog,#workCalendar,#workFileDialog,#workStage,#workStageDialog') || el.id==='workNotificationAcknowledge' || el.matches('[data-work-preview]') || el.matches('[data-work-action="close-detail"],[data-files-action]')) return;
       if (el.matches('[data-work-action="desk"],[data-work-action="tasks"]')) return;
       if (el.matches('[data-work-action="reload"]')) { el.disabled = busy || !!uncertain || loading; return; }
@@ -111,8 +116,9 @@
     if($('workAttach')) $('workAttach').disabled=blocked || uploading || attachments.length>=6;
     if($('workAttachmentInput')) $('workAttachmentInput').disabled=blocked || uploading;
     renderAttachments();
-    $('workSend').textContent = busy ? '처리 중…' : uploading ? '첨부 중…' : '요청 보내기';
-    $('workConnection').textContent = busy ? liveActivity?.label || '요청을 살펴보고 있어요' : companionError || (uncertain ? '결과 확인이 필요해요' : waitingForSelection() ? '선택을 기다리고 있어요' : companionOutcome?.label || (overview ? '업무 기록 연결됨' : '연결 필요'));
+    $('workSend').textContent = activeRequest ? controlSubmitting.message ? '보내는 중…' : '추가 메시지 보내기' : busy ? '처리 중…' : uploading ? '첨부 중…' : '요청 보내기';
+    if($('workStop'))$('workStop').textContent=stopRequested ? '중지 요청됨' : controlSubmitting.stop ? '중지 요청 중…' : '작업 중지';
+    $('workConnection').textContent = busy ? (stopRequested ? '중지 요청을 처리하고 있어요' : liveActivity?.label || '요청을 살펴보고 있어요') : companionError || (uncertain ? '결과 확인이 필요해요' : waitingForSelection() ? '선택을 기다리고 있어요' : companionOutcome?.label || (overview ? '업무 기록 연결됨' : '연결 필요'));
     companionUpdate();
     settleChatScroll();
   }
@@ -242,6 +248,31 @@
     } finally { loading = false; locks(); }
   };
   function requestID() { return Array.from(crypto.getRandomValues(new Uint8Array(16)), b=>b.toString(16).padStart(2,'0')).join(''); }
+  async function sendControl(kind) {
+    if(!activeRequest || controlSubmitting[kind] || (kind==='message' && stopRequested))return;
+    const target=activeRequest.body.request_id;
+    const text=kind==='message' ? $('workCommand').value.trim() : '';
+    if(kind==='message' && !text && !controlPending[kind])return;
+    const payload=controlPending[kind] || {request_id:target,input_id:requestID(),kind,message:text};
+    controlPending[kind]=payload;controlSubmitting[kind]=true;locks();
+    try {
+      const response=await fetch('/api/work/control',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({...payload,token:overview.action_token})});
+      const data=await response.json();
+      if(!response.ok || !data.accepted)throw Error(data.message || data.error || '추가 요청을 전달하지 못했어요.');
+      delete controlPending[kind];
+      if(kind==='stop')stopRequested=true;
+      if(kind==='message' && $('workCommand').value.trim()===payload.message)$('workCommand').value='';
+      if(activeRequest?.body.request_id===target){
+        const row=document.createElement('div');row.className='work-message work-user';
+        const label=document.createElement('strong');label.textContent='태준';
+        row.append(label,document.createTextNode(kind==='stop' ? '작업 중지 요청' : payload.message));$('workMessages').append(row);
+        notice(kind==='stop' ? '중지를 요청했어요. 실행 중인 동작의 결과를 정리하고 있어요.' : '추가 메시지를 보냈어요. 다음 판단에 반영해요.');
+        settleChatScroll(true);
+      } else if(!busy)window.workLoad();
+    } catch(error){notice(error.message,true);}
+    finally{controlSubmitting[kind]=false;locks();}
+  }
   function liveReply(request) {
     const enabled=['command','assistant-action'].includes(request.endpoint);
     let stopped=false, timer=null, controller=null, revision=-1;
@@ -270,7 +301,7 @@
           revision=data.revision;text.textContent=data.text || '';draft.hidden=!data.text;
           label.textContent=data.phase==='draft' ? 'Aemeath · 답변 작성 중' : 'Aemeath · 진행 상황';
           liveActivity={phase:data.phase,label:data.label || (data.text ? '답변을 작성하고 있어요' : '요청 처리 중')};
-          $('workConnection').textContent=liveActivity.label;
+          $('workConnection').textContent=stopRequested ? '중지 요청을 처리하고 있어요' : liveActivity.label;
           companionUpdate();
           settleChatScroll();
         }
@@ -311,6 +342,7 @@
     companionError=''; companionOutcome=null; liveActivity=null; clearTimeout(outcomeTimer); busy = true; notice(); locks();
     let confirmedResponse = false;
     const stageRequest=['command','assistant-action','choose-launcher'].includes(request.endpoint);
+    if(['command','assistant-action'].includes(request.endpoint)){activeRequest=request;stopRequested=false;locks();}
     const stageEvent=(phase,result)=>{if(stageRequest)document.dispatchEvent(new CustomEvent('work-stage-request',{detail:{requestId:request.body.request_id,message:request.body.message || '선택한 요청 처리',phase,result}}));};
     stageEvent('start');
     let stopLive=()=>{};
@@ -340,6 +372,7 @@
       uncertain = null; overview = data; stageEvent('done',data.result);
       companionOutcome=request.endpoint === 'command' ? {state:'answer',label:'답변이 도착했어요'} : {state:'agree',label:['task','task-edit','note','status','resource'].includes(request.endpoint) ? '기록을 저장했어요' : '응답을 확인했어요'};
       if(data.result?.execution_state==='waiting')companionOutcome={state:'idle',label:'선택을 기다리고 있어요'};
+      if(data.result?.execution_state==='cancelled')companionOutcome={state:'idle',label:'작업을 중지했어요'};
       if(data.result?.execution_state==='error'){companionOutcome=null;companionError='요청 결과를 확인해 주세요';}
       outcomeVisibleUntil=Date.now()+8000;
       outcomeTimer=setTimeout(companionUpdate,8100);
@@ -359,12 +392,12 @@
       if (data.result?.source_reload) reflectSourceReload(data.result.source_reload);
     } catch (e) {
       stageEvent(confirmedResponse ? 'error' : 'uncertain',{message:e.message});
-      if (!confirmedResponse) uncertain = request;
+      if (!confirmedResponse) {uncertain = request;if(!$('workCommand').value.trim() && request.endpoint==='command')$('workCommand').value=request.body.message || '';}
       else uncertain = null;
       companionOutcome=null;companionError=confirmedResponse ? '요청을 확인해 주세요' : '결과 확인이 필요해요';
       notice(`${confirmedResponse ? '요청 실패' : '처리 결과 확인 실패'}: ${e.message}`, true);
       if(['task','task-edit'].includes(request.endpoint)&&$('workTaskCreateDialog').open){$('workTaskFormNotice').textContent=e.message;$('workTaskFormNotice').hidden=false;}
-    } finally { stopLive();liveActivity=null;busy = false; locks(); }
+    } finally { stopLive();liveActivity=null;busy = false;if(!uncertain){activeRequest=null;stopRequested=false;delete controlPending.message;delete controlPending.stop;}locks(); }
   }
   function openTaskEditor(task=null){
     const form=$('workTaskForm');form.reset();form.dataset.taskId=task?.id||'';
@@ -386,11 +419,13 @@
     const form = event.target;
     if (!['workCommandForm','workTaskForm','workNoteForm','workResourceForm'].includes(form.id)) return;
     event.preventDefault();
+    if ((busy || uncertain) && form.id==='workCommandForm' && activeRequest){sendControl('message');return;}
     if (busy || uncertain) return;
     if (form.id === 'workCommandForm') {
       const message = $('workCommand').value.trim(); if (!message) return;
       if(uploading || attachments.some(item=>!item.id))return;
-      write('command',{message,request_id:attachmentDraft || requestID(),attachment_ids:attachments.map(item=>item.id),...(selected ? {task_id:selected} : {})},()=>{$('workCommand').value='';attachments=[];attachmentDraft='';renderAttachments();});
+      write('command',{message,request_id:attachmentDraft || requestID(),attachment_ids:attachments.map(item=>item.id),...(selected ? {task_id:selected} : {})},()=>{});
+      $('workCommand').value='';attachments=[];attachmentDraft='';renderAttachments();
     } else if (form.id === 'workTaskForm') {
       const title = $('workTaskTitle').value.trim(); if (!title) return;
       const taskID=form.dataset.taskId;
@@ -405,6 +440,7 @@
   }
   async function click(event) {
     const button = event.target.closest('button'); if (!button || button.disabled) return;
+    if(button.id==='workStop'){sendControl('stop');return;}
     if (button.dataset.workAssistantAction) { write('assistant-action',{pending_id:button.dataset.workAssistantAction,option_id:button.dataset.workAssistantOption}); return; }
     if (button.dataset.workLauncherChoice) { write('choose-launcher',{choice_id:button.dataset.workLauncherChoice,target:button.dataset.workLauncherTarget}); return; }
     if (button.dataset.workTask) {const task=overview?.tasks?.find(t=>t.id===button.dataset.workTask);if(!task)return;selected=task.id;render();openTaskEditor(task);return;}
@@ -506,7 +542,7 @@
       // IME confirmation can report keyCode 229 even when isComposing is false.
       if (composing || event.isComposing || event.keyCode === 229) return;
       event.preventDefault();
-      if (event.repeat || command.disabled || busy || uncertain || !overview?.action_token || !command.value.trim()) return;
+      if (event.repeat || command.disabled || ((busy || uncertain) && !activeRequest) || $('workSend').disabled || !overview?.action_token || !command.value.trim()) return;
       $('workCommandForm').requestSubmit($('workSend'));
     });
     document.addEventListener('work-companion-changed',refreshCompanionManifest);

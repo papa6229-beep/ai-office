@@ -485,6 +485,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
                 payload={k:v for k,v in d.items() if k!='token'}
+                if p=='/api/work/control':
+                    import task_control
+                    result=task_control.submit(DB,payload)
+                    return self.reply(result,200 if result.get('accepted') else 409)
                 if p in {'/api/work/phone-pair','/api/work/phone-revoke'}:
                     if payload:raise ValueError('연결 요청을 확인해 주세요.')
                     import direct_phone

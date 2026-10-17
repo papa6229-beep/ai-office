@@ -10,6 +10,7 @@ import threading
 import uuid
 import base64
 import io
+import task_control
 
 ROOT=Path(__file__).resolve().parent
 RUNTIME=ROOT/'.provider_runtime'
@@ -183,10 +184,17 @@ def _invoke(provider,folder,prompt,tools,settings,image_raw,system=None):
     # Prompt uses stdin; output is bounded on private temporary streams.
     with tempfile.TemporaryFile() as output,tempfile.TemporaryFile() as errors:
         process=subprocess.Popen(argv,stdin=subprocess.PIPE,stdout=output,stderr=errors,cwd=str(folder),env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-        try:process.communicate(input_data,timeout=max(15,min(600,int(settings.get('timeout',120)))))
+        try:
+            with task_control.interruptible(process):
+                process.communicate(input_data,timeout=max(15,min(600,int(settings.get('timeout',120)))))
         except subprocess.TimeoutExpired:
             process.kill();process.communicate()
             raise ValueError('모델 응답 대기시간이 지났어요. 도구는 오피스 실행 기록으로 확인해줘.') from None
+        except BaseException:
+            if process.poll() is None:process.kill()
+            process.communicate()
+            raise
+        task_control.checkpoint()
         output.seek(0);raw=output.read(2*1024*1024+1)
         if process.returncode or len(raw)>2*1024*1024:
             errors.seek(0);reason=errors.read(16384).decode('utf-8',errors='replace').lower()

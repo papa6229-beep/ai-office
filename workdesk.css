@@ -34,6 +34,8 @@
 #work #workCommand{border:1px solid #555650;border-radius:7px 7px 0 0;display:block;height:74px;min-height:70px;border-bottom:0}
 #work .work-compose-footer{border:1px solid #555650;border-top:0;border-radius:0 0 7px 7px;padding:9px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;background:#101113}
 #work .work-compose-footer span{font-size:11px;color:#aaa9a0}
+#work .work-compose-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+#work #workStop{border-color:#c69aa5;color:#f1c5d1}
 #work .work-examples{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
 #work .work-examples span{width:100%;font-size:11px;color:#a7a8a1}
 #work .work-examples button{background:transparent;border:0;box-shadow:none;border-radius:2px;color:#cecec4;font-size:11px;padding:4px 0;text-align:left;margin-right:12px;font-weight:400;text-decoration:underline;text-decoration-color:#64655c;text-underline-offset:4px}
