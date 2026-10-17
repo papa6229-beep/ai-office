@@ -28,6 +28,7 @@ def _db(path):
                 body TEXT NOT NULL, received REAL NOT NULL, confirmed REAL,
                 fingerprint TEXT NOT NULL, origin TEXT NOT NULL)''')
             connection.execute('CREATE INDEX IF NOT EXISTS office_notification_time ON office_notifications(received DESC)')
+            connection.execute('CREATE TABLE IF NOT EXISTS office_notification_receipts (event_key TEXT PRIMARY KEY, recorded REAL NOT NULL)')
             yield connection
     finally:connection.close()
 
@@ -43,11 +44,17 @@ def ingest(db,event):
     if not source or not (title or body):return
     digest=hashlib.sha256(json.dumps([source,title,body],ensure_ascii=False).encode()).hexdigest()
     now=time.time()
+    event_key=event.get('event_key')
+    if event_key is not None and (not isinstance(event_key,str) or not 1<=len(event_key)<=200):return
+    origin='phone_link_panel' if event.get('origin')=='phone_link_panel' else 'windows_banner'
     with _db(db) as c:
         c.execute('BEGIN IMMEDIATE')
+        if event_key:
+            inserted=c.execute('INSERT OR IGNORE INTO office_notification_receipts VALUES (?,?)',(event_key,now))
+            if not inserted.rowcount:return
         if c.execute('SELECT 1 FROM office_notifications WHERE fingerprint=? AND received>?',(digest,now-90)).fetchone():return
         c.execute('INSERT INTO office_notifications VALUES (?,?,?,?,?,NULL,?,?)',
-                  (uuid.uuid4().hex,source,title,body,now,digest,'windows_banner'))
+                  (uuid.uuid4().hex,source,title,body,now,digest,origin))
 
 def confirm(db,identifier=None,through=None):
     with _db(db) as c:
@@ -74,7 +81,7 @@ def snapshot(db):
     service=_service
     status=service.status() if service else {'state':'stopped','message':'알림 수신기를 준비하고 있어요.'}
     return {'items':[dict(row) for row in rows],'unread':unread,'through':time.time(),'receiver':status,
-            'scope':'PC에 실제 표시되는 휴대폰·메신저 알림 배너. 숨겨진 내용이나 표시되지 않은 알림은 수집하지 않습니다.'}
+            'scope':'휴대폰과 연결 앱의 노출된 알림 목록과 PC 알림 배너. 원본 대화·숨겨진 내용은 수집하지 않습니다.'}
 
 class Receiver:
     def __init__(self,db):
@@ -89,7 +96,7 @@ class Receiver:
             state=self.state;message=self.message
             if state=='watching' and time.monotonic()-self.last_heartbeat>30:
                 state='unavailable';message='알림 수신 상태를 확인하고 있어요.'
-            return {'state':state,'message':message,'mode':'visible_banners','uses_ai':False}
+            return {'state':state,'message':message,'mode':'phone_link_panel_and_banners','uses_ai':False}
 
     def close(self):
         self.stop.set()
@@ -125,9 +132,11 @@ class Receiver:
                     if event.get('kind')=='notification':ingest(self.db,event)
                     elif event.get('kind')=='ready':
                         with self.lock:
-                            self.state='watching';self.message='PC 알림 배너 감지 중';self.last_heartbeat=time.monotonic()
+                            self.state='watching';self.message='휴대폰 알림 연결 확인 중';self.last_heartbeat=time.monotonic()
                     elif event.get('kind')=='heartbeat':
-                        with self.lock:self.last_heartbeat=time.monotonic()
+                        with self.lock:
+                            self.last_heartbeat=time.monotonic()
+                            self.message={'reading':'휴대폰 알림 목록 연결됨','not_found':'휴대폰과 연결 앱을 실행해 주세요','pane_unavailable':'휴대폰과 연결의 알림 영역을 확인해 주세요'}.get(event.get('phone_state'),'휴대폰 알림 연결 확인 중')
                     elif event.get('kind')=='unavailable':raise RuntimeError('capture unavailable')
             except (OSError,ValueError,RuntimeError,sqlite3.Error):pass
             finally:
