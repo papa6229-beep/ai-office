@@ -358,7 +358,7 @@ class BrowserWorkspace:
     def view(self, tab_id):
         return self._dispatch('view', tab_id)
 
-    def inspect(self,tab_id):return self._dispatch('inspect',tab_id)
+    def inspect(self,tab_id,query=''):return self._dispatch('inspect',tab_id,query)
 
     def export(self,tab_id):return self._dispatch('export',tab_id)
 
@@ -376,9 +376,9 @@ class BrowserWorkspace:
     def act(self,tab_id,snapshot_id,control_id,operation,value=None):
         return self._dispatch('act',tab_id,snapshot_id,control_id,operation,value)
 
-    def _do_inspect(self,tab_id):
+    def _do_inspect(self,tab_id,query=''):
         import browser_controls
-        return browser_controls.inspect(self,tab_id)
+        return browser_controls.inspect(self,tab_id,query)
 
     def _do_act(self,*args):
         import browser_controls

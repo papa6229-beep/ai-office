@@ -96,7 +96,7 @@ _SPECS = {
     'streamdeck_import': ('write', 'streamdeck_shortcuts가 발급한 collection_ref로 표시된 바로가기 전체를, 개별 ref로 하나를 AI OFFICE에 등록합니다. 사용자가 가져오라고 요청하면 조회 후 이 도구로 직접 처리하세요. 원본과 기존 타일은 유지하며 프로그램을 실행하지 않습니다.', {'ref':_string()}, ['ref']),
     'browser_open': ('external', '사이트를 최초 실행 시 최소화되는 실제 작업용 Chrome에서 백그라운드로 엽니다. 물리 마우스·키보드를 쓰지 않고 페이지 요소로 작업합니다. 작업 표시줄에서 사용자가 창을 복원해 직접 진행 화면을 볼 수 있습니다. 탭을 앞으로 가져오지 않습니다. AI OFFICE 화면이 열려 있는 사용자의 브라우저 창을 뜻하지 않습니다. 일반 런처 웹 카드 클릭은 프런트에서 현재 브라우저의 새 탭으로 열립니다. 이 도구는 페이지 관찰·작업이 필요한 경우 사용하고 현재 사용자 창의 탭을 열었다고 말하지 마세요. HTTP(S)만 지원하며 본문은 browser_read, 화면은 browser_view로 확인하세요.', {'url':_string()}, ['url']),
     'browser_tabs': ('read', 'AI OFFICE 전용 Chrome 창에 열린 탭의 제목과 ref를 확인합니다. 이전 대화의 탭 참조를 추측하지 말고 현재 탭을 조회하세요.', {}, []),
-    'browser_inspect': ('read','현재 웹페이지의 실제 본문과 입력란·버튼·선택 항목의 ref를 읽습니다. 페이지별 코드를 만들지 않고 browser_act로 입력·로그인·클릭·선택·키 입력을 수행합니다. 입력값·비밀번호는 반환하지 않습니다.',{'ref':_string()},['ref']),
+    'browser_inspect': ('read','현재 탭의 입력칸·버튼 ref를 작은 목록으로 읽습니다. 입력·검색은 이 도구부터 사용하세요. 본문·상품목록은 포함하지 않습니다. query는 선택적인 이름/라벨/HTML name/id/선택지의 부분 문자열입니다(예: keyword, 검색). query 없이 먼저 찾고, 원하는 요소나 선택지가 빠졌을 때만 좁혀 다시 조회하세요. 잘림은 조회 실패가 아닙니다. browser_act에 실제 반환 ref를 사용하고, 본문 결과는 browser_read로 확인하세요. 입력값·비밀번호는 반환하지 않습니다.',{'ref':_string(),'query':_string(maxLengthOverride=200)},['ref']),
     'browser_value': ('read','browser_inspect에서 관찰한 일반 입력란·textarea·편집 영역에 이미 들어 있는 내용을 읽습니다. 보고서 내용 확인·복사에 사용하며 비밀번호·비밀값은 반환하지 않습니다.',{'ref':_string()},['ref']),
     'browser_act': ('external','browser_inspect에서 관찰한 실제 요소를 조작하고 결과 페이지를 다시 읽습니다. fill은 비밀번호를 포함한 사용자가 제공한 입력값, click은 버튼/링크, select는 실제 option값, check/uncheck는 선택, press는 Enter 등 일반 키입니다. 현재 사용자 요청 범위에서 추가 승인 없이 진행하고, 외부 게시·전송 등은 사용자가 실제로 맡긴 범위만 수행합니다. value는 실행 기록에서 가립니다.',{'ref':_string(),'operation':_string(enum=['fill','click','select','check','uncheck','press']),'value':_string(maxLengthOverride=60000)},['ref','operation']),
     'browser_export': ('external','현재 페이지의 읽을 수 있는 본문을 모델이 다시 옮겨 쓰지 않고 텍스트 파일로 복사합니다. WORKSPACE 다운로드와 open_notepad/copy 옵션을 지원합니다. 수집 범위·잘림은 결과에 표시됩니다.',{'ref':_string(),'title':_string(maxLengthOverride=120),'open_notepad':{'type':'boolean'},'copy':{'type':'boolean'}},['ref']),
@@ -445,7 +445,9 @@ class ToolRegistry:
                 ref=self._ref(context,'browser_control',{'tab_id':row['tab_id'],'snapshot_id':row['control_snapshot'],'control_id':control['id']})
                 data['controls'].append(dict({key:value for key,value in control.items() if key!='id'},ref=ref))
         data['links_truncated']=len(row.get('links',[]))>30
-        message='페이지 내용을 읽었습니다: '+row.get('title','사이트')+'\n출처: '+row.get('url','')
+        message=('입력칸·버튼 '+str(len(data.get('controls',[])))+'개를 관찰했습니다: ' if 'controls' in row else '페이지 내용을 읽었습니다: ')+row.get('title','사이트')+'\n출처: '+row.get('url','')
+        if row.get('control_limit'):message+='\n목록 범위를 제한했습니다. 반환된 ref는 사용 가능하며 빠진 요소만 query로 좁혀 조회하세요.'
+        if row.get('unobserved_frames'):message+='\n일부 프레임은 관찰 범위 밖입니다.'
         if row.get('query'): message+='\n읽은 범위에서 검색어 '+str(row.get('match_count',0))+'곳을 확인했습니다.'
         if row.get('truncated') or row.get('collection_limited') or row.get('unread_iframes'): message+='\n일부 내용은 읽기 범위 밖입니다. 범위 표시를 확인하세요.'
         return dict(_ok(message,data),evidence=True)
@@ -709,7 +711,7 @@ class ToolRegistry:
                 if result.get('execution_uncertain'):return _ok(result['note'],result)
                 return self._browser_evidence(c,result)
             tab=self._get(c,a['ref'],'browser_tab')
-            if name=='browser_inspect':return self._browser_evidence(c,self._browser().inspect(tab))
+            if name=='browser_inspect':return self._browser_evidence(c,self._browser().inspect(tab,a.get('query','')))
             row=self._browser().export(tab)
             result=self._text_document(c,row['text'],a.get('title') or row.get('title','웹페이지 복사'),a.get('open_notepad',False),a.get('copy',False))
             result.update(source=row.get('url'),truncated=row.get('truncated',False),total_characters=row.get('total_characters'),scope=row.get('scope'))
