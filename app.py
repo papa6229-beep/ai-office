@@ -94,7 +94,9 @@ def call_gemma_vision(prompt,image_b64,settings=None):
     s=settings if settings is not None else config()
     model_connections.require_runnable(s)
     if s.get('api_type') in {'gemini','claude'}:
-        raise ValueError('선택한 구독 CLI는 현재 텍스트·공통 도구 경로예요. 이미지 직접 입력은 아직 연결되지 않았어요. 모델 연결 설정에서 이미지 지원 연결을 선택해줘.')
+        import provider_cli
+        with model_requests.request_slot(background=s.get('_judgment_background') is True):
+            return provider_cli.vision(prompt,image_b64,s)
     if s.get('api_type')=='codex':
         import codex_bridge
         header=base64.b64decode(image_b64[:32],validate=True)
@@ -103,18 +105,19 @@ def call_gemma_vision(prompt,image_b64,settings=None):
         return codex_bridge.ask(prompt,s,image_data_url='data:'+mime+';base64,'+image_b64,
                                 background=s.get('_judgment_background') is True)
     managed=lmstudio_runtime.is_managed(s)
-    if s.get('api_type')!='ollama' and not managed:raise ValueError('이미지 내용 분석은 Ollama Gemma 또는 관리되는 로컬 E4B 연결에서 지원합니다.')
+    openai_vision=s.get('api_type')=='openai'
+    if s.get('api_type')!='ollama' and not openai_vision:raise ValueError('선택한 연결에 이미지 전송 경로가 없습니다.')
     lmstudio_runtime.ensure_ready(s)
     base=local_content_review.validate_endpoint(s['gemma_url']);model=str(s.get('vision_model') or '').strip() or s['gemma_model'];t=int(s.get('timeout',60))
-    if managed:
-        if model!='google/gemma-4-e4b':raise ValueError('로컬 이미지 분석 모델은 google/gemma-4-e4b로 설정하세요.')
+    if openai_vision:
         # Scanner composites are JPEG; browser captures and the no-Pillow
         # fallback retain PNG/WebP bytes. Declare the actual bounded input.
         header=base64.b64decode(image_b64[:32],validate=True)
         mime='image/png' if header.startswith(b'\x89PNG\r\n\x1a\n') else (
             'image/webp' if header.startswith(b'RIFF') and header[8:12]==b'WEBP' else 'image/jpeg')
         payload={'model':model,'messages':[{'role':'user','content':[{'type':'text','text':prompt},{'type':'image_url','image_url':{'url':'data:'+mime+';base64,'+image_b64}}]}],
-                 'stream':False,'temperature':0.2,'max_tokens':1536,'reasoning_effort':'none'}
+                 'stream':False,'temperature':0.2,'max_tokens':1536}
+        if managed:payload['reasoning_effort']='none'
         route='/chat/completions'
     else:
         payload={'model':model,'messages':[{'role':'user','content':prompt,'images':[image_b64]}],'stream':False,'options':{'temperature':0.2}}
@@ -126,7 +129,7 @@ def call_gemma_vision(prompt,image_b64,settings=None):
         def redirect_request(self,*args,**kwargs):return None
     with model_requests.request_slot(background=s.get('_judgment_background') is True):
         with urllib.request.build_opener(NoRedirect).open(req,timeout=t) as r:response=json.load(r)
-    return response['choices'][0]['message']['content'] if managed else response['message']['content']
+    return response['choices'][0]['message']['content'] if openai_vision else response['message']['content']
 def runlog(kind,status,summary,detail=''):
     with db() as c:c.execute('INSERT INTO runs VALUES (?,?,?,?,?,?)',(uuid.uuid4().hex,kind,status,summary,detail,now()))
 DESK_TOKEN=uuid.uuid4().hex
@@ -189,7 +192,8 @@ def work_service():
     model_connections.require_runnable(settings)
     return work_assistant.WorkAssistant(DB,config,call_gemma,
         native_model=lambda messages,tools:call_assistant_model(messages,tools,settings),
-        intent_model=lambda messages,tools:call_assistant_intent(messages,tools,settings),
+        # The selected model reasons and acts in the shared tool loop. A separate
+        # intent-classification response must not gate whether a task can start.
         agent_model=(lambda messages,tools,dispatch,**hooks:assistant_model.run_agent(messages,tools,settings,dispatch,**hooks))
                      if settings.get('api_type')=='codex' else None,
         registry_factory=lambda:ToolRegistry(DB,

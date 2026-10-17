@@ -54,13 +54,7 @@ def call(messages, tools, settings, *, output_schema=None):
                   and str(message.get('tool_name','')).startswith('office_source_')]
     if source_steps:
         settings=dict(settings,_source_edit_timeout=180)
-        last_tool=next((message for message in reversed(messages) if message.get('role')=='tool'),{})
-        if last_tool.get('tool_name') in {'office_source_list','office_source_read','office_source_history'}:
-            # This is an observed source-edit phase, not a keyword intent rule.
-            # Restore the full registry after a write so other requested work can continue.
-            selected={'stage_publish','office_capabilities','office_project_context','attachments_list','attachment_read','attachment_preview'}
-            tools=[tool for tool in tools if tool['function']['name'].startswith('office_source_')
-                   or tool['function']['name'] in selected]
+        # Keep recovery/work-copy tools available after source observations.
     if settings.get('api_type') == 'codex':
         import codex_bridge
         return codex_bridge.call(messages, tools, settings, output_schema=output_schema)
@@ -81,11 +75,12 @@ def call(messages, tools, settings, *, output_schema=None):
         raise ValueError('비서 도구 목록을 확인하세요.')
     payload = {'model': settings.get('gemma_model'), 'messages': _messages(messages, kind),
                'tools': tools, 'stream': False}
+    output_limit=8192 if source_steps or any(message.get('tool_name','').startswith('workspace_') for message in messages) else 4096
     if kind == 'ollama':
-        payload.update(think=False, options={'temperature': 0.1, 'num_predict': 2048})
+        payload.update(think=False, options={'temperature': 0.1, 'num_predict': output_limit})
         route = '/api/chat'
     else:
-        payload.update(temperature=0.1, max_tokens=2048)
+        payload.update(temperature=0.1, max_tokens=output_limit)
         if managed:
             payload['reasoning_effort'] = 'none'
         route = '/chat/completions'

@@ -136,7 +136,7 @@ def status(session_id):
                 rows.append({'path':'source/'+path.name,'state':'new' if not baseline else 'modified',
                              'conflict':bool(baseline and live_hash!=baseline['sha256'])})
         return {**locations,'changes':rows,
-                'instructions':'source에서 네이티브 도구로 수정한 뒤 agent_source_publish로 저장합니다. outputs의 실제 결과물은 agent_output_publish로 게시합니다. reference와 inputs는 자료입니다.'}
+                'instructions':'모든 모델은 workspace_list/read/write/run/image로 작업합니다. Codex는 네이티브 도구도 사용합니다. source 작업본은 agent_source_publish, outputs 결과물은 agent_output_publish로 게시합니다. reference와 inputs는 자료입니다. 실제 앱 반영·화면 확인은 별도입니다.'}
 
 
 def publish_source(session_id,path):

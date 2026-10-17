@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 import threading
 import uuid
+import base64
+import io
 
 ROOT=Path(__file__).resolve().parent
 RUNTIME=ROOT/'.provider_runtime'
@@ -105,43 +107,84 @@ def _parse(value,tools):
     return {'content':value['content'],'tool_calls':normalized}
 
 
-def call(messages,tools,settings,output_schema=None):
+def _image(image_b64):
+    if not isinstance(image_b64,str) or len(image_b64)>14*1024*1024:
+        raise ValueError('이미지 입력 크기를 확인해줘.')
+    raw=base64.b64decode(image_b64,validate=True)
+    from PIL import Image, ImageOps
+    with Image.open(io.BytesIO(raw)) as source:
+        if source.width*source.height>16000000:raise ValueError('이미지 크기가 너무 큽니다.')
+        frame=ImageOps.exif_transpose(source).convert('RGB');frame.thumbnail((2048,2048))
+        stream=io.BytesIO();frame.save(stream,format='JPEG',quality=88)
+    return stream.getvalue()
+
+
+def vision(prompt,image_b64,settings):
+    result=call([{'role':'user','content':prompt}],[],settings,image_b64=image_b64)
+    if result['tool_calls'] or not result['content'].strip():raise ValueError('선택 모델의 이미지 판단을 받지 못했어요.')
+    return result['content']
+
+
+def call(messages,tools,settings,output_schema=None,image_b64=None):
     provider=settings['api_type']
     if not readiness(provider)['authenticated']:raise ValueError('모델 연결 설정에서 '+('Google' if provider=='gemini' else 'Claude')+' 구독 계정으로 먼저 로그인해줘.')
     if not isinstance(tools,list) or len(tools)>512:raise ValueError('오피스 도구 목록을 확인해줘.')
-    prompt=PROTOCOL+json.dumps({'messages':messages,'tools':tools,'output_schema':output_schema},ensure_ascii=False,separators=(',',':'))
+    # Gemini expands @file directives before inference. Only server-created image
+    # references may reach that parser; conversation text stays JSON data.
+    prompt=PROTOCOL+json.dumps({'messages':messages,'tools':tools,'output_schema':output_schema},ensure_ascii=False,separators=(',',':')).replace('@',r'\u0040')
+    image_raw=_image(image_b64) if image_b64 is not None else None
     if len(prompt.encode('utf-8'))>1024*1024:raise ValueError('대화가 커서 모델에 전달하지 못했어요. 새 대화에서 이어가줘.')
     with LOCK:
-        folder=RUNTIME/provider/'office';folder.mkdir(parents=True,exist_ok=True)
-        env=environment(provider);argv=command(provider)
-        if provider=='claude':
-            argv+=['-p','--safe-mode','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--disallowedTools','mcp__*','--no-session-persistence','--output-format','json','--json-schema',json.dumps(SCHEMA),'--model',settings.get('gemma_model') or 'haiku']
-        else:
-            config={'security':{'auth':{'selectedType':'oauth-personal','enforcedType':'oauth-personal'}},'tools':{'core':[]},'mcp':{'allowed':['__office_no_mcp__']},'hooksConfig':{'enabled':False},'telemetry':{'enabled':False},'context':{'fileName':'OFFICE_NO_CONTEXT.md'}}
-            path=folder/'system-settings.json';path.write_text(json.dumps(config),encoding='utf-8')
-            policy=folder/'office-deny.toml';policy.write_text('[[rule]]\ntoolName = "*"\ndecision = "deny"\npriority = 999\n',encoding='utf-8')
-            env['GEMINI_CLI_SYSTEM_SETTINGS_PATH']=str(path)
-            argv+=['-p','Return the requested office JSON only.','--extensions','none','--admin-policy',str(policy),'--output-format','json']
-            if settings.get('gemma_model'):argv+=['--model',settings['gemma_model']]
-        # Prompt uses stdin; output is bounded on private temporary streams.
-        with tempfile.TemporaryFile() as output,tempfile.TemporaryFile() as errors:
-            process=subprocess.Popen(argv,stdin=subprocess.PIPE,stdout=output,stderr=errors,cwd=str(folder),env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-            try:process.communicate(prompt.encode('utf-8'),timeout=max(15,min(600,int(settings.get('timeout',120)))))
-            except subprocess.TimeoutExpired:
-                process.kill();process.communicate()
-                raise ValueError('모델 응답 대기시간이 지났어요. 도구는 오피스 실행 기록으로 확인해줘.') from None
-            output.seek(0);raw=output.read(2*1024*1024+1)
-            if process.returncode or len(raw)>2*1024*1024:
-                errors.seek(0);reason=errors.read(16384).decode('utf-8',errors='replace').lower()
-                if any(word in reason for word in ('quota','rate limit','exhausted')):
-                    raise ValueError('선택한 구독의 사용 한도에 걸렸어요. 다른 계정이나 API 결제로 자동 전환하지 않았어.')
-                if any(word in reason for word in ('unknown option','unknown argument','unrecognized argument')):
-                    raise ValueError('CLI 버전이 오피스 연결 옵션을 지원하지 않아요. CLI 업데이트가 필요해요.')
-                raise ValueError('구독 CLI 요청을 마치지 못했어요. 로그인·사용 한도·모델 설정을 확인해줘. 다른 계정이나 API 결제로 자동 전환하지 않았어.')
-        try:
-            result=json.loads(raw.decode('utf-8-sig'))
-            if result.get('is_error') or result.get('error'):raise ValueError()
-            value=result.get('structured_output') if provider=='claude' else result.get('response')
-            if value is None:value=result.get('result')
-            return _parse(value,tools)
-        except (ValueError,TypeError,KeyError):raise ValueError('CLI 응답을 오피스 도구 요청으로 읽지 못했어요. 실행하지 않은 작업을 완료했다고 판단하지 않았어.') from None
+        parent=RUNTIME/provider/'office';parent.mkdir(parents=True,exist_ok=True)
+        # Each call receives a private input directory, cleaned even on failure.
+        with tempfile.TemporaryDirectory(prefix='input-',dir=parent) as private:
+            return _invoke(provider,Path(private),prompt,tools,settings,image_raw)
+
+
+def _invoke(provider,folder,prompt,tools,settings,image_raw):
+    env=environment(provider);argv=command(provider)
+    input_data=prompt.encode('utf-8')
+    if provider=='claude':
+        argv+=['-p','--safe-mode','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--disallowedTools','mcp__*','--no-session-persistence','--output-format','stream-json' if image_raw else 'json','--json-schema',json.dumps(SCHEMA),'--model',settings.get('gemma_model') or 'haiku']
+        if image_raw:
+            argv+=['--input-format','stream-json','--verbose']
+            event={'type':'user','message':{'role':'user','content':[
+                {'type':'text','text':prompt},
+                {'type':'image','source':{'type':'base64','media_type':'image/jpeg','data':base64.b64encode(image_raw).decode('ascii')}}]},'parent_tool_use_id':None}
+            input_data=(json.dumps(event,ensure_ascii=False)+'\n').encode('utf-8')
+    else:
+        config={'security':{'auth':{'selectedType':'oauth-personal','enforcedType':'oauth-personal'}},'tools':{'core':[]},'mcp':{'allowed':['__office_no_mcp__']},'hooksConfig':{'enabled':False},'telemetry':{'enabled':False},'context':{'fileName':'OFFICE_NO_CONTEXT.md','fileFiltering':{'respectGitIgnore':False,'respectGeminiIgnore':False}}}
+        path=folder/'system-settings.json';path.write_text(json.dumps(config),encoding='utf-8')
+        policy=folder/'office-deny.toml';policy.write_text('[[rule]]\ntoolName = "*"\ndecision = "deny"\npriority = 999\n',encoding='utf-8')
+        env['GEMINI_CLI_SYSTEM_SETTINGS_PATH']=str(path)
+        argv+=['-p','Return the requested office JSON only.','--extensions','none','--admin-policy',str(policy),'--output-format','json']
+        if settings.get('gemma_model'):argv+=['--model',settings['gemma_model']]
+        if image_raw:
+            image_name='office-image-'+uuid.uuid4().hex+'.jpg'
+            (folder/image_name).write_bytes(image_raw)
+            input_data=('@'+image_name+'\n'+prompt).encode('utf-8')
+    # Prompt uses stdin; output is bounded on private temporary streams.
+    with tempfile.TemporaryFile() as output,tempfile.TemporaryFile() as errors:
+        process=subprocess.Popen(argv,stdin=subprocess.PIPE,stdout=output,stderr=errors,cwd=str(folder),env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        try:process.communicate(input_data,timeout=max(15,min(600,int(settings.get('timeout',120)))))
+        except subprocess.TimeoutExpired:
+            process.kill();process.communicate()
+            raise ValueError('모델 응답 대기시간이 지났어요. 도구는 오피스 실행 기록으로 확인해줘.') from None
+        output.seek(0);raw=output.read(2*1024*1024+1)
+        if process.returncode or len(raw)>2*1024*1024:
+            errors.seek(0);reason=errors.read(16384).decode('utf-8',errors='replace').lower()
+            if any(word in reason for word in ('quota','rate limit','exhausted')):
+                raise ValueError('선택한 구독의 사용 한도에 걸렸어요. 다른 계정이나 API 결제로 자동 전환하지 않았어.')
+            if any(word in reason for word in ('unknown option','unknown argument','unrecognized argument')):
+                raise ValueError('CLI 버전이 오피스 연결 옵션을 지원하지 않아요. CLI 업데이트가 필요해요.')
+            raise ValueError('구독 CLI 요청을 마치지 못했어요. 로그인·사용 한도·모델 설정을 확인해줘. 다른 계정이나 API 결제로 자동 전환하지 않았어.')
+    try:
+        if provider=='claude' and image_raw:
+            rows=[json.loads(line) for line in raw.decode('utf-8-sig').splitlines() if line.strip()]
+            result=next(row for row in reversed(rows) if row.get('type')=='result')
+        else:result=json.loads(raw.decode('utf-8-sig'))
+        if result.get('is_error') or result.get('error'):raise ValueError()
+        value=result.get('structured_output') if provider=='claude' else result.get('response')
+        if value is None:value=result.get('result')
+        return _parse(value,tools)
+    except (ValueError,TypeError,KeyError,StopIteration,AttributeError):raise ValueError('CLI 응답을 오피스 도구 요청으로 읽지 못했어요. 실행하지 않은 작업을 완료했다고 판단하지 않았어.') from None

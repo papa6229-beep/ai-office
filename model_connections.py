@@ -183,7 +183,8 @@ def connection_facts(settings):
             'automatic_fallback': False, 'inference_verified_by_readiness': False,
             'limits': [] if native else [
                 'This provider uses the audited office function-tool loop rather than the Codex native runner.',
-                'Native command, patch, workspace publish tools require the native agent session; use only actually available compatible tools.',
+                'The same notification, work, browser, report and artifact tools remain available. Use workspace_list/read/write/run/image and agent_source_publish/output_publish for code and files.',
+                'Local Python execution uses the current Windows user permissions, not an OS filesystem sandbox. Use it only for the current authorized task, never to bypass the office executor or browser control policy.',
                 'Tool calling, image understanding and execution quality depend on the selected model and require actual checks.']}
 
 
@@ -197,8 +198,9 @@ def snapshot(settings):
             capabilities = [
                 ['대화', '연결됨' if runnable else '어댑터 연결 필요'],
                 ['오피스·브라우저·PC 도구', ('공통 도구 연결됨' if native else '공통 도구 경로 있음 · 모델 동작 미확인') if runnable else '공통 도구 연결 필요'],
-                ['파일 수정·코드 실행', '네이티브 실행 연결됨' if native else ('호환 소스 수정 도구만 · 네이티브 실행 없음' if runnable else '실행 경로 연결 필요')],
-                ['이미지 이해', '이미지 입력 연결됨' if native else ('모델·연결 방식별 확인 필요' if key=='local' else '이미지 직접 입력 미지원')],
+                ['알림·업무·보고서', '같은 오피스 도구·기록 사용'],
+                ['파일 수정·코드 실행', '공통 작업 사본·수정·실행·게시 연결됨'],
+                ['이미지 이해', '이미지 입력 연결됨 · 실제 모델 지원 확인 필요' if key!='local' else '이미지 경로 연결됨 · 선택한 로컬 모델 지원 필요'],
             ]
             cards.append({'id': key, 'title': title, 'billing': billing,
                           'active': key == active, 'selectable': runnable,
@@ -207,7 +209,7 @@ def snapshot(settings):
                           'login_available':key in {'gemini','claude'},
                           'note': ('낮은 추론 · Standard · 요청할 때만 호출' if native else
                                    '모델 목록 확인은 로드·응답·도구 성공 확인과 달라요.' if key == 'local' else
-                                   '구독 CLI · 공통 도구 실행 연결됨 · CLI 자체 도구는 비활성화 · 직접 이미지 입력/네이티브 코드 실행은 미지원 · 실제 모델 응답은 확인 필요')})
+                                   '구독 CLI · 에이메스 공통 도구·이미지·작업 파일 연결됨 · 실제 모델의 수행 능력은 확인 필요')})
         return {'active': active, 'providers': cards, 'checked_at': _observations.get('checked_at'),
                 'uses_ai': False, 'automatic_fallback': False,
                 'local_model': profiles(settings)['local']['gemma_model']}

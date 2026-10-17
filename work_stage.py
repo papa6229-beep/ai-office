@@ -29,6 +29,8 @@ STEP_LABELS.update({'office_source_list':'앱 원본 찾기','office_source_read
                     'office_source_apply':'앱 변경 저장','office_source_history':'앱 변경 이력',
                     'office_source_rollback':'앱 변경 되돌리기'})
 STEP_LABELS.update({'agent_workspace_status':'작업 사본 확인','agent_source_publish':'앱 변경 게시','agent_output_publish':'결과물 게시'})
+STEP_LABELS.update({'workspace_list':'작업 파일 목록','workspace_read':'작업 파일 읽기','workspace_write':'작업 파일 저장','workspace_run':'작업 코드 실행','workspace_image':'이미지 내용 확인'})
+STEP_LABELS['conversation_history']='이전 대화 문맥 확인'
 STEP_LABELS.update({'office_ui_observe':'실제 화면 관찰','office_task_goal':'사용자 결과·확인 조건 기록',
                     'office_ui_check':'현재 화면 결과 확인','office_ui_review':'실제 창 이미지 검토'})
 STEP_LABELS.update({'codex_command':'코드·작업 실행','codex_file_change':'작업 파일 수정',
