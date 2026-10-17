@@ -188,6 +188,7 @@ def judgment_view():
 
 def work_service():
     from assistant_tools import ToolRegistry
+    import claude_office_agent
     settings=dict(config())
     model_connections.require_runnable(settings)
     return work_assistant.WorkAssistant(DB,config,call_gemma,
@@ -196,6 +197,8 @@ def work_service():
         # intent-classification response must not gate whether a task can start.
         agent_model=(lambda messages,tools,dispatch,**hooks:assistant_model.run_agent(messages,tools,settings,dispatch,**hooks))
                      if settings.get('api_type')=='codex' else None,
+        tool_agent_model=(lambda messages,tools,dispatch:claude_office_agent.run_agent(messages,tools,settings,dispatch))
+                     if settings.get('api_type')=='claude' else None,
         registry_factory=lambda:ToolRegistry(DB,
             work_factory=lambda:work_assistant.WorkAssistant(DB,config,call_gemma),
             configure_ai=configure_ai,browser_service=browser_workspace.manager(),

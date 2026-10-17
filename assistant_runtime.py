@@ -223,13 +223,14 @@ class AssistantRuntime:
         "office_source_history", "office_source_rollback",
         "office_project_context", "stage_publish"})
 
-    def __init__(self, db_path, model_call, registry_factory, intent_call=None, source_model=None, agent_model=None):
+    def __init__(self, db_path, model_call, registry_factory, intent_call=None, source_model=None, agent_model=None, tool_agent_model=None):
         self.db_path = str(db_path)
         self.model_call = model_call
         self.registry_factory = registry_factory
         self.intent_call = intent_call
         self.source_model = source_model
         self.agent_model = agent_model
+        self.tool_agent_model = tool_agent_model
         with _connect(self.db_path) as c:
             initialize(c)
             work_attachments.initialize(c)
@@ -691,6 +692,8 @@ class AssistantRuntime:
                 receipts.append(_failure_receipt(error,
                     '요청을 실행할 방법을 확인하지 못해 아직 시도하지 않았습니다. 권한 부족이나 완료 여부는 확인되지 않았습니다.'))
                 return
+        if callable(self.tool_agent_model):
+            return self._external_tool_conversation(registry,context,receipts,messages,definitions,schemas,effects,count,rounds_used)
         # Batch size bounds malformed output; completed observations do not
         # impose an artificial lifetime count on the active human request.
         round_index = -1 if initial_output is not None else rounds_used
@@ -769,3 +772,45 @@ class AssistantRuntime:
                         result['pending']['continuation']=json.loads(frozen)
                     return
             round_index += 1
+
+    def _external_tool_conversation(self,registry,context,receipts,messages,definitions,schemas,effects,count,rounds):
+        """Native provider tool calls share this runtime's audited executor."""
+        blocked=False
+        def dispatch(name,args):
+            nonlocal blocked,count
+            if blocked:return {'status':'error','message':'사용자 확인을 기다리는 중이므로 추가 작업은 실행하지 않았어.'}
+            effect='invalid';count+=1
+            call_id='office_'+uuid.uuid4().hex
+            signature=_json({'name':name,'arguments':args})
+            try:
+                if name not in schemas:raise ValueError('등록되지 않은 도구입니다.')
+                if len(_json(args))>25000:raise ValueError('도구 입력이 너무 큽니다.')
+                _validate(args,schemas[name]);effect=registry.effect(name)
+                versioned=name in {'agent_source_publish','agent_output_publish'}
+                if effect!='read' and not versioned and signature in effects:result=dict(effects[signature],replayed=True)
+                else:
+                    result=self._step(registry,name,args,context,lambda:registry.execute(name,args,context),effect)
+                    if effect!='read':effects[signature]=result
+            except (ValueError,KeyError) as error:result={'status':'error','message':str(error)[:1000]}
+            result['_effect']=effect
+            if not result.get('replayed'):receipts.append(result)
+            visible={key:value for key,value in result.items() if key in {'status','message','data','refresh'}}
+            if len(_json(visible))>64000:
+                visible={'status':result.get('status'),'message':result.get('message',''),
+                         'data':{'truncated':True,'note':'전체 결과는 실행 기록에 있습니다. 현재 필요한 범위를 좁혀 다시 읽으세요.'}}
+            messages.append({'role':'assistant','content':'','tool_calls':[{'id':call_id,'type':'function',
+                'function':{'name':name,'arguments':args}}]})
+            messages.append({'role':'tool','tool_call_id':call_id,'tool_name':name,'content':_json(visible)})
+            if result.get('pending'):
+                blocked=True
+                state={'messages':_compact_messages(messages),'count':count,'rounds':rounds+1,
+                    'workspace_session_id':context['agent_session_id'],
+                    'effects':{key:row for key,row in effects.items() if not row.get('pending')}}
+                if len(_json(state))<=4_000_000:result['pending']['continuation']=json.loads(_json(state))
+                chat_stream.publish('waiting','선택을 기다리고 있어요')
+                return dict(visible,pending={key:result['pending'].get(key) for key in ('kind','title','description')})
+            chat_stream.publish('thinking','실행 결과를 확인하고 다음 작업을 판단하고 있어요')
+            return visible
+        chat_stream.publish('thinking','요청을 살펴보고 있어요')
+        result=self.tool_agent_model(_compact_messages(messages),definitions,dispatch)
+        return str(result.get('content') or '')[:6000]

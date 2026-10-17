@@ -10,6 +10,8 @@ Version: 2026-10-17. Curated from the user's decisions in the development chat a
 
 Claude 역할 전달(2026-10-17): 오피스의 시스템 역할·실행 환경은 Claude Code 기본 코딩 역할 아래의 일반 입력에 묻지 않고 요청별 비공개 파일과 공식 --system-prompt-file로 전달한다. 과거 대화·도구 결과는 역할 표기가 있는 참고 데이터이며 현재 사용자 요청을 별도 필드로 명시한다. 등록된 오피스 도구는 외부 실행기가 수행하는 실제 기능으로 설명하고 CLI 자체 도구 차단을 오피스 권한 거부로 추정하지 않도록 한다. 실제 도구 결과 없이 권한이 없다고 선언하거나 사용자에게 대행 작업을 넘기지 않는다. 도구 실행 경계·로그인·선택 모델은 유지하며 프롬프트 전달 수정과 실제 수행 성공은 구별한다.
 
+Claude 실제 도구 연결(2026-10-17): 주 대화 실행은 JSON 행동 제안 루프 대신 Claude Code가 인식하는 요청별 office MCP stdio 도구를 사용한다. claude_office_agent.py/office_mcp_stdio.py는 공통 registry의 현재 스키마와 실제 결과를 전달하며 브라우저·파일·코드·알림 기능을 복제하지 않는다. 로컬 임의 포트와 요청별 비밀값의 내부 relay에서 원래 runtime의 검증·실행·ref·중복 효과 방지·작업 기록·사용자 대기를 유지한다. 내장 도구는 메타데이터 검색 ToolSearch만 허용하고, 명령/파일 내장 도구·외부 MCP·훅·개인 커스터마이징은 제외한다. --safe-mode는 MCP까지 제외하므로 이 경로에서는 빈 setting-sources와 명시적 격리 설정을 사용한다. OAuth를 읽지 않는 --bare는 사용하지 않는다. 단일 이미지 판단용 JSON 호출과 다른 공급자의 기존 루프는 유지한다. MCP 연결 등록 확인과 실제 모델의 도구 선택·업무 완료는 별도로 검증한다.
+
 설정과 모델 프로필은 공급자별로 보존하고 비밀값/프로필 전체를 공개 응답에서 제외한다. 작업 중 전환은 거절하며 다음 요청부터 적용한다. 한도 부족 때 다른 계정이나 별도 API 결제로 자동 전환하지 않는다. 기본 Codex Luna/low/Standard는 유지했다. Claude 기본은 haiku 별칭, Gemini는 CLI 기본 모델 설정을 따른다. CLI 자식 환경에서 API 키·외부 과금 환경변수를 제거하고 Claude는 claude.ai 로그인, Gemini는 Google OAuth 인증을 사용한다. 로그인 토큰을 앱 설정으로 복사하거나 소스에 기록하지 않는다.
 
 Gemini CLI는 .provider_runtime/gemini에 설치하고 전체 런타임·개인 세션을 Git에서 제외한다. 연결 카드의 계정 로그인 버튼은 공식 CLI 로그인 창을 연다. 사용자가 직접 Google/Claude 계정에 로그인하며 모델은 호출하지 않는다. 준비 상태 확인은 CLI 설치·Claude auth status·Google OAuth 캐시 존재·로컬 모델 목록만 확인한다. OAuth 캐시 존재는 토큰 유효성/구독 한도나 실제 모델 성공을 증명하지 않는다.
