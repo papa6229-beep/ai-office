@@ -81,7 +81,7 @@ def act(workspace,tab_id,snapshot_id,control_id,operation,value=None):
     if operation in {'fill','select','press'} and (not isinstance(value,str) or len(value)>60000):raise BrowserWorkspaceError('입력값을 지정하세요.')
     if operation=='select' and value not in {x['value'] for x in data['options'] if not x['disabled']}:raise BrowserWorkspaceError('관찰한 선택지의 실제 값을 사용하세요.')
     if operation=='press' and value not in {'Enter','Tab','Escape','ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Space','Backspace','Delete','Home','End'}:
-        raise BrowserWorkspaceError('일반 입력 키를 사용하세요. 복합 컴퓨터 조작은 desktop_action을 사용하세요.')
+        raise BrowserWorkspaceError('지원되는 일반 입력 키를 사용하세요. 입력란 전체 교체는 fill로 수행하고 browser_inspect로 현재 요소를 다시 확인하세요. 사용자 브라우저의 마우스·키보드 조작으로 우회하지 마세요.')
     if data['tag']=='a' and operation=='click':validate_url(data['href'])
     try:
         if operation=='fill':element.fill(value,timeout=10000)

@@ -92,7 +92,7 @@ _SPECS = {
     'bookmark_open': ('external', '조회한 북마크 ref의 HTTP/HTTPS 웹사이트를 엽니다.', {'ref':_string()}, ['ref']),
     'streamdeck_shortcuts': ('read', '사용자가 스트림덱/G-Clicker/지클리커의 즐겨찾기·바로가기를 가져오거나 보려는 경우 저장된 G-Clicker 프로필을 읽습니다. 등록된 웹·앱만 반환하며 전체 앱 선택 목록·암호·매크로는 제외합니다. 전체 가져오기에 사용할 collection_ref와 개별 ref를 제공합니다.', {}, []),
     'streamdeck_import': ('write', 'streamdeck_shortcuts가 발급한 collection_ref로 표시된 바로가기 전체를, 개별 ref로 하나를 AI OFFICE에 등록합니다. 사용자가 가져오라고 요청하면 조회 후 이 도구로 직접 처리하세요. 원본과 기존 타일은 유지하며 프로그램을 실행하지 않습니다.', {'ref':_string()}, ['ref']),
-    'browser_open': ('external', '사이트를 화면 없는 전용 Chrome에서 백그라운드로 엽니다. 사용자 화면·마우스를 가져오지 않습니다. AI OFFICE 화면이 열려 있는 사용자의 브라우저 창을 뜻하지 않습니다. 일반 런처 웹 카드 클릭은 프런트에서 현재 브라우저의 새 탭으로 열립니다. 이 도구는 페이지 관찰·작업이 필요한 경우 사용하고 현재 사용자 창의 탭을 열었다고 말하지 마세요. HTTP(S)만 지원하며 본문은 browser_read, 화면은 browser_view로 확인하세요.', {'url':_string()}, ['url']),
+    'browser_open': ('external', '사이트를 최초 실행 시 최소화되는 실제 작업용 Chrome에서 백그라운드로 엽니다. 물리 마우스·키보드를 쓰지 않고 페이지 요소로 작업합니다. 작업 표시줄에서 사용자가 창을 복원해 직접 진행 화면을 볼 수 있습니다. 탭을 앞으로 가져오지 않습니다. AI OFFICE 화면이 열려 있는 사용자의 브라우저 창을 뜻하지 않습니다. 일반 런처 웹 카드 클릭은 프런트에서 현재 브라우저의 새 탭으로 열립니다. 이 도구는 페이지 관찰·작업이 필요한 경우 사용하고 현재 사용자 창의 탭을 열었다고 말하지 마세요. HTTP(S)만 지원하며 본문은 browser_read, 화면은 browser_view로 확인하세요.', {'url':_string()}, ['url']),
     'browser_tabs': ('read', 'AI OFFICE 전용 Chrome 창에 열린 탭의 제목과 ref를 확인합니다. 이전 대화의 탭 참조를 추측하지 말고 현재 탭을 조회하세요.', {}, []),
     'browser_inspect': ('read','현재 웹페이지의 실제 본문과 입력란·버튼·선택 항목의 ref를 읽습니다. 페이지별 코드를 만들지 않고 browser_act로 입력·로그인·클릭·선택·키 입력을 수행합니다. 입력값·비밀번호는 반환하지 않습니다.',{'ref':_string()},['ref']),
     'browser_value': ('read','browser_inspect에서 관찰한 일반 입력란·textarea·편집 영역에 이미 들어 있는 내용을 읽습니다. 보고서 내용 확인·복사에 사용하며 비밀번호·비밀값은 반환하지 않습니다.',{'ref':_string()},['ref']),
@@ -219,11 +219,11 @@ class ToolRegistry:
     def runtime_context(self):
         managed=bool(self.web_opener) and importlib.util.find_spec('playwright') is not None
         facts = {'tools':list(_SPECS),'execution':'observe -> act -> inspect result',
-                'browser':{'engine':'Google Chrome','mode':'headless_background','shares_user_browser':False,'takes_desktop_input':False,'foreground_fallback':False,'notification_wait_tool':'notifications_wait','module_available':importlib.util.find_spec('playwright') is not None,
+                'browser':{'engine':'Google Chrome','mode':'visible_background','shares_user_browser':False,'takes_desktop_input':False,'foreground_fallback':False,'notification_wait_tool':'notifications_wait','module_available':importlib.util.find_spec('playwright') is not None,
                            'web_shortcuts_click':'브라우저가 AI OFFICE 화면의 웹 링크를 현재 창의 새 탭으로 직접 연다. 서버의 browser_open을 호출하지 않는다.',
                            'web_shortcuts_chat':'채팅으로 여는 사이트는 전용 백그라운드 Chrome이다. 기존 사용자 Chrome 탭·세션은 공유하지 않는다.',
                            'uses_windows_default_for_click':False,'default_browser_change_required_for_managed_chrome':False,
-                           'scope':'browser_open/read/view는 화면 없는 전용 Chrome만 제어한다. 웹 실패 시 Windows 화면 조작으로 자동 전환하지 않는다. 사용자 화면 Chrome 창과 동일하다고 가정하지 않는다.'},
+                           'scope':'browser_open/read/view는 최초 실행 시 최소화되는 실제 작업용 Chrome만 제어한다. 웹 실패 시 Windows 화면 조작으로 자동 전환하지 않는다. 사용자 화면 Chrome 창과 동일하다고 가정하지 않는다.'},
                 'screen_feedback':{'observe':'office_ui_observe','goal':'office_task_goal','check':'office_ui_check',
                                    'visual_review':'office_ui_review','capture':'selected actual Windows window, not full desktop',
                                    'completion':'source saved != activated != actual user result verified'},
@@ -418,7 +418,7 @@ class ToolRegistry:
     def _browser_card(self,context,row):
         return {'ref':self._ref(context,'browser_tab',row['tab_id']),
                 'title':row.get('title',''),'url':row.get('url',''),
-                'background':row.get('background',True),'session':row.get('session','office_automation'),
+                'background':row.get('background',True),'visible_window':row.get('visible_window',True),'headless':row.get('headless',False),'session':row.get('session','office_automation'),
                 'shares_user_browser':False}
 
     def _browser_evidence(self,context,row):

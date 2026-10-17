@@ -170,7 +170,7 @@ def require_background_web(process):
 
 
 class BrowserWorkspace:
-    def __init__(self, profile_root=None, headless=True):
+    def __init__(self, profile_root=None, headless=False):
         self.profile_root = pathlib.Path(profile_root) if profile_root is not None else RUNTIME / 'chrome-profile'
         self.headless = bool(headless)
         self._queue = queue.Queue(maxsize=32)
@@ -260,8 +260,18 @@ class BrowserWorkspace:
                 self._playwright = sync_playwright().start()
             self._context = self._playwright.chromium.launch_persistent_context(
                 str(self.profile_root), channel='chrome', headless=self.headless,
-                viewport={'width': 1440, 'height': 1000}, accept_downloads=False,
+                viewport={'width': 1440, 'height': 1000} if self.headless else None,
+                no_viewport=not self.headless, accept_downloads=False,
                 service_workers='block')
+            # Keep a real inspectable window on the taskbar. Minimize only its
+            # initial blank page; later user restores are never overridden.
+            if not self.headless:
+                page=self._context.pages[0]
+                session=self._context.new_cdp_session(page)
+                try:
+                    window=session.send('Browser.getWindowForTarget')
+                    session.send('Browser.setWindowBounds',{'windowId':window['windowId'],'bounds':{'windowState':'minimized'}})
+                finally:session.detach()
             self._context.set_default_timeout(15000)
             self._context.set_default_navigation_timeout(20000)
             self._context.route('**/*', self._route)
@@ -269,7 +279,7 @@ class BrowserWorkspace:
             context.on('close', lambda *_args: self._on_context_closed(context))
         except Exception:
             self._cleanup()
-            raise BrowserWorkspaceError('백그라운드 Chrome을 시작하지 못했습니다. 설치·프로필 연결 상태를 확인하세요. 사용자 화면 조작으로 자동 전환하지 마세요.') from None
+            raise BrowserWorkspaceError('작업용 Chrome을 시작하지 못했습니다. 설치·프로필 연결 상태를 확인하세요. 사용자 화면 조작으로 자동 전환하지 마세요.') from None
 
     def _on_context_closed(self, context=None):
         if context is not None and self._context is not context:
@@ -324,7 +334,8 @@ class BrowserWorkspace:
 
     def _meta(self, tab_id, page):
         return {'tab_id': tab_id, 'title': _redact(page.title()[:300]), 'url': public_url(page.url),
-                'background':self.headless,'session':'office_automation', 'shares_user_browser':False}
+                'background':True,'headless':self.headless,'visible_window':not self.headless,
+                'session':'office_automation', 'shares_user_browser':False}
 
     def _execute(self, method, *args):
         return getattr(self, '_do_' + method)(*args)
@@ -386,7 +397,17 @@ class BrowserWorkspace:
             if len(self._pages) >= 20:
                 raise BrowserWorkspaceError('전용 브라우저 탭은 최대 20개입니다. 사용하지 않는 탭을 닫아주세요.')
             try:
-                page = context.new_page()
+                if not self.headless and context.pages:
+                    # Playwright new_page activates/restores a headed Chrome.
+                    # Create a background target instead and observe its page.
+                    session=context.new_cdp_session(context.pages[0])
+                    try:
+                        with context.expect_page(timeout=10000) as opened:
+                            session.send('Target.createTarget',{'url':'about:blank','background':True})
+                        page=opened.value
+                    finally:session.detach()
+                else:
+                    page = context.new_page()
             except Exception as error:
                 # While the worker is idle, sync Playwright cannot deliver a
                 # manual Chrome-close event. new_page may be the first RPC to
@@ -469,14 +490,15 @@ class BrowserWorkspace:
 
     def _do_view(self, tab_id):
         page = self._page(tab_id)
-        page.set_viewport_size({'width': 1440, 'height': 1000})
+        if self.headless:page.set_viewport_size({'width': 1440, 'height': 1000})
+        size=page.evaluate('({width:innerWidth,height:innerHeight})')
         raw = page.screenshot(type='png', full_page=False,
                               mask=[page.locator('input,textarea,select,[contenteditable],iframe,frame')], mask_color='#202020')
         if len(raw) > 8 * 1024 * 1024:
             raise BrowserWorkspaceError('화면 이미지가 너무 큽니다. 텍스트 읽기를 사용하세요.')
         result = self._meta(tab_id, page)
         result.update(image=base64.b64encode(raw).decode('ascii'), mime_type='image/png',
-                      width=1440, height=1000, captured_at=datetime.datetime.now().astimezone().isoformat(),
+                      width=size['width'], height=size['height'], captured_at=datetime.datetime.now().astimezone().isoformat(),
                       masked_inputs=True, masked_iframes=True, unread_iframes=max(0, len(page.frames) - 1),
                       scope='현재 탭의 보이는 화면 (입력란·내장 프레임 제외)')
         return result
