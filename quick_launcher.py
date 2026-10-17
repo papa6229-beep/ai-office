@@ -412,7 +412,7 @@ class QuickLauncher:
                 response['result'] = {'id': item_id, 'item_id': item_id, 'message': '열기를 요청했습니다.'}
                 if browser:
                     response['result']['browser'] = browser
-                    response['result']['message'] = browser.get('message', 'AI OFFICE Chrome에서 사이트를 열었습니다.')
+                    response['result']['message'] = browser.get('message', '전용 백그라운드 Chrome에서 사이트를 열었습니다.')
                 c.execute('UPDATE launcher_requests SET response=? WHERE id=?', (json.dumps(response, ensure_ascii=False), request_id))
                 return response
 

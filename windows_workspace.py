@@ -28,6 +28,7 @@ _BLOCKED_PROCESS = re.compile(r'(?i)^(?:cmd|powershell|pwsh|windowsterminal|wt|c
 _BLOCKED_TITLE = re.compile(r'(?i)(?:\b(?:windows powershell|command prompt|administrator:|windows security|user account control|credential|password manager|sign[ -]?in|log[ -]?in|authentication)\b|명령 프롬프트|관리자:|Windows 보안|사용자 계정 컨트롤|비밀번호 관리자|로그인|본인 인증|자격 증명|실행\s*$)')
 _SENSITIVE_LABEL = re.compile(r'(?i)(?:\b(?:api[ _-]?key|access[ _-]?token|refresh[ _-]?token|password|passwd|secret|authorization|credential)\b|비밀번호|암호|인증\s*키)')
 _MESSAGES = {
+    'background_browser': '웹 작업은 백그라운드 browser_open/tabs/inspect/act/view로 수행하세요. 사용자 브라우저의 화면·마우스를 가져오는 경로는 사용하지 않습니다. 기존 사용자 탭·세션 연결은 제공되지 않습니다.',
     'dependency': 'Windows 화면 연결 모듈이 설치되지 않았습니다.',
     'unavailable': 'Windows 화면 연결을 사용할 수 없습니다.',
     'stale': '화면이 변경되었거나 참조가 만료되었습니다. 화면을 다시 확인하세요.',
@@ -339,6 +340,8 @@ class WindowsWorkspace:
         if operation not in saved['patterns']:
             raise WindowsWorkspaceError('unsupported')
         window, window_info = self._resolve_window(window_id)
+        from browser_workspace import require_background_web
+        require_background_web(window_info['process'])
         if (_window_identity(window_info) != snapshot['identity']
                 or str(window_info.get('title', '')) != snapshot['title']):
             raise WindowsWorkspaceError('stale')

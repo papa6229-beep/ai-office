@@ -212,8 +212,8 @@ def resume_screen_verification(server,parent_id):
     finally:office_reload.schedule(server,ticket)
 
 def open_managed_web(url):
-    # Reuse the AI OFFICE Chrome workspace so launcher sites become tabs in
-    # the same managed window instead of spawning the system browser.
+    # Chat launches reuse the persistent headless workspace; direct web-card
+    # clicks still open a tab in the user browser through the frontend.
     return browser_workspace.manager().open(url)
 
 def launcher_service():

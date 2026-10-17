@@ -36,6 +36,7 @@ class WindowsActions:
         except Exception as exc:
             code=getattr(exc,'code',None)
             messages={'stale':'화면이나 참조가 변경되었습니다. 창을 다시 확인하세요.',
+                      'background_browser':str(exc),
                       'denied':'보호된 창에는 접근할 수 없습니다.',
                       'unsupported':'이 요소는 요청한 동작을 지원하지 않습니다.',
                       'dependency':'Windows 화면 연결 모듈이 설치되지 않았습니다.',

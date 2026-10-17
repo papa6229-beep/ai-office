@@ -7,6 +7,8 @@ def _wrapper(service,info):return service._backend._desktop.window(handle=info['
 
 def _guard(info):
     from windows_workspace import WindowsWorkspaceError
+    from browser_workspace import require_background_web
+    require_background_web(info['process'])
     if info['process'].lower() in {'chatgpt.exe','codex.exe','lockapp.exe'}:
         raise WindowsWorkspaceError('denied')
 

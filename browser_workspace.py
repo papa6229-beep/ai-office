@@ -162,8 +162,15 @@ _COLLECT = r"""() => {
 }"""
 
 
+def require_background_web(process):
+    """Prevent a web-tool fallback from taking the user's desktop browser."""
+    if str(process).lower() in {'chrome.exe','msedge.exe','firefox.exe','brave.exe','opera.exe','vivaldi.exe'}:
+        from windows_workspace import WindowsWorkspaceError
+        raise WindowsWorkspaceError('background_browser')
+
+
 class BrowserWorkspace:
-    def __init__(self, profile_root=None, headless=False):
+    def __init__(self, profile_root=None, headless=True):
         self.profile_root = pathlib.Path(profile_root) if profile_root is not None else RUNTIME / 'chrome-profile'
         self.headless = bool(headless)
         self._queue = queue.Queue(maxsize=32)
@@ -206,7 +213,7 @@ class BrowserWorkspace:
             success, result = reply.get(timeout=90)
         except queue.Empty:
             cancelled.set()
-            raise BrowserWorkspaceError('브라우저 응답 시간이 지났습니다. 실행 중인 요청은 완료될 수 있으므로 창을 먼저 확인하세요.') from None
+            raise BrowserWorkspaceError('브라우저 응답 시간이 지났습니다. 실행 중인 요청은 완료될 수 있으므로 browser_tabs/inspect로 현재 상태를 먼저 확인하세요. 사용자 화면 조작으로 전환하지 마세요.') from None
         if not success:
             raise result
         return result
@@ -262,7 +269,7 @@ class BrowserWorkspace:
             context.on('close', lambda *_args: self._on_context_closed(context))
         except Exception:
             self._cleanup()
-            raise BrowserWorkspaceError('전용 Chrome 창을 열 수 없습니다. Chrome 설치 상태를 확인하세요.') from None
+            raise BrowserWorkspaceError('백그라운드 Chrome을 시작하지 못했습니다. 설치·프로필 연결 상태를 확인하세요. 사용자 화면 조작으로 자동 전환하지 마세요.') from None
 
     def _on_context_closed(self, context=None):
         if context is not None and self._context is not context:
@@ -316,7 +323,8 @@ class BrowserWorkspace:
         return page
 
     def _meta(self, tab_id, page):
-        return {'tab_id': tab_id, 'title': _redact(page.title()[:300]), 'url': public_url(page.url)}
+        return {'tab_id': tab_id, 'title': _redact(page.title()[:300]), 'url': public_url(page.url),
+                'background':self.headless,'session':'office_automation', 'shares_user_browser':False}
 
     def _execute(self, method, *args):
         return getattr(self, '_do_' + method)(*args)
@@ -405,7 +413,6 @@ class BrowserWorkspace:
         if tab_id is None:
             tab_id = uuid.uuid4().hex
             self._pages[tab_id] = page
-        page.bring_to_front()
         return self._meta(tab_id, page)
 
     def _do_tabs(self):

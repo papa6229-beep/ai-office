@@ -160,13 +160,35 @@ def get(db,identifier):
 
 
 def snapshot(db):
+    through=time.time()
     with _db(db) as c:
-        rows=c.execute('SELECT id,source,title,body,received,confirmed,origin,phone_sync,source_state FROM office_notifications WHERE superseded_by IS NULL ORDER BY received DESC,rowid DESC LIMIT 80').fetchall()
+        rows=c.execute('SELECT id,source,title,body,received,confirmed,origin,phone_sync,source_state FROM office_notifications WHERE superseded_by IS NULL AND received<=? ORDER BY received DESC,rowid DESC LIMIT 80',(through,)).fetchall()
         unread=c.execute('SELECT count(*) FROM office_notifications WHERE confirmed IS NULL AND superseded_by IS NULL').fetchone()[0]
     service=_service
     status=service.status() if service else {'state':'stopped','message':'알림 수신기를 준비하고 있어요.'}
-    return {'items':[dict(row) for row in rows],'unread':unread,'through':time.time(),'receiver':status,
+    return {'items':[dict(row) for row in rows],'unread':unread,'through':through,'receiver':status,
             'scope':'Phone Link에 전달된 알림과 지원 PC 배너를 수집해요. 메신저 앱 안의 전체 미확인 대화 개수와는 달라요.'}
+
+
+def wait_for(db,after,source='',seconds=20):
+    """Wait on stored receipts only; never request SMS, focus a window or mark read."""
+    if type(after) not in (int,float) or not time.time()-900<=after<=time.time()+5:
+        raise ValueError('notifications_list의 최신 through 시각을 기준으로 대기하세요.')
+    if type(seconds) is not int or not 1<=seconds<=25:
+        raise ValueError('대기 시간은 1~25초로 지정하세요.')
+    if not isinstance(source,str) or len(source)>160:
+        raise ValueError('알림 출처를 확인하세요.')
+    deadline=time.monotonic()+seconds
+    while True:
+        through=time.time()
+        with _db(db) as c:
+            rows=c.execute('SELECT id,source,title,received,confirmed,phone_sync,source_state FROM office_notifications WHERE superseded_by IS NULL AND received>? AND received<=? AND instr(lower(source),lower(?))>0 ORDER BY received DESC,rowid DESC LIMIT 80',(after,through,source)).fetchall()
+        if rows or time.monotonic()>=deadline:break
+        time.sleep(min(1,max(0,deadline-time.monotonic())))
+    service=_service
+    return {'items':[dict(row) for row in rows],'after':after,'through':through,'matched':bool(rows),
+            'timed_out':not bool(rows),'receiver':service.status() if service else {'state':'stopped'},
+            'note':'새 알림을 확인했습니다. notification_read로 내용을 읽으세요.' if rows else '대기 시간 안에 조건에 맞는 새 알림이 저장되지 않았습니다. 작업을 완료한 것이 아닙니다. 같은 after로 대기를 이어갈 수 있습니다.'}
 
 class Receiver:
     def __init__(self,db):
