@@ -33,6 +33,8 @@
     if (log.lastElementChild) chatResizeObserver.observe(log.lastElementChild);
   }
   let companionState = null, companionOutcome = null, companionError = '';
+  let liveActivity = null;
+  let outcomeVisibleUntil=0, outcomeTimer=null;
   let notificationUnread=0;
   document.addEventListener('office-notifications-state',event=>{
     notificationUnread=Number(event.detail?.unread)||0;companionUpdate();
@@ -68,9 +70,13 @@
     const stage=$('workCompanion'), animation=$('workCompanionAnimation'), still=$('workCompanionStill'), status=$('workCompanionStatus');
     if (!stage || !animation || !still || !status) return;
     let next='idle', label='이야기를 기다리고 있어요';
-    if(notificationUnread>0){next='alert';label='중요 알람이 있어요';}
-    else if (busy) {next='working';label='요청 처리 중';}
+    if (busy) {
+      next=['draft','done'].includes(liveActivity?.phase) ? 'answer' : liveActivity?.phase==='error' ? 'error' : liveActivity?.phase==='waiting' ? 'idle' : 'working';
+      label=liveActivity?.label || '요청을 살펴보고 있어요';
+    }
     else if (companionError || uncertain) {next='error';label=uncertain ? '결과 확인이 필요해요' : companionError;}
+    else if (companionOutcome && Date.now()<outcomeVisibleUntil) {next=companionOutcome.state;label=companionOutcome.label;}
+    else if(notificationUnread>0){next='alert';label='중요 알람이 있어요';}
     else if ($('workCommand')?.value.trim()) {next='typing';label='이야기를 듣고 있어요';}
     else if (waitingForSelection()) {label='선택을 기다리고 있어요';}
     else if (companionOutcome) {next=companionOutcome.state;label=companionOutcome.label;}
@@ -106,7 +112,7 @@
     if($('workAttachmentInput')) $('workAttachmentInput').disabled=blocked || uploading;
     renderAttachments();
     $('workSend').textContent = busy ? '처리 중…' : uploading ? '첨부 중…' : '요청 보내기';
-    $('workConnection').textContent = busy ? '요청 처리 중' : overview ? '업무 기록 연결됨' : '연결 필요';
+    $('workConnection').textContent = busy ? liveActivity?.label || '요청을 살펴보고 있어요' : companionError || (uncertain ? '결과 확인이 필요해요' : waitingForSelection() ? '선택을 기다리고 있어요' : companionOutcome?.label || (overview ? '업무 기록 연결됨' : '연결 필요'));
     companionUpdate();
     settleChatScroll();
   }
@@ -262,6 +268,10 @@
         if(stopped || data.request_id!==request.body.request_id)return;
         if(data.revision!==revision){
           revision=data.revision;text.textContent=data.text || '';draft.hidden=!data.text;
+          label.textContent=data.phase==='draft' ? 'Aemeath · 답변 작성 중' : 'Aemeath · 진행 상황';
+          liveActivity={phase:data.phase,label:data.label || (data.text ? '답변을 작성하고 있어요' : '요청 처리 중')};
+          $('workConnection').textContent=liveActivity.label;
+          companionUpdate();
           settleChatScroll();
         }
         // The original POST owns completion, errors and retry semantics.
@@ -298,7 +308,7 @@
   async function write(endpoint, payload, cleanup, existing) {
     if (busy || (!existing && uncertain) || !overview?.action_token) return;
     const request = existing || {endpoint, body:{...payload, ...(['command','assistant-action'].includes(endpoint)&&window.officeUI?{client:window.officeUI.capture()}:{}), token:overview.action_token, request_id:payload.request_id || requestID()}, cleanup};
-    companionError=''; companionOutcome=null; busy = true; notice(); locks();
+    companionError=''; companionOutcome=null; liveActivity=null; clearTimeout(outcomeTimer); busy = true; notice(); locks();
     let confirmedResponse = false;
     const stageRequest=['command','assistant-action','choose-launcher'].includes(request.endpoint);
     const stageEvent=(phase,result)=>{if(stageRequest)document.dispatchEvent(new CustomEvent('work-stage-request',{detail:{requestId:request.body.request_id,message:request.body.message || '선택한 요청 처리',phase,result}}));};
@@ -329,6 +339,10 @@
       if (!response.ok || data.error) throw new Error(data.error || '요청을 처리하지 못했습니다.');
       uncertain = null; overview = data; stageEvent('done',data.result);
       companionOutcome=request.endpoint === 'command' ? {state:'answer',label:'답변이 도착했어요'} : {state:'agree',label:['task','task-edit','note','status','resource'].includes(request.endpoint) ? '기록을 저장했어요' : '응답을 확인했어요'};
+      if(data.result?.execution_state==='waiting')companionOutcome={state:'idle',label:'선택을 기다리고 있어요'};
+      if(data.result?.execution_state==='error'){companionOutcome=null;companionError='요청 결과를 확인해 주세요';}
+      outcomeVisibleUntil=Date.now()+8000;
+      outcomeTimer=setTimeout(companionUpdate,8100);
       if (data.result?.task_id && data.result.task_id !== selected) {
         selected = data.result.task_id; renderDetail(false);
       }
@@ -350,7 +364,7 @@
       companionOutcome=null;companionError=confirmedResponse ? '요청을 확인해 주세요' : '결과 확인이 필요해요';
       notice(`${confirmedResponse ? '요청 실패' : '처리 결과 확인 실패'}: ${e.message}`, true);
       if(['task','task-edit'].includes(request.endpoint)&&$('workTaskCreateDialog').open){$('workTaskFormNotice').textContent=e.message;$('workTaskFormNotice').hidden=false;}
-    } finally { stopLive();busy = false; locks(); }
+    } finally { stopLive();liveActivity=null;busy = false; locks(); }
   }
   function openTaskEditor(task=null){
     const form=$('workTaskForm');form.reset();form.dataset.taskId=task?.id||'';

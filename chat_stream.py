@@ -1,5 +1,6 @@
 """Short-lived, provisional chat text; committed messages remain in office.db."""
 from contextlib import contextmanager
+from contextvars import ContextVar
 import re
 import threading
 import time
@@ -9,6 +10,14 @@ _lock = threading.Lock()
 _rows = {}
 _TTL = 15 * 60
 _LIMIT = 64
+_publisher = ContextVar('office_chat_publisher', default=None)
+
+
+def publish(phase, label, text=None):
+    """Publish visible prose/activity only, never tool arguments or reasoning."""
+    callback = _publisher.get()
+    if callback:
+        callback(phase, label, text)
 
 
 def _identifier(value):
@@ -32,8 +41,8 @@ def snapshot(request_id):
     with _lock:
         row = _rows.get(request_id)
         if not row or time.monotonic() - row['updated'] > _TTL:
-            return {'request_id': request_id, 'phase': 'waiting', 'text': '', 'revision': 0}
-        return {key: row[key] for key in ('request_id', 'phase', 'text', 'revision')}
+            return {'request_id': request_id, 'phase': 'waiting', 'label': '', 'text': '', 'revision': 0}
+        return {key: row[key] for key in ('request_id', 'phase', 'label', 'text', 'revision')}
 
 
 @contextmanager
@@ -49,22 +58,28 @@ def capture(request_id):
         else:
             _prune()
             _rows[request_id] = {'request_id': request_id, 'owner': owner,
-                                 'phase': 'draft', 'text': '', 'revision': 1,
+                                 'phase': 'thinking', 'label': '요청을 살펴보고 있어요', 'text': '', 'revision': 1,
                                  'updated': time.monotonic()}
 
-    def update(event):
-        if not owner or not isinstance(event, dict):
+    def activity(phase, label, text=None):
+        if not owner or phase not in {'thinking', 'working', 'draft', 'waiting', 'done', 'error'}:
             return
-        text = event.get('text')
-        if not isinstance(text, str):
+        if not isinstance(label, str) or (text is not None and not isinstance(text, str)):
             return
         with _lock:
             row = _rows.get(request_id)
             if row and row['owner'] == owner:
-                row.update(text=text[:6000], phase='draft', updated=time.monotonic())
+                row.update(phase=phase, label=label[:160], updated=time.monotonic())
+                if text is not None:
+                    row['text'] = text[:6000]
                 row['revision'] += 1
 
+    def update(event):
+        if isinstance(event, dict) and isinstance(event.get('text'), str):
+            activity('draft', '답변을 작성하고 있어요', event['text'])
+
     failed = False
+    token = _publisher.set(activity)
     try:
         with codex_bridge.stream_scope(update):
             yield
@@ -72,9 +87,11 @@ def capture(request_id):
         failed = True
         raise
     finally:
+        _publisher.reset(token)
         if owner:
             with _lock:
                 row = _rows.get(request_id)
                 if row and row['owner'] == owner:
-                    row.update(text='', phase='error' if failed else 'done', updated=time.monotonic())
+                    phase = 'error' if failed else row['phase'] if row['phase'] in {'done', 'error', 'waiting'} else 'done'
+                    row.update(text='', phase=phase, updated=time.monotonic())
                     row['revision'] += 1

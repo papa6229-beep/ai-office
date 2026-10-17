@@ -564,7 +564,7 @@ class Handler(BaseHTTPRequestHandler):
                     action='task' if p=='/api/task' else 'status' if p=='/api/task/status' else p.rsplit('/',1)[-1]
                     if action=='verify-followup':raise ValueError('화면 확인은 원래 요청에서 내부적으로 이어집니다.')
                     if p=='/api/task/status' and 'id' in payload:payload['task_id']=payload.pop('id')
-                    if action in {'command','assistant-action'} and config().get('api_type')=='codex':
+                    if action in {'command','assistant-action'}:
                         with chat_stream.capture(payload.get('request_id')):
                             result=service.perform(action,payload)
                     else:result=service.perform(action,payload)

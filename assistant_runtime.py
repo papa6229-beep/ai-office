@@ -13,6 +13,7 @@ import model_requests
 import office_context
 import office_feedback
 import agent_state
+import chat_stream
 
 
 SYSTEM = assistant_voice.INSTRUCTION + '\n' + '''당신은 AI OFFICE 업무 비서입니다. 사용자의 자연어 의도를 이해해 제공된 도구를 직접 호출하세요.
@@ -317,6 +318,7 @@ class AssistantRuntime:
         receipts = []
         pending_results = []
         final_answer = ''
+        model_failed = False
         try:
             registry = self.registry_factory()
             if pending is not None:
@@ -349,6 +351,7 @@ class AssistantRuntime:
                 final_answer = self._conversation(registry, context, receipts)
         except Exception as error:
             # Never echo provider exceptions: they can contain credentials or private transport data.
+            model_failed = True
             receipts.append(_failure_receipt(error,'AI 연결 또는 작업 처리에 실패했습니다. 완료된 작업은 아래 실제 실행 결과를 확인하세요.'))
         for result in receipts:
             if result.get('pending'):
@@ -366,6 +369,8 @@ class AssistantRuntime:
                   'tool_results': [dict({'status': r.get('status', 'error'), 'message': str(r.get('message', ''))[:3000]},
                                        **({'data': _public_data(r['data'])} if 'data' in r else {}))
                                    for r in receipts]}
+        terminal_failed = model_failed or bool(receipts and receipts[-1].get('status') == 'error')
+        result['execution_state'] = 'waiting' if pending_results else 'error' if terminal_failed else 'done'
         result['source_changes'] = [dict(r['data']['source_change']) for r in receipts
                                     if r.get('status')=='ok' and r.get('_effect')=='write'
                                     and isinstance(r.get('data'),dict)
@@ -402,6 +407,9 @@ class AssistantRuntime:
         response['result'] = result
         with _connect(self.db_path) as c:
             c.execute("UPDATE assistant_requests SET status='done',response=? WHERE id=?", (_json(response), request_id))
+        phase = result['execution_state']
+        chat_stream.publish(phase, {'waiting':'선택을 기다리고 있어요', 'error':'요청 결과를 확인해 주세요',
+                                   'done':'답변이 도착했어요'}[phase], '')
         return response
 
     @staticmethod
@@ -415,6 +423,8 @@ class AssistantRuntime:
             raise ValueError('선택 항목을 확인할 수 없습니다.')
 
     def _step(self, registry, name, args, context, execute, effect):
+        from work_stage import STEP_LABELS
+        chat_stream.publish('working', STEP_LABELS.get(name, '요청한 작업') + ' 중이에요')
         step_id = hashlib.sha256((context['request_id'] + ':' + str(context.get('step_number', 0))).encode()).hexdigest()[:32]
         context['step_number'] = context.get('step_number', 0) + 1
         context['step_id'] = step_id
@@ -691,10 +701,15 @@ class AssistantRuntime:
                 return self._source_conversation(registry, context, receipts, messages,
                                                  definitions, count, effects)
             messages=_compact_messages(messages)
+            chat_stream.publish('thinking', '다음 작업을 판단하고 있어요')
             output = initial_output if round_index == -1 else self.model_call(messages, definitions)
             if not isinstance(output, dict):
                 raise ValueError('모델 응답을 확인할 수 없습니다.')
             calls = output.get('tool_calls') or []
+            prose = str(output.get('content') or '')[:3000]
+            if prose.strip():
+                chat_stream.publish('working' if calls else 'draft',
+                                    '작업을 진행하고 있어요' if calls else '답변을 작성하고 있어요', prose)
             if not isinstance(calls, list) or len(calls) > self.MAX_BATCH_CALLS:
                 raise ValueError('도구 호출 수를 확인할 수 없습니다.')
             if not calls:
