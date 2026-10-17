@@ -10,6 +10,7 @@
           <aside id="workCompanion" class="work-companion" data-state="idle" aria-label="Aemeath 상태">
             <div class="work-companion-stage" aria-hidden="true"><img id="workCompanionAnimation" class="work-companion-animation" src="/assets/aemeath/idle.gif" alt="" width="140" height="140"><img id="workCompanionStill" class="work-companion-still" src="/assets/aemeath/idle.png" alt="" width="140" height="140"><span class="work-companion-fallback">A</span></div>
             <div class="work-companion-caption"><strong>Aemeath</strong><p id="workCompanionStatus" role="status" aria-live="polite">이야기를 기다리고 있어요</p></div>
+            <button id="workNotificationAcknowledge" type="button" class="work-quiet" hidden>확인 완료</button>
           </aside>
       <article id="workCalendar" class="work-calendar" aria-labelledby="workCalendarTitle">
         <div class="work-calendar-heading"><h3 id="workCalendarTitle">캘린더</h3><button type="button" class="work-secondary" data-calendar-action="today">오늘</button></div>
@@ -30,6 +31,7 @@
           </div>
         </div>
       </article>
+      <div class="work-task-columns">
       <article class="work-tasks" aria-labelledby="workTasksTitle">
         <div class="work-panel-heading"><div><h3 id="workTasksTitle">오늘의 업무</h3><p id="workCounts" class="work-muted"></p></div><button type="button" data-work-action="add-task" class="work-secondary">+ 업무 추가</button></div>
         <dialog id="workTaskCreateDialog" class="work-dialog work-task-create-dialog" aria-labelledby="workTaskCreateTitle">
@@ -44,6 +46,34 @@
         </dialog>
         <div id="workTaskList" class="work-task-list"><p class="work-empty">업무를 불러오고 있습니다.</p></div>
       </article>
+      <article id="workOtherRequests" class="work-tasks work-other-requests" aria-labelledby="workOtherRequestsTitle">
+        <div class="work-panel-heading"><div><h3 id="workOtherRequestsTitle">타부서 요청사항</h3><p class="work-muted">보고서의 타부서 요청 항목</p></div><button type="button" data-work-action="add-other-request" class="work-secondary">+ 요청 추가</button></div>
+        <div id="workOtherRequestList" class="work-task-list"><p class="work-empty">등록된 요청사항이 없어요.</p></div>
+        <dialog id="workOtherRequestDialog" class="work-dialog work-task-create-dialog" aria-labelledby="workOtherRequestTitle">
+          <div class="work-dialog-heading"><h3 id="workOtherRequestTitle">타부서 요청 추가</h3><button type="button" class="work-quiet" data-work-action="cancel-other-request" aria-label="요청 입력창 닫기">닫기 ×</button></div>
+          <form class="work-task-form" id="workOtherRequestForm">
+            <label for="workRequestTeam">요청팀</label><select id="workRequestTeam"><option>기획팀</option><option>상품팀</option><option>마케팅팀</option><option>CS팀</option><option>방송본부</option><option>매장</option><option>기타</option></select>
+            <label for="workRequestContent">요청내용</label><textarea id="workRequestContent" rows="4" maxlength="8000" required></textarea>
+            <label for="workRequestStatus">상태</label><select id="workRequestStatus"><option value="review">검토 중</option><option value="doing">진행 중</option><option value="done">완료</option></select>
+            <label for="workRequestStart">시작일</label><input id="workRequestStart" type="date">
+            <label for="workRequestDue">완료일</label><input id="workRequestDue" type="date">
+            <div class="work-form-actions"><button type="button" class="work-quiet" data-work-action="cancel-other-request">취소</button><button type="submit">요청 저장</button></div>
+          </form>
+        </dialog>
+      </article>
+      </div>
+      <article id="workNotifications" class="work-notifications" aria-labelledby="workNotificationsTitle">
+        <div class="work-panel-heading"><div><h3 id="workNotificationsTitle">알림 <small id="workNotificationUnread">0</small></h3><p id="workNotificationReceiver" class="work-muted">알림 수신기 연결 중</p></div><button id="workNotificationsConfirmAll" type="button" class="work-secondary">모두 확인</button></div>
+        <div id="workNotificationList" class="work-notification-list"><p class="work-muted">새 알림을 기다리고 있어요.</p></div>
+        <details class="work-notification-help"><summary>알림 수신 설정</summary><p>휴대폰과 연결 → 설정 → 기능 → 알림에서 휴대폰 알림을 허용하고, PC의 알림 배너를 켜 주세요. 방해 금지 등으로 배너가 표시되지 않으면 수신하지 못할 수 있어요.</p><p>이 알림 목록은 PC에 표시되는 휴대폰·메신저 알림을 보관해요. 확인 완료는 오피스의 표시만 바꾸며 휴대폰 원본 알림을 삭제하지 않아요.</p></details>
+      </article>
+      <dialog id="workNotificationDialog" class="work-dialog work-notification-dialog" aria-labelledby="workNotificationTitle">
+        <div class="work-dialog-heading"><h3 id="workNotificationTitle">알림</h3><button id="workNotificationClose" type="button" class="work-quiet">닫기 ×</button></div>
+        <p id="workNotificationMeta" class="work-muted"></p><div id="workNotificationBody" class="work-notification-body"></div>
+        <div class="work-notification-actions"><button id="workNotificationConfirm" type="button">확인 완료</button><button id="workNotificationOpen" type="button" class="work-secondary">원래 앱에서 확인</button></div>
+        <form id="workNotificationReplyForm"><label for="workNotificationReply">답장</label><textarea id="workNotificationReply" rows="3" maxlength="3000" placeholder="보낼 내용을 입력하세요"></textarea><p class="work-muted">에이메스가 원래 앱과 수신자를 확인한 뒤 답장을 수행해요. 앱이 답장을 지원하지 않으면 알려줘요.</p><button type="submit">에이메스에게 답장 요청</button></form>
+        <p id="workNotificationDialogNotice" role="status" class="work-muted"></p>
+      </dialog>
     </div>
     <aside class="work-rail" aria-label="바로가기 런처">
       <article id="workLauncher" class="work-launcher" aria-labelledby="workLauncherTitle">

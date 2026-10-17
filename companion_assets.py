@@ -8,7 +8,7 @@ import uuid
 
 import work_attachments
 
-STATES=('idle','answer','agree','error','typing','working')
+STATES=('idle','answer','agree','error','typing','working','alert')
 _LOCK=threading.RLock()
 
 
@@ -36,7 +36,7 @@ def manifest(db):
     with _LOCK:
         saved=_read(db)
         states={state:[{'id':'builtin-'+state,'name':'Aemeath '+state,
-                       'url':'/assets/aemeath/'+state+'.gif','still_url':'/assets/aemeath/'+state+'.png'}] for state in STATES}
+                       'url':'/assets/aemeath/'+('typing' if state=='alert' else state)+'.gif','still_url':'/assets/aemeath/'+('typing' if state=='alert' else state)+'.png'}] for state in STATES}
         for state,override in saved['overrides'].items():
             if state not in states or not isinstance(override,dict): continue
             items=[]
@@ -78,6 +78,26 @@ def apply(db,row,state='idle',mode='append'):
             stream.flush(); os.fsync(stream.fileno())
         os.replace(temporary,root/'manifest.json')
     return manifest(db)
+
+
+def configure_notification_animation(db,row):
+    """Preserve the former typing choices once, then apply the supplied typing GIF."""
+    with _LOCK:
+        saved=_read(db)
+        if not saved.get('notification_animation_migrated'):
+            before=json.loads(json.dumps(saved))
+            if 'typing' in saved['overrides']:
+                saved['overrides']['alert']=json.loads(json.dumps(saved['overrides']['typing']))
+            saved['notification_animation_migrated']=True
+            saved['revision']=uuid.uuid4().hex
+            root=_location(db)
+            with (root/('before-'+saved['revision']+'.json')).open('x',encoding='utf-8') as stream:
+                json.dump(before,stream,ensure_ascii=False)
+            pending=root/('pending-'+uuid.uuid4().hex+'.json')
+            with pending.open('x',encoding='utf-8') as stream:
+                json.dump(saved,stream,ensure_ascii=False);stream.flush();os.fsync(stream.fileno())
+            os.replace(pending,root/'manifest.json')
+    return apply(db,row,'typing','replace')
 
 
 def remove(db,state,identifier):

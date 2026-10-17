@@ -23,6 +23,7 @@ STEP_LABELS={'files_find':'파일 찾기','files_preview':'자료 미리보기',
 STEP_LABELS.update({'attachments_list':'첨부 자료 확인','attachment_read':'첨부 자료 읽기·분석',
                     'attachment_preview':'첨부 미리보기','companion_assets':'캐릭터 목록 확인','companion_apply':'캐릭터 적용'})
 STEP_LABELS['work_edit']='업무 내용·상태 수정'
+STEP_LABELS.update({'notifications_list':'수신 알림 목록','notification_read':'알림 내용 확인','notification_confirm':'알림 확인 완료'})
 STEP_LABELS.update({'desktop_observe':'데스크톱 화면 관찰','desktop_action':'마우스·키보드·창 조작','browser_inspect':'웹 입력란·버튼 관찰','browser_act':'웹 입력·클릭','browser_export':'웹 내용 복사','text_document':'텍스트 문서·메모장 연결'})
 STEP_LABELS.update({'office_source_list':'앱 원본 찾기','office_source_read':'앱 원본 읽기',
                     'office_source_apply':'앱 변경 저장','office_source_history':'앱 변경 이력',

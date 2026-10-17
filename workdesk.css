@@ -38,7 +38,16 @@
 #work .work-examples span{width:100%;font-size:11px;color:#a7a8a1}
 #work .work-examples button{background:transparent;border:0;box-shadow:none;border-radius:2px;color:#cecec4;font-size:11px;padding:4px 0;text-align:left;margin-right:12px;font-weight:400;text-decoration:underline;text-decoration-color:#64655c;text-underline-offset:4px}
 #work .work-tasks{margin-top:18px;padding:18px;background:#17181a;border:1px solid #45464a;border-radius:10px;box-shadow:inset 0 0 0 4px #0c0c0f,0 4px #0009}
+#work .work-task-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;margin-top:18px}
+#work .work-task-columns>.work-tasks{margin-top:0;min-width:0}
 #work .work-task-list{border-top:1px solid #38393c}
+#work #workOtherRequestList{height:150px;max-height:150px;min-height:150px;box-sizing:border-box;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#67695e #17181a}
+#work .work-other-request-row{display:block;width:100%;box-sizing:border-box;text-align:left;background:transparent;color:#f2f0e8;border:0;border-bottom:1px solid #3c3d40;border-radius:0;box-shadow:none;padding:11px 8px;font-weight:400}
+#work .work-other-request-row:hover{background:#252629}
+#work .work-other-request-row strong,#work .work-other-request-content,#work .work-other-request-row small{display:block;min-width:0}
+#work .work-other-request-row strong{font-size:11px;color:#d6dfa0;margin-bottom:4px}
+#work .work-other-request-content{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.5}
+#work .work-other-request-row small{margin-top:4px;color:#aaa99f;font-size:10px}
 #work .work-task-row{width:100%;display:flex;gap:12px;align-items:center;background:transparent;border:0;border-radius:0;box-shadow:none;padding:15px 10px;border-bottom:1px solid #3c3d40;color:#f2f0e8;text-align:left;font-weight:400}
 #work .work-task-row:hover{background:#252629}
 #work .work-task-row[aria-pressed=true]{background:var(--ao-accent-muted,#29351f);box-shadow:inset 3px 0 var(--ao-accent,#a4d84b)}
@@ -157,6 +166,7 @@
 #work .work-launcher{padding:19px}
 #work .work-launcher-grid{gap:8px}}
 @media(max-width:850px){#work .work-layout{grid-template-columns:1fr}
+#work .work-task-columns{grid-template-columns:1fr}
 #work .work-rail{position:static;display:block}}
 @media(max-width:600px){#work .work-launcher{padding:18px 14px}
 #work .work-dialog{padding:18px 16px}

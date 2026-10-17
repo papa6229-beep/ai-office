@@ -33,6 +33,10 @@
     if (log.lastElementChild) chatResizeObserver.observe(log.lastElementChild);
   }
   let companionState = null, companionOutcome = null, companionError = '';
+  let notificationUnread=0;
+  document.addEventListener('office-notifications-state',event=>{
+    notificationUnread=Number(event.detail?.unread)||0;companionUpdate();
+  });
   let companionManifest=null, companionVariant=-1, companionRevision=null, companionManifestLoading=false;
   function companionVariantUpdate(next,rotate=false) {
     const stage=$('workCompanion'), animation=$('workCompanionAnimation'), still=$('workCompanionStill');
@@ -40,8 +44,8 @@
     if(rotate && variants.length>1)companionVariant=(companionVariant+1)%variants.length;
     else if(!rotate)companionVariant=variants.length-1;
     const variant=variants[companionVariant];
-    const source=variant?.url || '/assets/aemeath/'+next+'.gif';
-    const stillSource=attachmentURL(variant?.still_url) || (/^\/assets\/aemeath\/[a-z]+\.png$/.test(variant?.still_url || '') ? variant.still_url : '/assets/aemeath/'+next+'.png');
+    const source=variant?.url || '/assets/aemeath/'+(next==='alert'?'typing':next)+'.gif';
+    const stillSource=attachmentURL(variant?.still_url) || (/^\/assets\/aemeath\/[a-z]+\.png$/.test(variant?.still_url || '') ? variant.still_url : '/assets/aemeath/'+(next==='alert'?'typing':next)+'.png');
     if(animation.getAttribute('src')!==source){stage.classList.remove('is-gif-unavailable');animation.src=source;}
     if(still.getAttribute('src')!==stillSource){stage.classList.remove('is-still-unavailable');still.src=stillSource;}
   }
@@ -64,7 +68,8 @@
     const stage=$('workCompanion'), animation=$('workCompanionAnimation'), still=$('workCompanionStill'), status=$('workCompanionStatus');
     if (!stage || !animation || !still || !status) return;
     let next='idle', label='이야기를 기다리고 있어요';
-    if (busy) {next='working';label='요청 처리 중';}
+    if(notificationUnread>0){next='alert';label='중요 알람이 있어요';}
+    else if (busy) {next='working';label='요청 처리 중';}
     else if (companionError || uncertain) {next='error';label=uncertain ? '결과 확인이 필요해요' : companionError;}
     else if ($('workCommand')?.value.trim()) {next='typing';label='이야기를 듣고 있어요';}
     else if (waitingForSelection()) {label='선택을 기다리고 있어요';}
@@ -75,6 +80,9 @@
       companionVariantUpdate(next);
     }
     if (status.textContent !== label) status.textContent=label;
+    stage.classList.toggle('has-notification',notificationUnread>0);
+    const acknowledge=$('workNotificationAcknowledge');
+    if(acknowledge)acknowledge.hidden=notificationUnread===0;
   }
   function notice(message = '', error = false) {
     $('workNotice').textContent = message; $('workNotice').hidden = !message;
@@ -84,7 +92,7 @@
   function locks() {
     const blocked = busy || !!uncertain || !overview?.action_token;
     $('work').querySelectorAll('button,input,textarea,select').forEach(el => {
-      if (el.closest('#workLauncher,#workLauncherDialog,#workCalendar,#workFileDialog,#workStage,#workStageDialog') || el.matches('[data-work-preview]') || el.matches('[data-work-action="close-detail"],[data-files-action]')) return;
+      if (el.closest('#workNotifications,#workNotificationDialog,#workLauncher,#workLauncherDialog,#workCalendar,#workFileDialog,#workStage,#workStageDialog') || el.id==='workNotificationAcknowledge' || el.matches('[data-work-preview]') || el.matches('[data-work-action="close-detail"],[data-files-action]')) return;
       if (el.matches('[data-work-action="desk"],[data-work-action="tasks"]')) return;
       if (el.matches('[data-work-action="reload"]')) { el.disabled = busy || !!uncertain || loading; return; }
       if (el.matches('[data-work-action="retry"]')) { el.disabled = busy; return; }
@@ -354,6 +362,12 @@
     form.querySelector('[type="submit"]').textContent=task?'변경 저장':'업무 저장';
     $('workTaskCreateDialog').showModal();$('workTaskTitle').focus();
   }
+  window.workNotificationCommand=async message=>{
+    if(busy||uncertain||!overview?.action_token)throw Error('진행 중인 대화가 끝난 뒤 다시 요청해 주세요.');
+    if(attachments.length||$('workCommand')?.value.trim())throw Error('작성 중인 채팅을 먼저 보내거나 비워 주세요.');
+    if(typeof message!=='string'||!message.trim()||message.length>6000)throw Error('답장 내용을 확인해 주세요.');
+    return write('command',{message,request_id:requestID()},()=>{});
+  };
   function submit(event) {
     const form = event.target;
     if (!['workCommandForm','workTaskForm','workNoteForm','workResourceForm'].includes(form.id)) return;
@@ -394,6 +408,8 @@
       case 'clear-context': selected=null; render(); break;
       case 'add-task': openTaskEditor(); break;
       case 'cancel-task': $('workTaskCreateDialog').close(); break;
+      case 'add-other-request': $('workOtherRequestDialog').showModal(); break;
+      case 'cancel-other-request': $('workOtherRequestDialog').close(); break;
       case 'pick-resource': await pickFolder('workResourcePath'); break;
       case 'retry': if (uncertain) await write(null,null,null,uncertain); break;
 
@@ -487,6 +503,42 @@
 })();
 
 /* Launcher has its own busy state: assistant requests never lock quick launch. */
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const requestStoreKey='aemeath.otherRequests.v1';
+  const escapeHTML=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  let editingRequestIndex=-1;
+  function renderOtherRequests(){
+    const list=$('workOtherRequestList');if(!list)return;
+    let items=[];try{items=JSON.parse(localStorage.getItem(requestStoreKey)||'[]');}catch{}
+    list.innerHTML=items.length?items.map((item,index)=>`<button type="button" class="work-other-request-row" data-other-request-index="${index}" aria-label="${escapeHTML(item.team)} 타부서 요청 수정: ${escapeHTML(item.content)}"><strong>${escapeHTML(item.team)} · ${escapeHTML(item.status)}</strong><span class="work-other-request-content" title="${escapeHTML(item.content)}">${escapeHTML(item.content)}</span><small>${escapeHTML(item.start||'시작일 미정')} → ${escapeHTML(item.due||'완료 예정일 미정')}</small></button>`).join(''):'<p class="work-empty">등록된 요청사항이 없어요.</p>';
+  }
+  function openOtherRequest(index=-1){
+    let items=[];try{items=JSON.parse(localStorage.getItem(requestStoreKey)||'[]');}catch{}
+    editingRequestIndex=index;const item=items[index];
+    $('workOtherRequestTitle').textContent=item?'타부서 요청 수정':'타부서 요청 추가';
+    $('workRequestTeam').value=item?.team||'기획팀';$('workRequestContent').value=item?.content||'';
+    $('workRequestStatus').value=item?.status||'review';$('workRequestStart').value=item?.start||'';$('workRequestDue').value=item?.due||'';
+    $('workOtherRequestDialog').showModal();
+  }
+  document.addEventListener('DOMContentLoaded',()=>{
+    if(!$('workOtherRequestForm'))return;
+    renderOtherRequests();
+    $('workOtherRequestList').addEventListener('click',event=>{const card=event.target.closest('[data-other-request-index]');if(card)openOtherRequest(Number(card.dataset.otherRequestIndex));});
+    $('workOtherRequestForm').addEventListener('submit',event=>{
+      event.preventDefault();
+      const item={team:$('workRequestTeam').value,status:$('workRequestStatus').value,content:$('workRequestContent').value.trim(),start:$('workRequestStart').value,due:$('workRequestDue').value};
+      if(!item.content)return;
+      let items=[];try{items=JSON.parse(localStorage.getItem(requestStoreKey)||'[]');}catch{}
+      if(editingRequestIndex>=0 && editingRequestIndex<items.length)items[editingRequestIndex]=item;else items.push(item);
+      localStorage.setItem(requestStoreKey,JSON.stringify(items));editingRequestIndex=-1;
+      event.currentTarget.reset();$('workOtherRequestDialog').close();renderOtherRequests();
+    });
+    $('workOtherRequestDialog').addEventListener('close',()=>{editingRequestIndex=-1;});
+  });
+})();
+
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);

@@ -29,6 +29,7 @@ import windows_workspace
 import capabilities
 import work_stage
 import office_weather
+import office_notifications
 import file_workspace
 import base64, json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -244,8 +245,11 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
-        if path in {'/api/work/agent-artifact','/api/work/attachment','/api/work/companion-assets','/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/work/notifications','/api/work/agent-artifact','/api/work/attachment','/api/work/companion-assets','/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
+        if path=='/api/work/notifications':
+            try:return self.reply(office_notifications.snapshot(DB))
+            except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'알림 목록을 불러오지 못했어요.'},400)
         if path=='/api/work/companion-assets':
             try:return self.reply(companion_assets.manifest(DB))
             except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'캐릭터 자료를 읽지 못했습니다.'},400)
@@ -283,7 +287,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in _AEMEATH_ASSETS:
             b=(ROOT/path.lstrip('/')).read_bytes()
             self.send_response(200);self.send_header('Content-Type','image/gif' if path.endswith('.gif') else 'image/png');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(b);return
-        if path in {'/work-observer.js','/workambient.css','/workambient.js','/workstage.css','/workstage.js','/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js','/retro.css','/assets/fonts/PretendardVariable.woff2','/assets/fonts/BarlowCondensed-Bold.ttf','/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'}:
+        if path in {'/work-notifications.js','/work-notifications.css','/work-observer.js','/workambient.css','/workambient.js','/workstage.css','/workstage.js','/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js','/retro.css','/assets/fonts/PretendardVariable.woff2','/assets/fonts/BarlowCondensed-Bold.ttf','/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'}:
             b=(ROOT/path.lstrip('/')).read_bytes()
             mime='font/woff2' if path.endswith('.woff2') else 'font/ttf' if path.endswith('.ttf') else 'text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8'
             self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.end_headers();self.wfile.write(b);return
@@ -444,6 +448,9 @@ class Handler(BaseHTTPRequestHandler):
                         return self.reply({'path':selected,'cancelled':not bool(selected)})
                     except (OSError,subprocess.TimeoutExpired):raise ValueError('프로그램 선택창을 열지 못했습니다. 경로를 직접 입력할 수 있습니다.') from None
                 payload={k:v for k,v in d.items() if k!='token'}
+                if p=='/api/work/notifications-confirm':
+                    if set(payload) not in ({'id'},{'through'}):raise ValueError('확인할 알림을 다시 선택해 주세요.')
+                    return self.reply(office_notifications.confirm(DB,payload.get('id'),payload.get('through')))
                 result=launcher_service().perform(p.rsplit('/',1)[-1],payload)
                 result['action_token']=DESK_TOKEN
                 return self.reply(result)
@@ -467,8 +474,9 @@ class Handler(BaseHTTPRequestHandler):
                 if p=='/api/work/aemeath-guidelines':
                     import aemeath_guidelines
                     action=payload.get('action')
-                    if action=='read' and set(payload)=={'action'}:return self.reply(aemeath_guidelines.read(DB))
-                    if action=='save' and set(payload)=={'action','text'}:return self.reply(aemeath_guidelines.save(DB,payload.get('text')))
+                    if action=='list' and set(payload)=={'action'}:return self.reply(aemeath_guidelines.list_cards(DB))
+                    if action=='save' and set(payload)=={'action','category','title','content','card_id'}:
+                        return self.reply({'card':aemeath_guidelines.save_card(DB,payload.get('category'),payload.get('title'),payload.get('content'),payload.get('card_id'))})
                     raise ValueError('행동지침 요청을 확인해줘.')
                 if p=='/api/work/companion-remove':
                     if set(payload)!={'state','id'}:raise ValueError('캐릭터 제거 요청을 확인하세요.')
@@ -644,6 +652,7 @@ if __name__=='__main__':
         # and report this failure without switching to another AI server.
         print(f'[WARNING] 로컬 AI 준비 실패: {exc}', flush=True)
     organizer_policy.ensure_worker()
+    office_notifications.start(DB)
     start_ai_supervisor()
     import webbrowser, time
     try:
