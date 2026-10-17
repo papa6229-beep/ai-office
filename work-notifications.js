@@ -33,7 +33,7 @@
       const meta=document.createElement('span');meta.className='work-notification-card-meta';meta.textContent=item.source+' · '+date(item.received);
       const title=document.createElement('strong');title.textContent=item.title||'새 알림';
       const body=document.createElement('span');body.className='work-notification-excerpt';body.textContent=item.body;
-      const badge=document.createElement('small');badge.className='work-notification-badge';badge.textContent=item.confirmed?({dismissed:'확인 · 폰 알림 정리',not_present:'확인 · 원본 없음',unavailable:'확인 · 동기화 미완료',pending:'확인 · 동기화 중',local_only:'확인 · 오피스',source_removed:'확인 · 원본에서 정리됨'}[item.phone_sync]||'확인'):'미확인';
+      const badge=document.createElement('small');badge.className='work-notification-badge';badge.textContent=item.confirmed?({dismissed:'확인 · 폰 알림 정리',not_present:'확인 · 원본 없음',unavailable:'확인 · 동기화 미완료',pending:'확인 · 동기화 중',local_only:'확인 · 오피스',unsupported:'확인 · 폰에서 유지',source_removed:'확인 · 원본에서 정리됨'}[item.phone_sync]||'확인'):'미확인';
       card.append(title,badge,meta);card.addEventListener('click',()=>open(item));root.append(card);
       if(focused===item.id)card.focus({preventScroll:true});
     }
@@ -55,6 +55,34 @@
   function updateConfirm(item){
     $('workNotificationConfirm').disabled=!!item.confirmed&&['dismissed','not_present','unsupported','source_removed'].includes(item.phone_sync);
     $('workNotificationConfirm').textContent=item.confirmed&&!$('workNotificationConfirm').disabled?'휴대폰에도 반영':'확인 완료';
+    if(item.confirmed)message(({dismissed:'휴대폰에서 해당 알림이 정리된 것을 확인했어요.',pending:'휴대폰의 실제 정리 결과를 기다리고 있어요.',unsupported:'휴대폰에서 지울 수 없는 알림이에요. 오피스에서만 확인 처리했어요.',source_removed:'휴대폰에서 해당 원본 알림이 사라져 확인 처리했어요.',not_present:'해당 원본 알림은 이미 없어졌거나 새 알림으로 바뀌었어요.'})[item.phone_sync]||'오피스에서 확인했어요. 휴대폰 반영 상태는 별도로 확인해요.');
+  }
+  async function phoneRequest(action){
+    const session=await fetch('/api/work',{cache:'no-store'}).then(r=>r.json());
+    const response=await fetch('/api/work/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:session.action_token})});
+    const data=await response.json();if(!response.ok)throw Error(data.error||'휴대폰 연결을 준비하지 못했어요.');return data;
+  }
+  async function pairing(){
+    let dialog=$('phonePairDialog');
+    if(!dialog){
+      dialog=document.createElement('dialog');dialog.id='phonePairDialog';dialog.className='work-dialog phone-pair-dialog';
+      dialog.setAttribute('aria-labelledby','phonePairTitle');
+      dialog.innerHTML='<header class="work-dialog-heading"><h3 id="phonePairTitle">휴대폰 직접 연결</h3><button type="button" data-phone-close>닫기 ×</button></header><p>휴대폰에 연결 앱을 한 번 설치한 뒤 앱의 <strong>PC의 QR 읽기</strong>를 눌러 주세요.</p><p><a href="/api/work/phone-apk" download="aemeath-phone.apk">연결 앱 설치 파일 받기</a> · PC에서 받은 파일은 USB 등으로 휴대폰에 옮겨 설치해요.</p><img id="phonePairQR" alt="휴대폰 연결 앱에서 읽을 일회용 QR" hidden><p id="phonePairStatus" role="status"></p><p class="work-muted">PC는 랜선, 휴대폰은 같은 사내망 Wi-Fi여도 돼요. QR은 5분 동안 한 번만 사용할 수 있어요. 휴대폰에서 알림 접근·기기 승인·백그라운드 연결을 허용해 주세요. 사내망에서 기기 간 통신을 차단하면 연결되지 않아요.</p><footer><button type="button" data-phone-refresh>QR 새로 만들기</button><button type="button" class="work-secondary" data-phone-revoke>등록된 연결 해제</button></footer>';
+      $('workNotifications').append(dialog);
+      dialog.querySelector('[data-phone-close]').onclick=()=>{dialog.close();$('phonePairQR').src='';$('phonePairQR').hidden=true;};
+      dialog.querySelector('[data-phone-refresh]').onclick=()=>pairing().catch(error=>{$('phonePairStatus').textContent=error.message;});
+      dialog.querySelector('[data-phone-revoke]').onclick=async()=>{
+        try{const data=await phoneRequest('phone-revoke');$('phonePairStatus').textContent=data.message;$('phonePairQR').hidden=true;await poll();}
+        catch(error){$('phonePairStatus').textContent=error.message;}
+      };
+    }
+    if(!dialog.open)dialog.showModal();
+    $('phonePairStatus').textContent='연결 QR을 준비하고 있어요.';
+    const data=await phoneRequest('phone-pair');
+    if(!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(data.qr))throw Error('연결 QR을 확인하지 못했어요.');
+    $('phonePairQR').src=data.qr;$('phonePairQR').hidden=false;
+    $('phonePairStatus').textContent='PC 주소: '+data.addresses.join(', ')+' · 등록된 휴대폰 '+data.paired_devices+'대 · 이 QR은 지금부터 5분간 유효해요.';
+    await poll();
   }
   async function confirm(all=false){
     if(writing||!snapshot)return;writing=true;
@@ -104,11 +132,9 @@
     });
     selectWorkspaceTab('tasks');
     $('workNotificationsReconnect').addEventListener('click',async()=>{
-      const button=$('workNotificationsReconnect');button.disabled=true;message('기존 휴대폰 연결을 다시 확인하고 있어요.');
+      const button=$('workNotificationsReconnect');button.disabled=true;
       try{
-        const session=await fetch('/api/work',{cache:'no-store'}).then(r=>r.json());
-        const response=await fetch('/api/work/notifications-reconnect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:session.action_token})});
-        const data=await response.json();if(!response.ok)throw Error(data.error||'재연결 요청을 완료하지 못했어요.');message(data.message);await poll();
+        await pairing();
       }catch(error){message(error.message);}finally{button.disabled=false;}
     });
     $('workNotificationClose').addEventListener('click',()=>$('workNotificationDialog').close());

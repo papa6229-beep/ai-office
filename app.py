@@ -260,6 +260,15 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
     def do_GET(self):
         path=urlparse(self.path).path
+        if path=='/api/work/phone-apk':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'local access only'},403)
+            import direct_phone
+            if not direct_phone.APK.is_file():return self.reply({'error':'휴대폰 설치 파일을 아직 준비하고 있어요.'},404)
+            raw=direct_phone.APK.read_bytes()
+            self.send_response(200);self.send_header('Content-Type','application/vnd.android.package-archive')
+            self.send_header('Content-Disposition','attachment; filename="aemeath-phone.apk"')
+            self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff')
+            self.end_headers();return self.wfile.write(raw)
         if path in {'/api/work/model-connections','/api/work/notifications','/api/work/agent-artifact','/api/work/attachment','/api/work/companion-assets','/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
         if path=='/api/work/model-connections':
@@ -473,6 +482,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
                 payload={k:v for k,v in d.items() if k!='token'}
+                if p in {'/api/work/phone-pair','/api/work/phone-revoke'}:
+                    if payload:raise ValueError('연결 요청을 확인해 주세요.')
+                    import direct_phone
+                    receiver=direct_phone.start(DB)
+                    return self.reply(receiver.pairing() if p.endswith('phone-pair') else receiver.revoke())
                 if p=='/api/work/model-connections-refresh':
                     if payload:raise ValueError('연결 확인 요청을 확인해줘.')
                     return self.reply(model_connections.inspect_readiness(config()))

@@ -35,7 +35,7 @@ def _db(path):
                     connection.execute("ALTER TABLE office_notifications ADD COLUMN phone_sync TEXT NOT NULL DEFAULT 'local_only'")
                 if 'event_key' not in columns:
                     connection.execute('ALTER TABLE office_notifications ADD COLUMN event_key TEXT')
-                for name,declaration in {'source_state':"TEXT NOT NULL DEFAULT 'unknown'",'source_missing':'REAL','can_reply':'INTEGER NOT NULL DEFAULT 0','superseded_by':'TEXT'}.items():
+                for name,declaration in {'source_state':"TEXT NOT NULL DEFAULT 'unknown'",'source_missing':'REAL','can_reply':'INTEGER NOT NULL DEFAULT 0','superseded_by':'TEXT','ingested':'REAL'}.items():
                     if name not in columns:connection.execute('ALTER TABLE office_notifications ADD COLUMN '+name+' '+declaration)
             connection.execute('''CREATE TABLE IF NOT EXISTS office_notification_actions (
                 request_id TEXT PRIMARY KEY, signature TEXT NOT NULL, response TEXT, created REAL NOT NULL)''')
@@ -120,13 +120,14 @@ def _phone_action(payload,timeout=25):
 
 
 def confirm(db,identifier=None,through=None):
+    service=start(db)
     with _ACTION_LOCK:
         with _db(db) as c:
             if identifier is not None:
                 if not isinstance(identifier,str) or len(identifier)!=32:raise ValueError('알림을 다시 선택해 주세요.')
                 rows=c.execute('SELECT * FROM office_notifications WHERE id=?',(identifier,)).fetchall()
             elif type(through) in (int,float) and 0<through<=time.time()+5:
-                rows=c.execute("SELECT * FROM office_notifications WHERE superseded_by IS NULL AND received<=? AND (confirmed IS NULL OR phone_sync IN ('local_only','unavailable','pending')) ORDER BY received DESC LIMIT 80",(through,)).fetchall()
+                rows=c.execute("SELECT * FROM office_notifications WHERE superseded_by IS NULL AND COALESCE(ingested,received)<=? AND (confirmed IS NULL OR phone_sync IN ('local_only','unavailable','pending')) ORDER BY COALESCE(ingested,received) DESC,received DESC LIMIT 80",(through,)).fetchall()
             else:raise ValueError('확인할 알림 범위를 다시 불러와 주세요.')
             if identifier and not rows:raise ValueError('알림을 찾지 못했어요.')
             items=[dict(row) for row in rows]
@@ -134,27 +135,29 @@ def confirm(db,identifier=None,through=None):
                 c.execute("UPDATE office_notifications SET confirmed=COALESCE(confirmed,?),phone_sync='pending' WHERE id=?",(time.time(),item['id']))
         results=[]
         if items:
-            try:results=_phone_action({'operation':'acknowledge','items':items},timeout=35)['results']
-            except (ValueError,KeyError):results=[{'id':item['id'],'state':'unavailable'} for item in items]
+            direct=[item for item in items if item['origin']=='android_direct']
+            results=service.acknowledge(direct)+[{'id':item['id'],'state':'local_only'} for item in items if item['origin']!='android_direct']
             by_id={item['id']:item for item in results}
             with _db(db) as c:
                 for item in items:
                     state=by_id.get(item['id'],{}).get('state','unavailable')
-                    if state not in {'dismissed','not_present','unsupported'}:state='unavailable'
+                    if state not in {'dismissed','not_present','unsupported','pending','local_only'}:state='unavailable'
+                    if state=='pending':continue  # A fast phone acknowledgment may already have completed.
                     c.execute('UPDATE office_notifications SET phone_sync=? WHERE id=?',(state,item['id']))
         data=snapshot(db)
-        counts={key:sum(row.get('state')==key for row in results) for key in ('dismissed','not_present','unsupported','unavailable')}
+        counts={key:sum(row.get('state')==key for row in results) for key in ('dismissed','not_present','unsupported','unavailable','pending','local_only')}
         data['sync_summary']=counts
-        data['confirmation_message']=('오피스에서 확인했어요. 일부 휴대폰 알림 정리는 아직 연결되지 않았어요. 해당 카드에서 다시 확인할 수 있어요.' if counts['unavailable'] else
-            '오피스와 Phone Link 알림을 정리했어요. 휴대폰 알림에도 동기화되며, 메신저 대화의 읽음 상태와는 별개예요.' if counts['dismissed'] else
-            '확인했어요. 해당 원본 알림은 Phone Link에 이미 없거나 휴대폰 동기화 대상이 아니에요.')
+        data['confirmation_message']=('오피스에서 확인했어요. 휴대폰이 실제 정리 결과를 보내면 동기화 상태가 바뀌어요.' if counts['pending'] else
+            '오피스에서 확인했어요. 일부 휴대폰 알림 정리는 아직 연결되지 않았어요. 해당 카드에서 다시 확인할 수 있어요.' if counts['unavailable'] else
+            '오피스와 휴대폰의 해당 알림을 정리했어요. 메신저 대화의 읽음 상태와는 별개예요.' if counts['dismissed'] else
+            '확인했어요. 해당 원본 알림은 이미 없거나 현재 휴대폰 동기화 대상이 아니에요.')
         return data
 
 
 def get(db,identifier):
     if not isinstance(identifier,str) or len(identifier)!=32:raise ValueError('알림을 다시 선택해 주세요.')
     with _db(db) as c:
-        row=c.execute('SELECT id,source,title,body,received,confirmed,origin,phone_sync,event_key,source_state FROM office_notifications WHERE id=?',(identifier,)).fetchone()
+        row=c.execute('SELECT id,source,title,body,received,ingested,confirmed,origin,phone_sync,event_key,source_state FROM office_notifications WHERE id=?',(identifier,)).fetchone()
     if row is None:raise ValueError('알림을 찾지 못했어요. 목록을 새로 불러와 주세요.')
     return dict(row)
 
@@ -162,12 +165,12 @@ def get(db,identifier):
 def snapshot(db):
     through=time.time()
     with _db(db) as c:
-        rows=c.execute('SELECT id,source,title,body,received,confirmed,origin,phone_sync,source_state FROM office_notifications WHERE superseded_by IS NULL AND received<=? ORDER BY received DESC,rowid DESC LIMIT 80',(through,)).fetchall()
+        rows=c.execute('SELECT id,source,title,body,received,ingested,confirmed,origin,phone_sync,source_state FROM office_notifications WHERE superseded_by IS NULL AND COALESCE(ingested,received)<=? ORDER BY COALESCE(ingested,received) DESC,received DESC,rowid DESC LIMIT 80',(through,)).fetchall()
         unread=c.execute('SELECT count(*) FROM office_notifications WHERE confirmed IS NULL AND superseded_by IS NULL').fetchone()[0]
     service=_service
     status=service.status() if service else {'state':'stopped','message':'알림 수신기를 준비하고 있어요.'}
     return {'items':[dict(row) for row in rows],'unread':unread,'through':through,'receiver':status,
-            'scope':'Phone Link에 전달된 알림과 지원 PC 배너를 수집해요. 메신저 앱 안의 전체 미확인 대화 개수와는 달라요.'}
+            'scope':'휴대폰 연결 앱이 직접 전달한 알림을 보관해요. 확인 완료는 휴대폰 알림 정리이며 메신저 대화의 읽음 상태와는 별개예요. 인증문자 등 민감한 내용은 Android 권한·보호 정책에 따라 가려질 수 있어요.' if status.get('mode')=='android_direct' else 'Phone Link에 전달된 알림과 지원 PC 배너를 수집해요. 메신저 앱 안의 전체 미확인 대화 개수와는 달라요.'}
 
 
 def wait_for(db,after,source='',seconds=20):
@@ -182,13 +185,13 @@ def wait_for(db,after,source='',seconds=20):
     while True:
         through=time.time()
         with _db(db) as c:
-            rows=c.execute('SELECT id,source,title,received,confirmed,phone_sync,source_state FROM office_notifications WHERE superseded_by IS NULL AND received>? AND received<=? AND instr(lower(source),lower(?))>0 ORDER BY received DESC,rowid DESC LIMIT 80',(after,through,source)).fetchall()
+            rows=c.execute('SELECT id,source,title,received,ingested,confirmed,phone_sync,source_state FROM office_notifications WHERE superseded_by IS NULL AND COALESCE(ingested,received)>? AND COALESCE(ingested,received)<=? AND instr(lower(source),lower(?))>0 ORDER BY COALESCE(ingested,received) DESC,received DESC,rowid DESC LIMIT 80',(after,through,source)).fetchall()
         if rows or time.monotonic()>=deadline:break
         time.sleep(min(1,max(0,deadline-time.monotonic())))
     service=_service
     return {'items':[dict(row) for row in rows],'after':after,'through':through,'matched':bool(rows),
             'timed_out':not bool(rows),'receiver':service.status() if service else {'state':'stopped'},
-            'note':'새 알림을 확인했습니다. notification_read로 내용을 읽으세요.' if rows else '대기 시간 안에 조건에 맞는 새 알림이 저장되지 않았습니다. 작업을 완료한 것이 아닙니다. 같은 after로 대기를 이어갈 수 있습니다.'}
+            'note':'새로 저장된 알림입니다. notification_read로 내용을 읽고 received(휴대폰 표시 시각)와 ingested(오피스 저장 시각)를 구분해 요청 맥락에 해당하는지 확인하세요.' if rows else '대기 시간 안에 조건에 맞는 새 알림이 저장되지 않았습니다. 작업을 완료한 것이 아닙니다. 같은 after로 대기를 이어갈 수 있습니다.'}
 
 class Receiver:
     def __init__(self,db):
@@ -305,6 +308,7 @@ def start(db):
     with _guard:
         if _service is None:
             with _db(db) as c:_collapse_between(c)
-            _service=Receiver(db)
+            import direct_phone
+            _service=direct_phone.start(db)
             atexit.register(_service.close)
     return _service

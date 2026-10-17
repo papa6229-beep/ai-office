@@ -2,3 +2,5 @@ Pillow>=10.0,<13
 playwright==1.64.0
 pypdf==6.20.1
 pywinauto==0.6.9; sys_platform == "win32"
+cryptography==46.0.5
+qrcode==8.2

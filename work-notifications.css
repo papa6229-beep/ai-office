@@ -91,3 +91,5 @@ body.work-desktop #work #workOtherRequestList{height:auto;min-height:0;max-heigh
 body.work-desktop #work .work-companion-rail>.work-companion{flex:1 0 auto;min-height:min-content}
 
 .work-notification-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.work-notification-connection{font-size:12px;margin:0 0 8px;color:#b5c6b3}.work-notification-connection summary{cursor:pointer}.work-notification-connection p{margin:6px 0;line-height:1.6}
+#work .phone-pair-dialog{width:min(520px,90vw);max-height:88vh;overflow:auto;padding:22px;background:#1b1c1f;color:#f2f0e8;border:1px solid #657351;border-radius:14px}
+#work .phone-pair-dialog p{line-height:1.7;font-size:13px}#work .phone-pair-dialog a{color:#b3dc59}#work .phone-pair-dialog img{display:block;max-width:min(340px,100%);height:auto;margin:14px auto;border:8px solid #fff}#work .phone-pair-dialog img[hidden]{display:none}#work .phone-pair-dialog footer{display:flex;gap:10px;flex-wrap:wrap}

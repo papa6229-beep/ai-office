@@ -545,7 +545,7 @@ class ToolRegistry:
             return _ok('이전 대화의 참고 기록입니다. 현재 요청의 실행 권한과 구분하세요.',{'messages':messages,'has_more':len(rows)>limit,'next_offset':a.get('offset',0)+len(messages)})
         if name in {'notifications_list','notifications_wait'}:
             result=office_notifications.wait_for(self.db_path,a['after'],a.get('source',''),a.get('seconds',20)) if name=='notifications_wait' else office_notifications.snapshot(self.db_path)
-            result['items']=[dict((key,item[key]) for key in ('source','title','received','confirmed','phone_sync','source_state'))|{'ref':self._ref(c,'notification',item['id'])} for item in result['items']]
+            result['items']=[dict((key,item[key]) for key in ('source','title','received','ingested','confirmed','phone_sync','source_state'))|{'ref':self._ref(c,'notification',item['id'])} for item in result['items']]
             return _ok(('새 알림 수신을 기다린 결과입니다. 작업 전체의 완료를 의미하지 않습니다.' if name=='notifications_wait' else '오피스에 수신된 알림과 수신기 상태입니다.'),result)
         if name in {'notification_read','notification_confirm'}:
             identifier=self._get(c,a['ref'],'notification')
