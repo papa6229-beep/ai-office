@@ -31,7 +31,7 @@ browser_workspace.py browser_controls.py desktop_control.py capabilities.py chat
 content_analysis.py desktop_collections.py desktop_judgment.py desktop_preferences.py
 desktop_recovery.py desktop_workspace.py document_reader.py file_executor.py
 file_workspace.py lmstudio_runtime.py local_content_review.py local_image_review.py
-model_requests.py office_weather.py office_notifications.py notification_capture.py organizer_lab.py organizer_policy.py
+model_requests.py office_weather.py office_notifications.py notification_capture.py phone_link_runtime.py organizer_lab.py organizer_policy.py
 project_intelligence.py quick_launcher.py scanner.py streamdock_import.py
 system_settings.py updater.py windows_actions.py windows_app_catalog.py
 windows_workspace.py work_assistant.py work_stage.py workspace_insights.py

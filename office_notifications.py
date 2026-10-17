@@ -87,6 +87,7 @@ class Receiver:
     def __init__(self,db):
         self.db=db;self.stop=threading.Event();self.lock=threading.Lock();self.process=None
         self.state='starting';self.message='PC 알림 수신기를 준비하고 있어요.';self.last_heartbeat=0
+        self.phone_startup={'state':'preparing','message':'휴대폰과 연결 자동 준비 중'}
         self.thread=threading.Thread(target=self._run,name='office-notification-receiver',daemon=True)
         self.thread.start()
         threading.Thread(target=self._watchdog,name='office-notification-watchdog',daemon=True).start()
@@ -96,7 +97,8 @@ class Receiver:
             state=self.state;message=self.message
             if state=='watching' and time.monotonic()-self.last_heartbeat>30:
                 state='unavailable';message='알림 수신 상태를 확인하고 있어요.'
-            return {'state':state,'message':message,'mode':'phone_link_panel_and_banners','uses_ai':False}
+            return {'state':state,'message':message,'mode':'phone_link_panel_and_banners','uses_ai':False,
+                    'phone_startup':dict(self.phone_startup)}
 
     def close(self):
         self.stop.set()
@@ -117,6 +119,13 @@ class Receiver:
         if os.name!='nt':
             with self.lock:self.state='unavailable';self.message='Windows에서 알림 수신을 사용할 수 있어요.'
             return
+        # This runs once per AI OFFICE start, not on capture-worker retries.
+        try:
+            import phone_link_runtime
+            startup=phone_link_runtime.ensure_ready()
+        except Exception:
+            startup={'state':'launch_failed','message':'휴대폰과 연결 자동 준비를 완료하지 못했어요.'}
+        with self.lock:self.phone_startup=startup
         while not self.stop.is_set():
             process=None
             try:
