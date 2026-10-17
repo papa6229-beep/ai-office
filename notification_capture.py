@@ -39,19 +39,38 @@ def label(info):
     return ''.join(c for c in str(info.name or '') if unicodedata.category(c)!='Cf').strip()
 
 
-def phone_notification_cards(backend,window):
+def phone_notification_cards(backend,window,metadata=None):
     """Return exact notification ListItems with their public message fields."""
     root=backend._desktop.window(handle=window['handle']).wrapper_object()
-    pane=next((node for node in nodes(backend,root,120,9)
+    roots=list(nodes(backend,root,160,9))
+    if metadata is not None:
+        metadata.update(connected=any(node.element_info.control_type in {'Text','Button'} and label(node.element_info) in {'연결됨','Connected'} for node in roots),complete=True)
+    pane=next((node for node in roots
                if node.element_info.automation_id=='PaneContent'
                and node.element_info.name in {'알림','Notifications'}),None)
     if pane is None:return None
     lists=[node for node in nodes(backend,pane,90,7)
            if node.element_info.automation_id in {'NotificationsList','PinnedNotificationsList'}]
+    if not lists:return None
     events=[]
     for group in lists:
-        for element in itertools.islice(group.element_info.iter_children(),40):
-            if element.control_type!='ListItem':continue
+        children=list(itertools.islice(group.element_info.iter_children(),41))
+        items=[element for element in children if element.control_type=='ListItem']
+        if metadata is not None:
+            # SizeOfSet includes filtered system cards. A partial/virtualized
+            # list must never be mistaken for messages cleared on the phone.
+            from pywinauto.uia_defines import IUIA
+            sizes=[]
+            for element in items:
+                try:sizes.append(int(element.element.GetCurrentPropertyValue(IUIA().UIA_dll.UIA_SizeOfSetPropertyId)))
+                except Exception:pass
+            complete=bool(sizes and min(sizes)>0 and len(set(sizes))==1 and len(items)==sizes[0] and len(children)<41)
+            if not items:
+                try:complete=not bool(group.parent().iface_scroll.CurrentVerticallyScrollable)
+                except Exception:complete=False
+            metadata.setdefault('coverage',[]).append({'items':len(items),'expected':sorted(set(sizes)),'complete':complete})
+            metadata['complete'] &= complete
+        for element in items[:40]:
             card=backend._wrapper_class(element);fields={};messages=[]
             for node in nodes(backend,card,65,5):
                 info=node.element_info
@@ -76,8 +95,22 @@ def phone_notification_cards(backend,window):
             if not source or not (title or body):continue
             if not body and re.fullmatch(r'\d+개 알림 더보기',title):continue
             key=hashlib.sha256(json.dumps([source,label(element),title,body],ensure_ascii=False).encode()).hexdigest()
+            actions={node.element_info.automation_id for node in nodes(backend,card,75,7)
+                     if node.element_info.control_type in {'Edit','Button'}} if metadata is not None else set()
             events.append((card,{'source':source[:160],'title':title[:400],'body':body[:12000],
+                                 'can_reply':{'ReplyTextBox','NotificationReplySend'}<=actions,
                                  'origin':'phone_link_panel','event_key':'phone-link:'+key}))
+    if metadata is not None:
+        coverage=metadata.get('coverage',[])
+        # An empty pinned collection has no SizeOfSet/Scroll pattern. It must
+        # not invalidate a fully enumerated regular collection.
+        metadata['complete']=any(row['complete'] for row in coverage) and all(row['complete'] for row in coverage if row['items'])
+        refreshing=any(node.element_info.automation_id=='RefreshButton' and node.element_info.control_type=='Button' and not node.is_enabled() for node in roots)
+        if refreshing:metadata['complete']=False
+        if not any(row['items'] for row in coverage):
+            user32=ctypes.WinDLL('user32',use_last_error=True)
+            user32.IsIconic.argtypes=[wintypes.HWND];user32.IsWindowVisible.argtypes=[wintypes.HWND]
+            if user32.IsIconic(window['handle']) or not user32.IsWindowVisible(window['handle']):metadata['complete']=False
     return events
 
 
@@ -120,16 +153,31 @@ def run(parent):
         while kernel32.WaitForSingleObject(owner,0)==258:
             active={}
             phone_poll=time.monotonic()-last_phone_poll>=2
+            inventories=[];inventory_flags=[];inventory_sources={}
             if phone_poll:last_phone_poll=time.monotonic();phone_state='not_found'
-            for window in backend.windows():
+            windows=backend.windows()
+            import phone_link_runtime
+            known={window['handle'] for window in windows}
+            windows.extend(dict(window,elevated=False,title='Phone Link') for window in phone_link_runtime.windows(True) if window['handle'] not in known)
+            for window in windows:
                 process=window['process'].lower();name=window['title']
                 # Never read arbitrary apps, the notification center's past history,
                 # or the Phone Link conversation pane as a new notification.
                 if window.get('elevated'):continue
                 if process in PHONES and phone_poll:
                     try:
-                        events=phone_notifications(backend,window)
+                        metadata={}
+                        cards=phone_notification_cards(backend,window,metadata)
+                        events=None if cards is None else [event for _,event in cards]
                         phone_state='reading' if events is not None else 'pane_unavailable'
+                        if events is not None:
+                            inventory_flags.append(metadata)
+                            for event in events:
+                                fingerprint=hashlib.sha256(json.dumps([event['source'],event['title'],event['body']],ensure_ascii=False).encode()).hexdigest()
+                                inventories.append({'key':event['event_key'],'fingerprint':fingerprint,'can_reply':event['can_reply']})
+                                inventory_sources[event['source']]=inventory_sources.get(event['source'],0)+1
+                            if not metadata.get('connected'):phone_state='disconnected'
+                            elif not metadata.get('complete'):phone_state='partial'
                         for event in events or []:
                             if event['event_key'] in phone_seen:continue
                             emit('notification',**event);phone_seen.add(event['event_key'])
@@ -174,6 +222,10 @@ def run(parent):
                 if not content:continue
                 emit('notification',source=source[:160],title=content[0][:400],body='\n'.join(content[1:])[:12000])
             seen=active
+            if phone_poll:
+                emit('phone_inventory',entries=inventories,
+                     connected=bool(inventory_flags) and all(row['connected'] for row in inventory_flags),
+                     complete=bool(inventory_flags) and all(row['complete'] for row in inventory_flags),sources=inventory_sources)
             if time.monotonic()-last_heartbeat>5:
                 emit('heartbeat',phone_state=phone_state);last_heartbeat=time.monotonic()
             time.sleep(.8)

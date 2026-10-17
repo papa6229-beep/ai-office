@@ -19,10 +19,12 @@ def target(backend,item,*,missing_ok=False):
     if item.get('origin')!='phone_link_panel':
         raise ValueError('이 알림은 휴대폰과 연결의 원본 알림이 아니에요.')
     matches=[];panes=0
-    for window in backend.windows():
+    import phone_link_runtime
+    for window in phone_link_runtime.windows(True):
         if window['process'].lower() not in capture.PHONES or window.get('elevated'):continue
-        cards=capture.phone_notification_cards(backend,window)
-        if cards is None:continue
+        metadata={}
+        cards=capture.phone_notification_cards(backend,window,metadata)
+        if cards is None or not metadata.get('connected'):continue
         panes+=1
         for card,event in cards:
             if item.get('event_key') and event['event_key']!=item['event_key']:continue
@@ -65,11 +67,28 @@ def reveal_dismiss(card):
 
 
 def inspect(backend,item):
-    card=target(backend,item)
-    return {'matched':True,
+    card=target(backend,item,missing_ok=True)
+    if card is None:return {'matched':False,'can_reply':False,'reason':'원본 알림이 이미 정리됐거나 갱신됐어요. 이 기록에서는 바로 답장할 수 없어요.'}
+    result={'matched':True,
             'reply_input':control(backend,card,'ReplyTextBox','Edit') is not None,
             'reply_send':control(backend,card,'NotificationReplySend','Button') is not None,
             'dismiss':control(backend,card,'DeleteSingleNotification','Button') is not None}
+    result['can_reply']=result['reply_input'] and result['reply_send']
+    result['reason']='원본 알림으로 답장할 수 있어요.' if result['can_reply'] else '이 앱의 원본 알림은 바로 답장을 제공하지 않아요. 원래 앱에서 답장해 주세요.'
+    return result
+
+
+def reconnect(backend):
+    import phone_link_runtime
+    matches=[]
+    for window in phone_link_runtime.windows(True):
+        root=backend._desktop.window(handle=window['handle']).wrapper_object()
+        for node in capture.nodes(backend,root,160,9):
+            if node.element_info.control_type=='Button' and node.element_info.automation_id=='RefreshButton' and node.parent().element_info.automation_id=='PaneRoot':
+                matches.append(node)
+    if len(matches)!=1 or not matches[0].is_enabled():return {'requested':False}
+    matches[0].invoke()
+    return {'requested':True}
 
 
 def reply(backend,item,text):
@@ -123,6 +142,7 @@ def main():
     backend=windows_workspace._PywinautoBackend()
     try:
         operation=payload.get('operation','inspect')
+        if operation=='reconnect':return reconnect(backend)
         if operation=='inspect':return inspect(backend,payload['item'])
         if operation=='reply':return reply(backend,payload['item'],payload['text'])
         if operation=='acknowledge':

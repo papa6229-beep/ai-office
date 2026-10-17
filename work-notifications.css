@@ -92,3 +92,5 @@ body.work-desktop #work #workOtherRequestList{height:auto;min-height:0;max-heigh
 .notification-nav-badge{display:inline-flex;align-items:center;justify-content:center;min-width:20px;padding:1px 5px;margin-left:7px;border-radius:12px;background:#59394b;color:#ffcee2;font-size:11px;font-weight:700}
 .notification-nav-badge[hidden]{display:none}
 body.work-desktop #work .work-companion-rail>.work-companion{flex:1 0 auto;min-height:min-content}
+
+.work-notification-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.work-notification-connection{font-size:12px;margin:0 0 8px;color:#b5c6b3}.work-notification-connection summary{cursor:pointer}.work-notification-connection p{margin:6px 0;line-height:1.6}

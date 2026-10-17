@@ -1,4 +1,4 @@
-"""Prepare the installed Phone Link app once when AI OFFICE starts."""
+"""Reuse/prepare installed Phone Link without new pairing or permission changes."""
 import ctypes
 from ctypes import wintypes
 import hashlib
@@ -9,7 +9,7 @@ APP_ID='Microsoft.YourPhone_8wekyb3d8bbwe!App'
 PROCESSES={'phoneexperiencehost.exe','yourphone.exe'}
 
 
-def windows():
+def windows(include_hidden=False):
     if os.name!='nt':return []
     from windows_workspace import _process_info
     user32=ctypes.WinDLL('user32',use_last_error=True)
@@ -20,7 +20,8 @@ def windows():
     result=[]
     @ctypes.WINFUNCTYPE(wintypes.BOOL,wintypes.HWND,wintypes.LPARAM)
     def collect(handle,_):
-        if not user32.IsWindowVisible(handle):return True
+        visible=bool(user32.IsWindowVisible(handle))
+        if not visible and not include_hidden:return True
         title=ctypes.create_unicode_buffer(300)
         user32.GetWindowTextW(handle,title,len(title))
         if title.value not in {'휴대폰과 연결','Phone Link','Your Phone'}:return True
@@ -29,7 +30,7 @@ def windows():
             process,elevated,started=_process_info(pid.value)
             if process.lower() in PROCESSES and not elevated:
                 result.append({'handle':handle,'pid':pid.value,'process':process,
-                               'minimized':bool(user32.IsIconic(handle))})
+                               'minimized':bool(user32.IsIconic(handle)),'visible':visible})
         except (OSError,ValueError):pass
         return True
     user32.EnumWindows.argtypes=[type(collect),wintypes.LPARAM]
@@ -40,7 +41,7 @@ def windows():
 def ensure_ready(timeout=25):
     """Reuse an existing window. Minimize only the window we just requested."""
     if os.name!='nt':return {'state':'unsupported','message':'Windows에서 사용할 수 있어요.'}
-    if windows():return {'state':'already_running','message':'실행 중인 휴대폰과 연결을 사용해요.'}
+    if windows(True):return {'state':'already_running','message':'실행 중인 휴대폰과 연결을 사용해요.'}
     try:
         # Reuse the same registered Start-menu activation as the launcher.
         import windows_app_catalog
