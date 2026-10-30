@@ -1,4 +1,5 @@
 import scanner
+import self_edit
 import updater
 import project_intelligence
 import workspace_insights
@@ -32,6 +33,7 @@ import work_stage
 import office_weather
 import office_notifications
 import file_workspace
+import office_security
 import base64, json, os, sqlite3, threading, urllib.request, urllib.error, uuid, pathlib, datetime, re, subprocess, sys
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -87,6 +89,8 @@ def call_gemma(prompt,settings=None):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs):return None
     with model_requests.request_slot(background=s.get('_judgment_background') is True):
+        import execution_router
+        execution_router.model_call('local',model)
         with urllib.request.build_opener(NoRedirect).open(req,timeout=t) as r:response=json.load(r)
     if s['api_type']=='openai':return response['choices'][0]['message']['content']
     return response['message']['content']
@@ -96,6 +100,8 @@ def call_gemma_vision(prompt,image_b64,settings=None):
     if s.get('api_type') in {'gemini','claude'}:
         import provider_cli
         with model_requests.request_slot(background=s.get('_judgment_background') is True):
+            import execution_router
+            execution_router.model_call(s['api_type'],s.get('gemma_model'))
             return provider_cli.vision(prompt,image_b64,s)
     if s.get('api_type')=='codex':
         import codex_bridge
@@ -128,6 +134,8 @@ def call_gemma_vision(prompt,image_b64,settings=None):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs):return None
     with model_requests.request_slot(background=s.get('_judgment_background') is True):
+        import execution_router
+        execution_router.model_call('local',model)
         with urllib.request.build_opener(NoRedirect).open(req,timeout=t) as r:response=json.load(r)
     return response['choices'][0]['message']['content'] if openai_vision else response['message']['content']
 def runlog(kind,status,summary,detail=''):
@@ -186,10 +194,13 @@ def judgment_view():
     data['recovery']=desktop_recovery.status()
     return data
 
-def work_service():
+def work_service(provider=None):
     from assistant_tools import ToolRegistry
     import claude_office_agent
     settings=dict(config())
+    if provider:
+        import work_jobs
+        settings=work_jobs.settings(settings,provider)
     model_connections.require_runnable(settings)
     return work_assistant.WorkAssistant(DB,config,call_gemma,
         native_model=lambda messages,tools:call_assistant_model(messages,tools,settings),
@@ -214,12 +225,15 @@ def resume_screen_verification(server,parent_id):
     payload=None;ticket=None
     try:
         with office_reload.action() as admitted:
-            if not admitted or config().get('api_type')!='codex':return
+            import work_jobs
+            provider=work_jobs.resolve(DB,'verify-followup',{'parent_request_id':parent_id}).get('provider') or model_connections.active_id(config())
+            if not admitted or provider!='codex':return
             payload=office_feedback.claim_followup(DB,parent_id)
             if not payload:return
-            response=work_service().perform('verify-followup',payload)
+            provider=work_jobs.resolve(DB,'verify-followup',payload).get('provider')
+            response=work_service(provider).perform('verify-followup',payload)
             changes=response.get('result',{}).get('source_changes',[])
-            if changes:ticket=office_reload.prepare(changes,payload['request_id'])
+            if changes and response.get('result',{}).get('source_activation_owner')!='native-ledger':ticket=office_reload.prepare(changes,payload['request_id'])
     except Exception:
         if payload:office_feedback.mark_unverified(DB,payload['request_id'],'실제 화면 확인을 이어가는 연결이 중단됐습니다. 완료로 확정하지 않습니다.')
     finally:office_reload.schedule(server,ticket)
@@ -251,18 +265,40 @@ def launcher_view():
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
+    def end_headers(self):
+        self.send_header('X-Content-Type-Options','nosniff')
+        self.send_header('X-Frame-Options','DENY')
+        self.send_header('Content-Security-Policy',"frame-ancestors 'none'; object-src 'none'; base-uri 'self'")
+        self.send_header('Referrer-Policy','no-referrer')
+        super().end_headers()
+    def _local_access(self):
+        if office_security.local_request(self):return True
+        self.close_connection=True
+        self.reply({'error':'이 PC의 오피스 화면에서만 사용할 수 있어요.'},403)
+        return False
     def reply(self,data,code=200):
         out=json.dumps(data,ensure_ascii=False).encode('utf-8');self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',str(len(out)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(out)
     def body(self):
-        n=int(self.headers.get('Content-Length','0'))
         # A maximum cover plus maximum small icon occupies 6MiB in base64;
         # leave a bounded allowance for JSON and escaped metadata.
         path=urlparse(self.path).path
         limit=14*1024*1024+65536 if path=='/api/work/upload' else 6*1024*1024+65536 if path in {'/api/launcher/save','/api/launcher/appearance','/api/launcher/card-style'} else 200000
-        if n<0 or n>limit:raise ValueError('요청 크기 초과')
-        return json.loads(self.rfile.read(n) or b'{}')
+        n=office_security.json_length(self.headers,limit)
+        previous=self.connection.gettimeout()
+        try:
+            self.connection.settimeout(30)
+            raw=self.rfile.read(n)
+            if len(raw)!=n:raise ValueError('요청을 끝까지 받지 못했어요.')
+            value=json.loads(raw)
+            if not isinstance(value,dict):raise ValueError('JSON 객체를 보내 주세요.')
+            return value
+        finally:self.connection.settimeout(previous)
     def do_GET(self):
+        if not self._local_access():return
         path=urlparse(self.path).path
+        if path.startswith('/api/video-studio'):
+            import video_studio
+            return video_studio.handle_get(self,DESK_TOKEN)
         if path=='/api/work/phone-apk':
             if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'local access only'},403)
             import direct_phone
@@ -272,8 +308,52 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Disposition','attachment; filename="aemeath-phone.apk"')
             self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff')
             self.end_headers();return self.wfile.write(raw)
-        if path in {'/api/work/model-connections','/api/work/notifications','/api/work/agent-artifact','/api/work/attachment','/api/work/companion-assets','/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+        if path in {'/api/work/model-connections','/api/work/notifications','/api/work/codex-usage','/api/work/agent-artifact','/api/work/attachment','/api/work/companion-assets','/api/work/reload-status','/api/work/weather','/api/work/stage','/api/work/media','/api/launcher','/api/launcher/icon','/api/launcher/cover','/api/work','/api/work/task-history','/api/state','/api/desk','/api/desk/thumbnail','/api/desk/organizer','/api/desk/policy','/api/desk/judgment'} and self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
             return self.reply({'error':'이 PC의 AI OFFICE 주소로 연결하세요.'},403)
+        if path=='/api/work/project-catalog-preview':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+                return self.reply({'error':'이 PC의 오피스로 연결해 주세요.'},403)
+            from urllib.parse import parse_qs
+            import project_profiles
+            raw=project_profiles.preview(parse_qs(urlparse(self.path).query).get('ref',[''])[0])
+            if raw is None:return self.reply({'error':'확인한 미리보기 이미지가 없어요.'},404)
+            self.send_response(200);self.send_header('Content-Type','image/png');self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','private, max-age=60');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();return self.wfile.write(raw)
+        if path=='/api/work/project-catalog':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+                return self.reply({'error':'이 PC의 오피스로 연결해 주세요.'},403)
+            import project_catalog
+            return self.reply(project_catalog.snapshot())
+        if path=='/api/work/brand-status':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+                return self.reply({'error':'이 PC의 오피스로 연결해 주세요.'},403)
+            import brand_status
+            return self.reply(brand_status.snapshot(DB))
+        if path=='/api/work/design-team':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+                return self.reply({'error':'이 PC의 오피스로 연결해 주세요.'},403)
+            import design_team
+            from urllib.parse import parse_qs as parse_team_query
+            query=parse_team_query(urlparse(self.path).query)
+            try:return self.reply(design_team.snapshot(DB,query.get('day',[None])[0],query.get('month',[None])[0]))
+            except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'팀원 보고서 날짜와 연결을 확인해 주세요.'},400)
+        if path=='/api/work/codex-usage':
+            if config().get('api_type') != 'codex':
+                return self.reply({'ok':False,'error':'현재 AI OFFICE 연결이 Codex가 아니에요.'})
+            try:
+                import codex_bridge
+                return self.reply(codex_bridge.usage_snapshot())
+            except ValueError as exc:
+                if str(exc) == 'CHATGPT_ACCOUNT_REQUIRED':
+                    return self.reply({'ok':False,'error':'주간 한도 조회는 ChatGPT 구독 계정에서만 가능해요.'})
+                return self.reply({'ok':False,'error':'Codex 사용량을 불러오지 못했어요. 연결 상태를 확인해 주세요.'})
+            except (OSError,RuntimeError,TimeoutError):
+                return self.reply({'ok':False,'error':'Codex 사용량을 불러오지 못했어요. 연결 상태를 확인해 주세요.'})
+        if path=='/api/work/fastlane-status':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+                return self.reply({'error':'허용된 로컬 주소가 아닙니다.'},403)
+            import ego_workspace,assistant_tools
+            return self.reply({'version':1,'tools':[name for name in ('files_batch','files_sort','ego_status','ego_batch') if name in assistant_tools._SPECS],
+                'ego_available':ego_workspace.availability()['available'],'legacy_browser_tools':'Chrome','workflow_verified':False})
         if path=='/api/work/model-connections':
             return self.reply(model_connections.snapshot(config()))
         if path=='/api/work/notifications':
@@ -312,12 +392,30 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError,OSError,sqlite3.Error):
                 if getattr(self,'_attachment_started',False):self.close_connection=True;return
                 return self.reply({'error':'첨부 자료를 찾을 수 없거나 자료가 변경되었습니다.'},404)
-        if path=='/api/work/reload-status':return self.reply(office_reload.snapshot())
+        if path=='/api/work/reload-status':
+            import source_activation
+            value=office_reload.snapshot()
+            value['source_activation']=source_activation.snapshot(DB)
+            value['runtime']['source_activation_revision']=source_activation.REVISION
+            return self.reply(value)
+        if path.endswith(('.js','.css')) and path.lstrip('/') in self_edit.source_names():
+            try:
+                import office_ui_assets
+                from urllib.parse import parse_qs
+                b=office_ui_assets.read(path.lstrip('/'),parse_qs(urlparse(self.path).query).get('office_ui',[None])[0])
+            except (OSError,ValueError):return self.reply({'error':'앱 화면 자료를 찾을 수 없습니다.'},404)
+            mime='text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8'
+            self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(b);return
         if path in _AEMEATH_ASSETS:
             b=(ROOT/path.lstrip('/')).read_bytes()
             self.send_response(200);self.send_header('Content-Type','image/gif' if path.endswith('.gif') else 'image/png');self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(b);return
-        if path in {'/model-connections.js','/model-connections.css','/work-notifications.js','/work-notifications.css','/work-observer.js','/workambient.css','/workambient.js','/workstage.css','/workstage.js','/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js','/retro.css','/assets/fonts/PretendardVariable.woff2','/assets/fonts/BarlowCondensed-Bold.ttf','/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'}:
-            b=(ROOT/path.lstrip('/')).read_bytes()
+        if path in {'/brand-status.js','/brand-status.css','/codex-usage.js','/codex-usage.css','/model-connections.js','/model-connections.css','/work-notifications.js','/work-notifications.css','/work-observer.js','/workambient.css','/workambient.js','/workstage.css','/workstage.js','/workdesk.css','/workdesk.js','/desk.css','/desk.js','/desk-collections.js','/desk-organizer.js','/desk-policy.js','/desk-judgment.js','/retro.css','/assets/fonts/PretendardVariable.woff2','/assets/fonts/BarlowCondensed-Bold.ttf','/assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf'}:
+            if path.endswith(('.js','.css')):
+                import office_ui_assets
+                from urllib.parse import parse_qs
+                try:b=office_ui_assets.read(path.lstrip('/'),parse_qs(urlparse(self.path).query).get('office_ui',[None])[0])
+                except (OSError,ValueError):return self.reply({'error':'이 화면 버전의 자료를 찾지 못했습니다.'},404)
+            else:b=(ROOT/path.lstrip('/')).read_bytes()
             mime='font/woff2' if path.endswith('.woff2') else 'font/ttf' if path.endswith('.ttf') else 'text/css; charset=utf-8' if path.endswith('.css') else 'text/javascript; charset=utf-8'
             self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-cache');self.end_headers();self.wfile.write(b);return
         if path=='/first-release.html':
@@ -337,6 +435,94 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError,OSError,sqlite3.Error):
                 if getattr(self,'_stage_media_started',False):self.close_connection=True;return
                 return self.reply({'error':'미리보기가 만료되었거나 자료가 변경되었습니다.'},404)
+        if path=='/api/work/chat-updates':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
+            import desktop_chat_mirror
+            return self.reply(desktop_chat_mirror.status())
+        if path=='/api/work/messenger-attachments':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
+            import messenger_attachments
+            from urllib.parse import parse_qs
+            query=parse_qs(urlparse(self.path).query)
+            try:
+                if query.get('job'):return self.reply(messenger_attachments.status(DB,query['job'][0]))
+                if not query.get('source'):return self.reply(messenger_attachments.capabilities(DB))
+                return self.reply(messenger_attachments.listing(query['source'][0],query.get('q',[''])[0],query.get('room',[''])[0],int(query.get('offset',['0'])[0])))
+            except (ValueError,OSError) as error:return self.reply({'error':str(error)[:250]},400)
+        if path in {'/api/work/work-log','/api/work/log-document'}:
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
+            import work_log
+            from urllib.parse import parse_qs
+            query=parse_qs(urlparse(self.path).query)
+            try:
+                if path.endswith('log-document'):
+                    content=work_log.document_path(query.get('id',[''])[0]).read_bytes()
+                    self.send_response(200);self.send_header('Content-Type','application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                    self.send_header('Content-Disposition','attachment; filename="work-log.docx"');self.send_header('Content-Length',str(len(content)));self.end_headers();self.wfile.write(content);return
+                filters={k:query[k][0] for k in ('period','start_date','end_date','person','kind','source','search','order') if query.get(k)}
+                for k in ('limit','offset'):
+                    if query.get(k):filters[k]=int(query[k][0])
+                return self.reply(work_log.query(DB,**filters))
+            except (ValueError,OSError) as error:return self.reply({'error':str(error)[:250]},400)
+        if path=='/api/work/file-history':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
+            import file_history
+            from urllib.parse import parse_qs
+            query=parse_qs(urlparse(self.path).query)
+            try:
+                result=file_history.detail(DB,query['id'][0]) if query.get('id') else file_history.listing(DB,query.get('direction',['in'])[0],query.get('q',[''])[0],query.get('person',[''])[0],int(query.get('offset',['0'])[0]),query.get('existing',['0'])[0]=='1',query.get('period',['all'])[0],query.get('kind',['all'])[0])
+                result['action_token']=DESK_TOKEN
+                return self.reply(result)
+            except (ValueError,OSError) as error:return self.reply({'error':str(error)[:250]},400)
+        if path=='/api/work/received-files':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
+            import received_files
+            from urllib.parse import parse_qs
+            query=parse_qs(urlparse(self.path).query)
+            try:return self.reply(received_files.snapshot(DB,query.get('existing',['0'])[0]=='1',query.get('q',[''])[0],int(query.get('offset',['0'])[0])))
+            except (ValueError,OSError) as error:return self.reply({'error':str(error)[:250]},400)
+        if path=='/api/work/project-panel-file':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
+            from urllib.parse import parse_qs
+            import project_panel_links
+            query=parse_qs(urlparse(self.path).query)
+            return project_panel_links.serve(self,query.get('ref',[''])[0],query.get('download',['0'])[0]=='1')
+        if path=='/api/work/department-tasks':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
+            from urllib.parse import parse_qs
+            import department_tasks
+            team=parse_qs(urlparse(self.path).query).get('team_id',[''])[0]
+            return self.reply(department_tasks.snapshot(DB,'' if team=='hq' else team))
+        if path=='/api/work/departments':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
+            import department_manager
+            return self.reply(department_manager.snapshot(DB))
+        if path in {'/api/work/project-panels','/api/work/project-panel','/api/work/project-panel-state','/api/work/project-panel-questions'}:
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
+            import project_panels
+            from urllib.parse import parse_qs
+            query=parse_qs(urlparse(self.path).query)
+            try:
+                if path.endswith('project-panel-questions'):
+                    import project_questions
+                    return self.reply(project_questions.batch())
+                if path.endswith('project-panels'):return self.reply(project_panels.catalog())
+                if path.endswith('project-panel-state'):return self.reply(project_panels.state(query.get('id',[''])[0],query.get('host',['local'])[0]))
+                return self.reply(project_panels.history(query.get('id',[''])[0],query.get('host',['local'])[0],query.get('cursor',[None])[0]))
+            except (ValueError,OSError) as error:return self.reply({'error':str(error)[:250]},400)
+        if path=='/api/work/notifications-thread':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
+            import notification_conversations
+            from urllib.parse import parse_qs
+            query=parse_qs(urlparse(self.path).query)
+            try:return self.reply(notification_conversations.thread(DB,query.get('id',[''])[0],query.get('before',[None])[0]))
+            except ValueError as error:return self.reply({'error':str(error)},400)
+        if path=='/api/work/jobs':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
+            import work_jobs
+            result=work_jobs.snapshot(DB);result['action_token']=DESK_TOKEN
+            result['active_provider']=model_connections.active_id(config())
+            return self.reply(result)
         if path=='/api/work':
             try:return self.reply(work_view())
             except (ValueError,OSError,sqlite3.Error):return self.reply({'error':'업무 기록을 읽지 못했습니다. 기존 자료를 보존했습니다.'},400)
@@ -381,8 +567,9 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/':
             organizer_policy.ensure_worker()
             start_ai_supervisor()
-            page=(ROOT/'index.html').read_text(encoding='utf-8').replace('<!-- WORK_DESK -->',(ROOT/'workdesk.html').read_text(encoding='utf-8'))
-            page=page.replace('</head>',"<meta name=\"office-build\" content='"+json.dumps(office_feedback.version())+"'></head>",1)
+            import office_ui_assets
+            page,ui_generation=office_ui_assets.page()
+            page=page.replace('</head>',"<meta name=\"office-build\" content='"+json.dumps({'boot':office_feedback.BOOT,'ui':ui_generation})+"'></head>",1)
             b=page.encode('utf-8');self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
         if path=='/api/desktop-path':
             home=pathlib.Path.home()
@@ -433,12 +620,24 @@ class Handler(BaseHTTPRequestHandler):
             s=model_connections.public_settings(config());return self.reply({'tasks':tasks,'runs':runs,'settings':s,'action_token':DESK_TOKEN})
         self.reply({'error':'not found'},404)
     def do_POST(self):
-        with office_reload.action(readonly=urlparse(self.path).path in {'/api/work/stream','/api/work/feedback'}) as admitted:
+        if not self._local_access():return
+        # The legacy readonly flag controls admission while a reload is only
+        # queued; it does not grant tool permissions. All POSTs must stay
+        # usable while unrelated native work delays publication. action still
+        # counts in-flight requests and rejects every request once _closing
+        # is committed under the same lock. _do_POST keeps normal auth checks.
+        with office_reload.action(readonly=True) as admitted:
             if not admitted:return self.reply({'error':'수정한 기능을 반영하고 있어요. 잠시 뒤 다시 요청해 주세요.'},503)
             self._do_POST()
     def _do_POST(self):
         try:
-            p=urlparse(self.path).path;d=self.body()
+            p=urlparse(self.path).path
+            if p.startswith('/api/video-studio/'):
+                import video_studio
+                return video_studio.handle_post(self,DESK_TOKEN)
+            d=self.body()
+            if not office_security.action_authorized(d,DESK_TOKEN):
+                return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
             if p.startswith('/api/files/'):
                 allowed={f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'}
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
@@ -485,10 +684,86 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(d,dict) or d.get('token')!=DESK_TOKEN or (self.headers.get('Origin') and self.headers['Origin'] not in allowed) or self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                     return self.reply({'error':'오피스를 새로고침한 뒤 다시 시도하세요.'},403)
                 payload={k:v for k,v in d.items() if k!='token'}
+                if p in {'/api/work/project-catalog-scan','/api/work/project-catalog-stop','/api/work/project-catalog-save','/api/work/project-catalog-open'}:
+                    import project_catalog
+                    if p.endswith('-scan') or p.endswith('-stop'):
+                        if payload:raise ValueError('프로젝트 조사 요청을 확인해 주세요.')
+                        return self.reply(project_catalog.scan(DB) if p.endswith('-scan') else project_catalog.cancel())
+                    return self.reply(project_catalog.save(payload) if p.endswith('-save') else project_catalog.reveal(payload))
+                if p=='/api/work/brand-status-sync':
+                    if payload:raise ValueError('현황 갱신 요청을 확인해 주세요.')
+                    import brand_status
+                    return self.reply(brand_status.refresh(DB))
+                if p=='/api/work/design-team-sync':
+                    import design_team
+                    if set(payload)-{'day','month','force'} or type(payload.get('force',False)) is not bool:
+                        raise ValueError('보고서 갱신 요청을 확인해 주세요.')
+                    return self.reply(design_team.refresh(DB,payload.get('day'),payload.get('month'),force=payload.get('force',False)))
                 if p=='/api/work/control':
                     import task_control
                     result=task_control.submit(DB,payload)
                     return self.reply(result,200 if result.get('accepted') else 409)
+                if p=='/api/work/messenger-attachments':
+                    import messenger_attachments
+                    action=payload.get('action')
+                    if action=='download':return self.reply(messenger_attachments.download(DB,payload['ref']))
+                    if action=='cancel':return self.reply(messenger_attachments.cancel(DB,payload['id']))
+                    raise ValueError('첨부 작업을 다시 선택해 주세요.')
+                if p=='/api/work/work-log':
+                    import work_log
+                    action=payload.get('action')
+                    if action=='note':return self.reply(work_log.add_note(DB,payload['text'],payload.get('title','직접 남긴 업무'),payload.get('day'),payload.get('request_id')))
+                    if action=='reveal':return self.reply(work_log.reveal(DB,payload['id']))
+                    filters=payload.get('filters',{})
+                    if not isinstance(filters,dict) or set(filters)-{'period','start_date','end_date','person','kind','source','search','limit','offset','order'}:raise ValueError('작업일지 검색 조건을 확인해 주세요.')
+                    if action=='export':return self.reply(work_log.export_document(DB,**filters))
+                    if action=='query':return self.reply(work_log.answer(DB,open_location=payload.get('open_location',False),**filters))
+                    raise ValueError('작업일지 작업을 확인해 주세요.')
+                if p=='/api/work/file-history':
+                    import file_history
+                    action=payload.get('action')
+                    if action=='reveal':return self.reply(file_history.reveal(DB,payload['id']))
+                    if action=='person':return self.reply(file_history.annotate(DB,payload['id'],payload['person']))
+                    if action=='latest':return self.reply(file_history.latest(DB,payload['person'],payload.get('direction','out'),payload.get('open_location',False)))
+                    if action=='link-task':
+                        import material_links
+                        if set(payload)!={'action','id','task_id'}:raise ValueError('파일과 연결할 업무를 선택해 주세요.')
+                        return self.reply(material_links.link_task(DB,payload['id'],payload['task_id']))
+                    raise ValueError('파일 이력 작업을 다시 선택해 주세요.')
+                if p=='/api/work/received-files':
+                    import received_files
+                    action=payload.pop('action',None)
+                    if action=='source':return self.reply(received_files.configure_source(DB,payload['id'],payload['root']))
+                    if action=='rule':return self.reply(received_files.save_rule(DB,payload))
+                    if action=='organize':return self.reply(received_files.organize(DB,payload['ids'],payload.get('destination'),payload.get('grouping','plain'),payload.get('rule_id'),background=True))
+                    if action=='resume':return self.reply(received_files.resume(DB,payload['id'],background=True))
+                    raise ValueError('받은 파일 작업을 다시 선택해 주세요.')
+                if p=='/api/work/department-task-assign':
+                    import department_tasks
+                    return self.reply(department_tasks.assign(DB,payload))
+                if p in {'/api/work/department-save','/api/work/department-create-chat'}:
+                    import department_manager
+                    return self.reply(department_manager.save(DB,payload) if p.endswith('-save') else department_manager.create_chat(DB,payload))
+                if p in {'/api/work/project-panel-send','/api/work/project-panel-native','/api/work/project-panel-question-answer'}:
+                    import project_panels
+                    if p.endswith('-question-answer'):
+                        import project_questions
+                        return self.reply(project_questions.answer(DB,payload))
+                    if p.endswith('-send'):return self.reply(project_panels.send(DB,payload))
+                    if set(payload)!={'id','host'}:raise ValueError('열 프로젝트를 확인해 주세요.')
+                    return self.reply(project_panels.open_native(payload['id'],payload['host']))
+                if p=='/api/work/notifications-thread-confirm':
+                    if set(payload)!={'id'}:raise ValueError('대화방을 다시 선택해 주세요.')
+                    import notification_conversations
+                    return self.reply(notification_conversations.confirm_both(DB,payload['id']))
+                if p in {'/api/work/notifications-thread-read','/api/work/notifications-thread-dismiss','/api/work/notifications-chat-reply'}:
+                    import notification_conversations
+                    if p.endswith(('thread-read','thread-dismiss')):
+                        if set(payload)!={'id'}:raise ValueError('대화방을 다시 선택해 주세요.')
+                        return self.reply((notification_conversations.dismiss if p.endswith('thread-dismiss') else notification_conversations.read)(DB,payload['id']))
+                    if set(payload)!={'id','request_id','text'}:raise ValueError('보낼 대화와 내용을 확인해 주세요.')
+                    try:return self.reply(notification_conversations.reply(DB,payload['id'],payload['request_id'],payload['text']))
+                    except ValueError as error:return self.reply({'error':str(error),'code':'reply_rejected'},400)
                 if p in {'/api/work/phone-pair','/api/work/phone-revoke'}:
                     if payload:raise ValueError('연결 요청을 확인해 주세요.')
                     import direct_phone
@@ -560,7 +835,9 @@ class Handler(BaseHTTPRequestHandler):
                     if set(payload)-{'resource_id'}:raise ValueError('등록한 업무 자료만 미리 볼 수 있습니다.')
                     files=file_workspace.FileWorkspace(db_path=DB,workspace=config().get('workspace'))
                     return self.reply(work_stage.resource_preview(DB,files,payload.get('resource_id')))
-                service=work_service()
+                import work_jobs
+                selected_provider=work_jobs.resolve(DB,p.rsplit('/',1)[-1],payload).get('provider') if p in {'/api/work/command','/api/work/assistant-action'} else None
+                service=work_service(selected_provider)
                 if p=='/api/work/open-resource':
                     if set(payload)-{'resource_id','request_id'}:raise ValueError('등록한 업무 자료만 열 수 있습니다.')
                     resource=service.resource_path(payload.get('resource_id'))
@@ -578,7 +855,7 @@ class Handler(BaseHTTPRequestHandler):
                 result['action_token']=DESK_TOKEN
                 if p in {'/api/task','/api/task/status'}:result['ok']=True
                 changes=result.get('result',{}).get('source_changes',[])
-                ticket=office_reload.prepare(changes,payload.get('request_id')) if changes else None
+                ticket=office_reload.prepare(changes,payload.get('request_id')) if changes and result.get('result',{}).get('source_activation_owner')!='native-ledger' else None
                 if ticket:result['result']['source_reload']=ticket
                 try:return self.reply(result)
                 finally:office_reload.schedule(self.server,ticket)
@@ -706,6 +983,18 @@ if __name__=='__main__':
         print(f'[WARNING] 로컬 AI 준비 실패: {exc}', flush=True)
     organizer_policy.ensure_worker()
     office_notifications.start(DB)
+    import received_files
+    received_files.ensure_worker(DB)
+    import work_log
+    work_log.start(DB)
+    import design_team
+    design_team.start(DB)
+    import messenger_conversations
+    messenger_conversations.start(DB)
+    import desktop_chat_mirror
+    desktop_chat_mirror.start(DB)
+    import department_tasks
+    department_tasks.start(DB)
     start_ai_supervisor()
     import webbrowser, time
     try:
@@ -713,6 +1002,14 @@ if __name__=='__main__':
     except OSError as exc:
         print(f"[ERROR] 서버 시작 실패: {exc}", flush=True)
         raise
+    department_tasks.bind_reload(server)
+    import source_activation
+    source_activation.start(DB,server)
+    try:
+        import divoom_bridge
+        divoom_bridge.start_background()
+    except Exception as exc:
+        print('[WARNING] Divoom sender: ' + type(exc).__name__, flush=True)
     url = f"http://{HOST}:{PORT}"
     print(f"AI OFFICE 준비 완료: {url}", flush=True)
     def launch_browser():

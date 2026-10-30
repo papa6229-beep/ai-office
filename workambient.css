@@ -1,14 +1,14 @@
 /* Small desk instrument: independent of the page and panel geometry. */
-#workAmbient.work-ambient{position:relative;min-width:0;margin-top:8px;padding:9px 9px 8px;border:1px solid #536448;border-radius:10px;background:repeating-linear-gradient(0deg,transparent 0 3px,#a7d64a04 3px 4px),#141a16;box-shadow:inset 0 0 15px #0005;color:#b6ed64;overflow:hidden;container-type:inline-size}
+#workAmbient.work-ambient{position:relative;min-width:0;margin-top:8px;padding:9px 9px 8px;border:1px solid #536448;border-radius:10px;background:repeating-linear-gradient(0deg,transparent 0 3px,#a7d64a04 3px 4px),#141a16;box-shadow:inset 0 0 15px #0005;color:#b6f542;overflow:hidden;container-type:inline-size}
 #workAmbientTime{display:block;font-family:Consolas,'Courier New',monospace;font-weight:700;font-size:clamp(20px,1.65vw,29px);line-height:1.05;letter-spacing:.025em;white-space:nowrap;text-align:center;font-variant-numeric:tabular-nums;text-shadow:0 0 9px #a8da4833}
 #workAmbient .work-ambient-weather{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:5px}
-#workAmbientWeatherIcon{font-family:'Segoe UI Symbol',sans-serif;font-size:20px;line-height:1;filter:grayscale(1);color:#b3d17f}
+#workAmbientWeatherIcon{font-family:'Segoe UI Symbol',sans-serif;font-size:20px;line-height:1;filter:grayscale(1);color:#b6f542}
 #workAmbient .work-ambient-weather>span:last-child{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:6px;min-width:0}
 #workAmbientTemperature{font-family:Consolas,monospace;font-size:25px;line-height:1;font-weight:700;color:#f3f5ec}
 #workAmbientWeather{font-size:12px;font-weight:600;color:#e1e8d8;line-height:1.3;overflow-wrap:anywhere}
 #workAmbientUpdated{display:block;margin-top:6px;text-align:center;color:#b9c7ad;font-family:Pretendard,sans-serif;font-size:11px;line-height:1.3}
 #workAmbientUpdated a{color:inherit;text-decoration:none}
-#workAmbientUpdated a:hover,#workAmbientUpdated a:focus-visible{color:#b7e16c;text-decoration:underline}
+#workAmbientUpdated a:hover,#workAmbientUpdated a:focus-visible{color:#b6f542;text-decoration:underline}
 #workAmbient[data-weather-status="stale"] #workAmbientTemperature{color:#a9afa3}
 @container (max-width:125px){
   #workAmbientTime{font-size:20px;letter-spacing:0}
@@ -22,3 +22,55 @@ body.work-desktop #work .work-companion-rail>.work-companion,body.work-desktop #
 body.work-desktop #work .work-companion-rail>#workAmbient{flex-shrink:0;margin-top:auto}
 body.work-desktop #work .work-conversation-content{grid-column:2;grid-row:1}
 body.work-desktop #work .work-examples{grid-column:2;grid-row:2;margin-top:0}
+
+/* Keep all three instruments in the rail; calendar rows no longer dictate
+   an oversized minimum height for the character and hide the weather. */
+body.work-desktop #work #workCalendar{padding:6px 7px;margin-top:0}
+body.work-desktop #work #workCalendar .work-calendar-heading{padding-bottom:3px;gap:5px}
+body.work-desktop #work #workCalendar .work-calendar-heading h3{font-size:11px;line-height:14px;margin:0}
+body.work-desktop #work #workCalendar .work-calendar-heading button{font-size:9px;line-height:14px;padding:1px 5px;min-height:18px}
+body.work-desktop #work #workCalendar .work-calendar-navigation{margin:3px 0;gap:3px}
+body.work-desktop #work #workCalendar .work-calendar-navigation strong{font-size:14px;line-height:18px;letter-spacing:-.3px}
+body.work-desktop #work #workCalendar .work-calendar-navigation button{height:20px;min-height:0;width:20px;padding:0;font-size:17px;line-height:18px}
+body.work-desktop #work #workCalendar .work-calendar-weekdays{font-size:9px;line-height:11px;margin-bottom:2px;gap:2px}
+body.work-desktop #work #workCalendar .work-calendar-grid{grid-auto-rows:16px;gap:1px 2px}
+body.work-desktop #work #workCalendar .work-calendar-day{height:16px;min-height:0;padding:0;font-size:10px;line-height:16px}
+body.work-desktop #work #workCalendar .work-calendar-day.has-work::after{width:3px;height:3px;margin-top:0;bottom:0}
+body #work #workAmbient{padding:7px 8px 6px;color:#dbc4b4}
+body #work #workAmbient #workAmbientTime{font-size:28px;line-height:1.05;letter-spacing:.3px;color:#eddfd6;text-shadow:none}
+#workAmbientTime [data-clock-part="hour"]{color:#f1c99f}
+#workAmbientTime [data-clock-part="minute"]{color:#eddfd6}
+#workAmbientTime [data-clock-part="second"]{color:#c19db4}
+#workAmbientTime .work-clock-colon{color:#a58b9a}
+body #work #workAmbient #workAmbientTemperature{font-size:23px;color:#e8c7a3}
+body #work #workAmbient #workAmbientWeatherIcon{color:#9dbdce;filter:none;font-size:18px}
+body #work #workAmbient #workAmbientWeather{color:#b9c7d4;font-size:11px;line-height:1.25}
+body #work #workAmbient #workAmbientUpdated{margin-top:4px;color:#9f969f;font-size:9px;line-height:1.2}
+body #work #workAmbientUpdated a:hover,body #work #workAmbientUpdated a:focus-visible{color:#e8c7a3}
+@media(min-width:1151px){
+ body.work-desktop #work .work-companion-rail{display:grid;grid-template-rows:minmax(0,1fr) auto auto;gap:8px;height:100%;min-height:0;overflow:visible;container:aemeath-rail / size;padding:3px}
+ body.work-desktop #work .work-companion-rail>#workCompanion{min-height:0;min-width:0;margin:0;padding:6px;display:flex;flex-direction:column;justify-content:center;border-width:2px;border-style:solid;border-color:#45454b}
+ body.work-desktop #work .work-companion-rail>#workCompanion .work-companion-stage{width:min(100%,140px);height:auto;aspect-ratio:1;flex:none}
+ body.work-desktop #work .work-companion-rail>#workCompanion .work-companion-stage img{width:100%;height:100%}
+ body.work-desktop #work .work-companion-rail>#workCompanion .work-companion-caption{padding:4px 0 0}
+ body.work-desktop #work .work-companion-rail>#workCompanion .work-companion-caption>strong{font-size:14px;line-height:17px}
+ body.work-desktop #work .work-companion-rail>#workCompanion #workCompanionStatus{font-size:10px;line-height:1.3;min-height:0;margin:3px 0 0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+ body.work-desktop #work .work-companion-rail>#workAmbient{margin:0}
+ @supports(height:1cqh){
+  body.work-desktop #work .work-companion-rail>#workCompanion .work-companion-stage{width:min(100%,140px,max(38px,calc(100cqh - 325px)))}
+  body.work-desktop #work .work-companion-rail>#workCompanion.has-notification .work-companion-stage{width:min(100%,140px,max(38px,calc(100cqh - 414px)))}
+ }
+}
+@container aemeath-rail (max-height:430px){
+ body.work-desktop #work #workCalendar{padding:4px 5px}
+ body.work-desktop #work #workCalendar .work-calendar-grid{grid-auto-rows:13px}
+ body.work-desktop #work #workCalendar .work-calendar-day{height:13px;font-size:9px;line-height:13px}
+ body.work-desktop #work #workCalendar .work-calendar-heading{padding-bottom:1px}
+ body.work-desktop #work #workCalendar .work-calendar-navigation{margin:1px 0}
+ body.work-desktop #work #workAmbient{padding:5px 6px}
+ body #work #workAmbient #workAmbientTime{font-size:23px}
+ body #work #workAmbient #workAmbientTemperature{font-size:19px}
+ body #work #workAmbient #workAmbientWeather{font-size:10px}
+ body #work #workAmbient #workAmbientUpdated{display:none}
+ #work #workCompanionAlertPreview{-webkit-line-clamp:1}
+}

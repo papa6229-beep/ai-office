@@ -171,7 +171,7 @@ class CapabilityService:
             prefix = name.split('_')[0]
             group = ('organizer' if prefix == 'organizer' else 'launcher' if prefix in {'apps', 'launcher', 'bookmarks', 'bookmark', 'streamdeck'}
                      else 'windows' if prefix in {'windows', 'settings'} else 'desktop' if prefix in {'desktop', 'collections'}
-                     else 'files' if prefix in {'files', 'documents', 'scan'} else prefix)
+                     else 'files' if prefix in {'files', 'documents', 'scan'} else 'browser' if prefix=='ego' else prefix)
             items.append({'name': name, 'category': group, 'description': spec[1][:80], 'effect': spec[0],
                           'status': 'connected', 'channels': ['chat']})
         click_connected = {'files_find', 'files_reveal', 'files_preview', 'apps_list', 'apps_find', 'launcher_list',
@@ -199,8 +199,8 @@ class CapabilityService:
         items.extend([
             {'name': 'messenger_receive_save_forward', 'category': 'messenger', 'effect': 'external',
              'description': '네이트온(NateOn)·HanbiroTalk 수신 파일 확인·보관·수신자 확인 후 전달',
-             'status': 'ui_control_available', 'channels': ['chat'], 'reason': '전용 자동 수신 피드는 미연결이며 현재 화면은 공통 데스크톱 조작 도구로 다룹니다.',
-             'observation': 'windows_list -> desktop_observe -> desktop_action으로 실제 화면을 확인하고 조작합니다. 개별 메신저의 파일 저장·전달 완수 여부는 실제 화면과 사용자 지시에서 판단해야 합니다.'},
+             'status': 'partial_background_receive', 'channels': ['chat'], 'reason': '한비로 수신 첨부는 messenger_attachments_list/download/job으로 화면 없이 처리합니다. 네이트온은 PC 저장 파일 정리만 연결됐으며 대화방 첨부 직접 수신은 아직 미지원입니다.',
+             'observation': '먼저 messenger_attachments_status로 실제 지원 범위를 확인합니다. 한비로 다운로드 완료와 received_files 정리는 별도입니다. 사용자가 백그라운드를 요구하면 화면 조작으로 대체하지 않습니다. 파일 발신은 이 수신 경로에 포함되지 않습니다.'},
             {'name': 'browser_form_submit', 'category': 'browser', 'effect': 'external',
              'description': '일반 웹 양식 입력·선택·버튼 클릭·키 입력', 'status': 'connected', 'channels': ['chat'],
              'reason': 'browser_inspect/browser_act로 실제 관찰한 입력란과 버튼을 조작하며 파일 업로드는 이 어댑터 범위 밖입니다.'},

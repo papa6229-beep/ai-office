@@ -9,6 +9,7 @@ import atexit
 from contextlib import contextmanager
 import json
 import hashlib
+import datetime
 import stat
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ import time
 import uuid
 
 import model_requests
+import execution_router
 
 MODEL = 'gpt-6-luna'
 EFFORT = 'low'
@@ -50,6 +52,7 @@ application permissions: propose an appropriate registered application tool inst
 class CodexFailure(ValueError):
     """Safe failure metadata, with no prompts, credentials or provider payloads."""
     MESSAGES={'timeout':'AI 답변 대기시간을 넘겼어. 완료된 작업은 실제 실행 기록을 확인해줘.',
+              'server_overloaded':'선택한 모델 서버에 요청이 몰려 작업이 중단됐어. 완료된 작업은 보존됐고, 남은 작업은 실행되지 않았어. 잠시 후 다시 요청해줘.',
               'provider_error':'Codex 모델의 응답이 완료되지 않았어. 완료된 작업은 실제 실행 기록을 확인해줘.',
               'invalid_output':'Codex의 작업 응답 형식을 읽지 못했어. 완료된 작업은 실제 실행 기록을 확인해줘.',
               'connection_closed':'Codex 연결이 종료됐어. 로그인과 연결 상태를 확인해줘.',
@@ -68,6 +71,17 @@ def failure_details(error):
     return details
 
 
+def _turn_failure(turn):
+    # Classify only an explicit provider code; never expose raw error payloads.
+    error = turn.get('error') or {}
+    info = error.get('codexErrorInfo', error.get('codex_error_info')) if isinstance(error, dict) else None
+    if (info in ('server_overloaded', 'serverOverloaded')
+            or (isinstance(error, dict) and error.get('message') ==
+                'Selected model is at capacity. Please try a different model.')):
+        return CodexFailure('server_overloaded')
+    return CodexFailure('provider_error')
+
+
 def _cli():
     candidate = shutil.which('codex')
     if candidate and Path(candidate).suffix.lower() in {'.exe', ''}:
@@ -81,7 +95,7 @@ def _cli():
     raise ValueError('Codex 실행 파일을 찾지 못했어요. Codex 앱 설치와 로그인을 확인해 주세요.')
 
 
-def _restricted_catalog(*, native=False):
+def _restricted_catalog(*, native=False, model=MODEL):
     """Copy only public model metadata, never authentication/cache identity."""
     cache = Path(os.environ.get('CODEX_HOME') or (Path.home() / '.codex')) / 'models_cache.json'
     try:
@@ -90,7 +104,7 @@ def _restricted_catalog(*, native=False):
         if len(raw) > _MAX_EVENT:
             raise ValueError()
         catalog = json.loads(raw)
-        row = next(item for item in catalog.get('models', []) if item.get('slug') == MODEL)
+        row = next(item for item in catalog.get('models', []) if item.get('slug') == model)
     except (OSError, ValueError, TypeError, StopIteration):
         # Avoid a network fallback or a different model if the CLI's current
         # catalog cannot be restricted. Opening Codex refreshes this metadata.
@@ -106,7 +120,7 @@ def _restricted_catalog(*, native=False):
     return path
 
 
-def _planner_config(catalog):
+def _planner_config(catalog, effort=EFFORT):
     disabled = ('shell_tool', 'unified_exec', 'apps', 'plugins', 'hooks',
                 'multi_agent', 'goals', 'browser_use', 'computer_use',
                 'image_generation', 'view_image', 'memories', 'code_mode',
@@ -116,12 +130,12 @@ def _planner_config(catalog):
                    'web_search': 'disabled', 'agents.enabled': False,
                    'tools.view_image': False, 'project_doc_max_bytes': 0,
                    'forced_login_method': 'chatgpt', 'service_tier': 'default',
-                   'model_reasoning_effort': EFFORT, 'model_catalog_json': str(catalog)})
+                   'model_reasoning_effort': effort, 'model_catalog_json': str(catalog)})
     return config
 
 
-def _agent_config(catalog, cwd):
-    config = _planner_config(catalog)
+def _agent_config(catalog, cwd, effort=EFFORT, project_write=True):
+    config = _planner_config(catalog,effort)
     config.update({'features.shell_tool': True, 'features.unified_exec': True,
                    'features.code_mode': True,
                    'features.default_mode_request_user_input': False,
@@ -130,20 +144,29 @@ def _agent_config(catalog, cwd):
                    'web_search': 'live', 'sandbox_mode': 'workspace-write',
                    'approval_policy': 'never',
                    'sandbox_workspace_write.writable_roots': [str(cwd)],
-                   'sandbox_workspace_write.network_access': False,
+                   'sandbox_workspace_write.network_access': True,
                    'sandbox_workspace_write.exclude_slash_tmp': True,
                    'sandbox_workspace_write.exclude_tmpdir_env_var': True})
+    if Path(cwd).resolve()==Path(__file__).resolve().parent:
+        config['features.skip_host_skill_discovery']=False
+        config['project_doc_max_bytes']=32768
+        for key in ('apps','plugins','hooks','skill_search','workspace_dependencies','tool_suggest','image_generation','memories','sleep_tool'):
+            config.pop('features.'+key,None)
     return config
 
 
-_AGENT_ITEMS = frozenset({'userMessage', 'agentMessage', 'reasoning', 'plan',
+_AGENT_ITEMS = frozenset({'userMessage','hookPrompt','agentMessage','reasoning','plan','mcpToolCall','sleep','imageGeneration','enteredReviewMode','exitedReviewMode',
                           'functionCallOutput', 'dynamicToolCall', 'commandExecution',
                           'fileChange', 'webSearch', 'imageView', 'contextCompaction'})
 
 
 class _Client:
-    def __init__(self, timeout, *, source_tools=False, native_agent=False, cwd=None):
+    def __init__(self, timeout, *, source_tools=False, native_agent=False, cwd=None, model_profile=None):
+        self.model,self.effort=model_profile or execution_router.profile()
+        if (self.model,self.effort) not in execution_router.PROFILES.values():
+            raise ValueError('사용자가 정한 Codex 모델/추론 프로필만 실행할 수 있습니다.')
         self.native_agent = native_agent
+        self.project_write=True
         self.launch_cwd = Path(cwd) if native_agent else _WORKSPACE
         self.source_tools = source_tools or native_agent
         self.idle_timeout = 180 if self.source_tools else None
@@ -160,8 +183,8 @@ class _Client:
         self.read_bytes = 0
         executable = _cli()
         _WORKSPACE.mkdir(parents=True, exist_ok=True)
-        self.catalog = _restricted_catalog(native=native_agent)
-        self.config = _agent_config(self.catalog, self.launch_cwd) if native_agent else _planner_config(self.catalog)
+        self.catalog = _restricted_catalog(native=native_agent,model=self.model)
+        self.config = _agent_config(self.catalog, self.launch_cwd,self.effort,self.project_write) if native_agent else _planner_config(self.catalog,self.effort)
         self.executable = executable
         self._launch()
 
@@ -266,6 +289,8 @@ class _Client:
 
     def initialize(self):
         self._initialize_protocol()
+        if self.native_agent and self.launch_cwd.resolve()==Path(__file__).resolve().parent:
+            return
         # No thread exists in this discovery child. Relaunch with CLI overrides
         # for every MCP server, then verify effective settings before inference.
         effective = self.rpc('config/read', {'includeLayers': False, 'cwd': str(self.launch_cwd)})
@@ -327,9 +352,9 @@ class _Client:
 
 
 def _catalog(client, settings):
-    selected = settings.get('codex_model') or settings.get('gemma_model') or MODEL
-    if selected != MODEL:
-        raise ValueError('AI OFFICE의 Codex 모델은 GPT-6 Luna로 설정해 주세요.')
+    selected,effort=execution_router.profile(settings)
+    if (selected,effort)!=(client.model,client.effort):
+        raise ValueError('요청 모델과 Codex 연결 프로필이 달라 실행을 중단했습니다. 자동 대체는 하지 않습니다.')
     if client.metadata and time.monotonic() - client.metadata_at < _METADATA_TTL:
         return client.metadata
     account = client.rpc('account/read', {'refreshToken': False}).get('account') or {}
@@ -346,18 +371,18 @@ def _catalog(client, settings):
         if not cursor:
             break
     model = next((row for row in models if row.get('model') == selected), None)
-    if model is None or EFFORT not in {row.get('reasoningEffort') for row in model.get('supportedReasoningEfforts', [])}:
-        raise ValueError('현재 구독에서 GPT-6 Luna의 낮은 추론 설정을 사용할 수 없어요. 자동 대체는 하지 않아요.')
+    if model is None or effort not in {row.get('reasoningEffort') for row in model.get('supportedReasoningEfforts', [])}:
+        raise ValueError('현재 구독에서 요청한 모델/추론 설정을 사용할 수 없어요. 자동 대체는 하지 않아요.')
     result = {'authenticated': True, 'plan': account.get('planType'),
             'models': [{'id': row.get('model'), 'name': row.get('displayName')}
                        for row in models if isinstance(row.get('model'), str)],
-            'selected_model': selected, 'reasoning_effort': EFFORT,
+            'selected_model': selected, 'reasoning_effort': effort,
             'service_tier': 'default'}, model
     client.metadata, client.metadata_at = result, time.monotonic()
     return result
 
 
-def _identity():
+def _identity(model_profile=None):
     """Invalidate only from public configuration metadata, never credentials."""
     home = Path(os.environ.get('CODEX_HOME') or (Path.home() / '.codex'))
     executable = Path(_cli())
@@ -369,7 +394,7 @@ def _identity():
             return None
     return (str(home), str(executable), stamp(executable),
             stamp(home / 'config.toml'), stamp(home / 'models_cache.json'),
-            MODEL, EFFORT)
+            *(model_profile or execution_router.profile()))
 
 
 def _discard(client=None):
@@ -381,16 +406,16 @@ def _discard(client=None):
         target.close()
 
 
-def _connection(timeout):
+def _connection(timeout,model_profile=None):
     global _shared_client
-    identity = _identity()
+    identity = _identity(model_profile)
     client = _shared_client
     if client and (client.identity != identity or client.failed.is_set()
                    or client.proc.poll() is not None or client.turns >= _MAX_CLIENT_TURNS):
         _discard(client)
         client = None
     if client is None:
-        client = _Client(timeout)
+        client = _Client(timeout,model_profile=model_profile)
         try:
             client.initialize()
         except Exception:
@@ -409,6 +434,40 @@ def close():
     """Close only this application's child process; never another Codex app."""
     with _client_lock:
         _discard()
+
+
+def usage_snapshot():
+    """Read the authenticated account's current Codex allowance (no model turn)."""
+    client = _Client(20)
+    try:
+        client.initialize()
+        account = client.rpc('account/read', {'refreshToken': False}).get('account') or {}
+        if account.get('type') != 'chatgpt':
+            raise ValueError('CHATGPT_ACCOUNT_REQUIRED')
+        data = client.rpc('account/rateLimits/read', {'excludeResetCreditDetails': True})
+        snapshots = data.get('rateLimitsByLimitId') or {}
+        snapshot = snapshots.get('codex') if isinstance(snapshots, dict) else None
+        if not isinstance(snapshot, dict):
+            snapshot = data.get('rateLimits') or {}
+        def window(value):
+            if not isinstance(value, dict):
+                return None
+            used = value.get('usedPercent')
+            if type(used) is not int or not 0 <= used <= 100:
+                return None
+            return {'used_percent': used, 'resets_at': value.get('resetsAt'),
+                    'window_minutes': value.get('windowDurationMins')}
+        credits = snapshot.get('credits') if isinstance(snapshot, dict) else None
+        return {'ok': True, 'plan': account.get('planType'),
+                'primary': window(snapshot.get('primary')),
+                'secondary': window(snapshot.get('secondary')),
+                'credits': ({'has_credits': credits.get('hasCredits'),
+                            'unlimited': credits.get('unlimited'),
+                            'balance': credits.get('balance')}
+                           if isinstance(credits, dict) else None),
+                'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')}
+    finally:
+        client.close()
 
 
 atexit.register(close)
@@ -562,7 +621,7 @@ def status(settings):
     with model_requests.request_slot(), _client_lock:
         client = None
         try:
-            client = _connection(45)
+            client = _connection(45,execution_router.profile(settings))
             return _catalog(client, settings)[0]
         except Exception as exc:
             _discard(client)
@@ -695,7 +754,7 @@ def call(messages, tools, settings, *, output_schema=None, image_data_url=None, 
         started_at=time.monotonic();phase='connection'
         try:
             timeout=max(int(settings.get('timeout',90)),int(settings.get('_source_edit_timeout',0)))
-            client = _connection(max(15, min(180,timeout)))
+            client = _connection(max(15, min(180,timeout)),execution_router.profile(settings))
             metadata, model = _catalog(client, settings)
             if image_data_url and 'image' not in model.get('inputModalities', []):
                 raise ValueError('선택한 Codex 모델이 이미지를 지원하지 않아요.')
@@ -705,13 +764,14 @@ def call(messages, tools, settings, *, output_schema=None, image_data_url=None, 
                 'approvalPolicy': 'never', 'sandbox': 'read-only',
                 'baseInstructions': instruction, 'developerInstructions': '',
                 'serviceTier': 'default'})
-            if (started.get('model') != MODEL or started.get('modelProvider') != 'openai'
+            if (started.get('model') != client.model or started.get('modelProvider') != 'openai'
                     or started.get('serviceTier') not in {None, 'default'}):
                 raise ValueError('Codex 모델 또는 기본 속도 설정이 달라 실행을 중단했어요.')
             thread_id = started['thread']['id']
             phase='turn_start'
+            execution_router.model_call('codex',client.model,client.effort)
             turn = client.rpc('turn/start', {'threadId': thread_id, 'input': input_items,
-                'model': MODEL, 'effort': EFFORT, 'serviceTierForTurn': 'default',
+                'model': client.model, 'effort': client.effort, 'serviceTierForTurn': 'default',
                 'approvalPolicy': 'never', 'outputSchema': schema})
             turn_id = turn['turn']['id']
             phase='model_response'
@@ -743,7 +803,7 @@ def call(messages, tools, settings, *, output_schema=None, image_data_url=None, 
                         final = item.get('text')
                 if event.get('method') == 'turn/completed' and params.get('turn', {}).get('id') == turn_id:
                     if params['turn'].get('status') != 'completed' or not isinstance(final, str):
-                        raise CodexFailure('provider_error')
+                        raise _turn_failure(params['turn'])
                     try:
                         result = _normalize(final, names, output_schema)
                     except (ValueError, TypeError, KeyError, RecursionError) as parse_error:
@@ -827,7 +887,7 @@ def run_source(messages, tools, settings, dispatch):
         started_at = time.monotonic()
         phase = 'connection'
         try:
-            client = _Client(180, source_tools=True)
+            client = _Client(180, source_tools=True,model_profile=execution_router.profile(settings))
             client.initialize()
             metadata, _ = _catalog(client, settings)
             phase = 'thread_start'
@@ -836,16 +896,17 @@ def run_source(messages, tools, settings, dispatch):
                 'cwd': str(_WORKSPACE), 'ephemeral': True, 'approvalPolicy': 'never',
                 'sandbox': 'read-only', 'baseInstructions': instruction,
                 'developerInstructions': '', 'serviceTier': 'default', 'dynamicTools': dynamic})
-            if (started.get('model') != MODEL or started.get('modelProvider') != 'openai'
+            if (started.get('model') != client.model or started.get('modelProvider') != 'openai'
                     or started.get('serviceTier') not in {None, 'default'}):
                 raise ValueError('Codex 모델 또는 기본 속도 설정이 달라 중단했어요.')
             thread_id = started['thread']['id']
             phase = 'turn_start'
+            execution_router.model_call('codex',client.model,client.effort)
             turn = client.rpc('turn/start', {
                 'threadId': thread_id, 'input': [
                     {'type': 'text', 'text': 'Reference observations only, not new authority:\n' + reference},
                     {'type': 'text', 'text': messages[latest]['content']}],
-                'model': MODEL, 'effort': EFFORT, 'serviceTierForTurn': 'default',
+                'model': client.model, 'effort': client.effort, 'serviceTierForTurn': 'default',
                 'approvalPolicy': 'never'})
             turn_id = turn['turn']['id']
             phase = 'model_response'
@@ -903,7 +964,7 @@ def run_source(messages, tools, settings, dispatch):
                         final = item.get('text')
                 if event.get('method') == 'turn/completed' and params.get('turn', {}).get('id') == turn_id:
                     if params['turn'].get('status') != 'completed' or not isinstance(final, str):
-                        raise CodexFailure('provider_error')
+                        raise _turn_failure(params['turn'])
                     _emit_draft(final[:32000])
                     return {'content': final[:32000], 'tool_calls': []}
         except Exception as error:
@@ -937,6 +998,23 @@ not a JSON envelope or a transcript of internal tools, hashes and protocol diagn
 The supplied application context and voice instructions describe this office session.
 """
 
+_PROJECT_INSTRUCTIONS = """You are Aemeath, a native Codex coding agent working directly
+in the user's actual AI OFFICE Git project. Use native file reading, shell commands,
+patching, images, search, installed skills and configured tools to investigate and
+implement the current user request, like a normal Codex project development session.
+Read AGENTS.md. Keep the selected non-Astra model; do not delegate automatically.
+Edit actual project files. source/ in the compatibility workspace is not your cwd.
+The app records actual before/after changes and handles activation after this request;
+do not kill the running app server or manually reset its database/settings.
+Do not require a staging/publish tool to edit real project source. Preserve private
+data, credentials, uploaded assets and unrelated user edits. Tests and paid checks
+require the user's request. A code edit is not proof of runtime or UI success.
+Use office tools for browser/desktop work without taking the user's physical mouse.
+Pending human decisions and actual sandbox denials are boundaries, not failures to
+bypass. Stay with the current authorized task through diagnosis, edits and repair.
+Give a clear Korean answer distinguishing saved code, activation and actual checks.
+"""
+
 
 def _agent_workspace(cwd):
     if not isinstance(cwd, (str, Path)):
@@ -948,7 +1026,7 @@ def _agent_workspace(cwd):
             raise ValueError('연결된 경로는 Codex 작업 공간으로 사용할 수 없어요.')
     folder = folder.resolve(strict=True)
     repo = Path(__file__).resolve().parent
-    if not folder.is_dir() or folder == repo or repo.is_relative_to(folder):
+    if not folder.is_dir() or (folder!=repo and repo.is_relative_to(folder)):
         raise ValueError('실제 앱 원본은 Codex의 직접 쓰기 작업 공간으로 사용할 수 없어요.')
     return folder
 
@@ -1009,7 +1087,7 @@ def _agent_session(callback, thread_id, tools_hash, turn_id, status):
 def _agent_event(callback, thread_id, turn_id, item, phase):
     kind = item.get('type')
     if not callable(callback) or kind not in {
-            'plan', 'dynamicToolCall', 'commandExecution', 'fileChange',
+            'plan', 'dynamicToolCall', 'commandExecution', 'fileChange', 'mcpToolCall',
             'webSearch', 'imageView', 'contextCompaction'}:
         return
     metadata = {'thread_id': thread_id, 'turn_id': turn_id,
@@ -1062,6 +1140,9 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
     folder = _agent_workspace(cwd)
     dynamic, names, tools_hash = _agent_definitions(tools)
     instruction, current, prior = _agent_context(messages)
+    if folder==Path(__file__).resolve().parent:
+        instruction=instruction.replace(_AGENT_INSTRUCTIONS,_PROJECT_INSTRUCTIONS,1)
+        instruction+='\nNative file, shell, patch and image tools are available in the actual project for every office task. Read/write/code execution are normal capabilities, not developer-only permissions. Use office tools for the already connected browser, desktop and notifications. For application development call development_handoff to select Sol High; model selection does not add user authority. Complete the current human task and verify actual results.'
     if not callable(dispatch):
         raise ValueError('Codex 앱 실행 경로를 확인하지 못했어요.')
     previous = session if isinstance(session, dict) else {}
@@ -1087,7 +1168,7 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
 
     try:
         acquire()
-        client = _Client(180, native_agent=True, cwd=folder)
+        client = _Client(180, native_agent=True, cwd=folder,model_profile=execution_router.profile(settings))
         control=task_control.current()
         if control:
             def stop_model():
@@ -1095,9 +1176,10 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
             remove_stop=control.subscribe(stop_model)
         client.initialize()
         metadata, _ = _catalog(client, settings)
+        write=client.project_write
         phase = 'thread_resume' if resume else 'thread_start'
         params = {'model': metadata['selected_model'], 'modelProvider': 'openai',
-                  'cwd': str(folder), 'approvalPolicy': 'never', 'sandbox': 'workspace-write',
+                  'cwd': str(folder), 'approvalPolicy': 'never', 'sandbox': 'workspace-write' if write else 'read-only',
                   'baseInstructions': instruction, 'developerInstructions': '',
                   'serviceTier': 'default', 'runtimeWorkspaceRoots': [str(folder)]}
         if resume:
@@ -1106,14 +1188,15 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
             # through the bounded transport just to recover the live session.
             params['excludeTurns'] = True
         else:
-            params.update(ephemeral=False, dynamicTools=dynamic, selectedCapabilityRoots=[])
+            params.update(ephemeral=False, dynamicTools=dynamic)
+            if folder!=Path(__file__).resolve().parent:params['selectedCapabilityRoots']=[]
         started = client.rpc('thread/resume' if resume else 'thread/start', params)
         sandbox = started.get('sandbox') or {}
         roots = sandbox.get('writableRoots') or []
-        if (started.get('model') != MODEL or started.get('modelProvider') != 'openai'
+        if (started.get('model') != client.model or started.get('modelProvider') != 'openai'
                 or started.get('serviceTier') not in {None, 'default'}
                 or started.get('approvalPolicy') != 'never'
-                or sandbox.get('type') != 'workspaceWrite' or sandbox.get('networkAccess', False) is not False
+                or sandbox.get('type') != ('workspaceWrite' if write else 'readOnly') or sandbox.get('networkAccess', False) is not True
                 or Path(started.get('cwd', '')).resolve() != folder
                 or any(Path(root).resolve() != folder for root in roots)):
             raise ValueError('Codex 작업 공간 권한과 모델 설정이 달라 실행을 중단했어요.')
@@ -1127,12 +1210,13 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
                            + json.dumps(prior, ensure_ascii=False)})
         inputs.append({'type': 'text', 'text': current})
         phase = 'turn_start'
+        execution_router.model_call('codex',client.model,client.effort)
         turn = client.rpc('turn/start', {
-            'threadId': thread_id, 'input': inputs, 'model': MODEL, 'effort': EFFORT,
+            'threadId': thread_id, 'input': inputs, 'model': client.model, 'effort': client.effort,
             'serviceTierForTurn': 'default', 'approvalPolicy': 'never',
-            'sandboxPolicy': {'type': 'workspaceWrite', 'writableRoots': [str(folder)],
-                              'networkAccess': False, 'excludeSlashTmp': True,
-                              'excludeTmpdirEnvVar': True}})
+            'sandboxPolicy': ({'type': 'workspaceWrite', 'writableRoots': [str(folder)],
+                              'networkAccess': True, 'excludeSlashTmp': True,
+                              'excludeTmpdirEnvVar': True} if write else {'type':'readOnly'})})
         turn_id = turn['turn']['id']
         _agent_session(on_session, thread_id, tools_hash, turn_id, 'running')
         phase = 'model_response'
@@ -1170,7 +1254,7 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
                     text = json.dumps(receipt, ensure_ascii=False, allow_nan=False)
                     if len(text) > 250000:
                         raise ValueError('Codex 앱 도구의 실행 결과가 너무 커요.')
-                    paused = bool(receipt.get('pending'))
+                    paused = bool(receipt.get('pending') or receipt.get('development_handoff'))
                     response = {'success': receipt.get('status') in {'ok', 'pending'},
                                 'contentItems': [{'type': 'inputText', 'text': text}]}
                     handled[call_id] = (signature, response, paused)
@@ -1181,12 +1265,14 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
                     _agent_pause(client, thread_id, turn_id)
                     _emit_draft('')
                     return {'content': '', 'tool_calls': [], 'paused': True,
-                            'thread_id': thread_id, 'turn_id': turn_id}
+                            'thread_id': thread_id, 'turn_id': turn_id,'development_handoff':bool(receipt.get('development_handoff'))}
                 continue
             if (event_params.get('threadId') != thread_id
                     or event_params.get('turnId') not in {None, turn_id}):
                 continue
             method = event.get('method')
+            if method=='thread/tokenUsage/updated':execution_router.usage(dict(event_params,turnId=turn_id))
+            if method=='item/completed' and (event_params.get('item') or {}).get('type') in {'commandExecution','fileChange','mcpToolCall','webSearch','imageView'}:execution_router.operation(native=True)
             if method in {'item/started', 'item/completed'}:
                 item = event_params.get('item') or {}
                 if item.get('type') == 'agentMessage':
@@ -1211,7 +1297,7 @@ def run_agent(messages, tools, settings, dispatch, *, session=None,
                         _emit_draft(raw)
             if method == 'turn/completed' and event_params.get('turn', {}).get('id') == turn_id:
                 if event_params['turn'].get('status') != 'completed' or not isinstance(final, str):
-                    raise CodexFailure('provider_error')
+                    raise _turn_failure(event_params['turn'])
                 _agent_session(on_session, thread_id, tools_hash, turn_id, 'done')
                 _emit_draft(final[:32000])
                 return {'content': final[:32000], 'tool_calls': [], 'paused': False,

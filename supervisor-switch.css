@@ -1,0 +1,221 @@
+/* The supervisor selector stays beside the existing main chat heading. */
+#work #workAssistantTitle{display:flex;align-items:center;min-width:0;margin:0}
+#work .work-supervisor-tabs{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+#work .work-supervisor-tab{display:flex;align-items:center;gap:7px;padding:5px 8px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--ao-muted,#a8afa1);font:750 16px/1.4 Pretendard,sans-serif;box-shadow:none;white-space:nowrap}
+#work .work-supervisor-tab[aria-pressed=true]{color:var(--ao-text,#f0f1ed);border-color:var(--ao-border,#414549);background:var(--ao-raised,#25282b)}
+#work .work-supervisor-tab-state{font-size:9px;font-weight:500;color:var(--ao-muted,#a8afa1)}
+#work .work-supervisor-tab.is-running .work-supervisor-tab-state{color:var(--ao-cyan,#8cc8db)}
+#work .work-supervisor-complete{font:750 9px/1.4 Pretendard,sans-serif;padding:2px 4px;border-radius:3px;background:var(--ao-accent,#b6f542);color:#172010;animation:none}
+#work .work-supervisor-complete[hidden]{display:none}
+#work .work-supervisor-aemeath{display:flex;flex-direction:column;min-height:0;height:100%}
+#work .work-supervisor-aemeath[hidden],#work .work-supervisor-hand[hidden],#work .work-companion[hidden],#work .is-supervisor-away{display:none!important}
+#work .work-supervisor-hand{min-height:0;height:100%;display:flex;flex-direction:column}
+#work .work-supervisor-hand .project-work-panel.is-supervisor-embedded{position:static!important;inset:auto!important;z-index:auto!important;isolation:isolate;display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;max-width:none;max-height:none;width:100%!important;height:100%!important;resize:none;border:0;border-radius:0;box-shadow:none;background:transparent;pointer-events:auto}
+#work .is-supervisor-embedded .project-window-bar{display:none}
+#work .is-supervisor-embedded .project-window-meta{flex:none;background:transparent;padding:3px 0 7px;border-bottom:1px solid var(--ao-border,#414549);font-size:10px}
+#work .is-supervisor-embedded .project-window-body{flex:1;min-height:0;padding:0}
+#work .is-supervisor-embedded .project-chat-log{padding:12px 2px;overflow:auto}
+#work .is-supervisor-embedded .project-window-form{flex:none;padding:8px 0 0;background:transparent}
+#work .work-supervisor-recipient{margin:0 0 5px;font:650 10px/1.4 Pretendard,sans-serif;color:var(--ao-cyan,#8cc8db)}
+#work .work-supervisor-result{flex:none;max-height:36%;overflow:hidden;border:1px solid var(--ao-border,#414549);border-radius:5px;margin:5px 0;padding:0 8px;background:var(--ao-raised,#25282b)}
+#work .work-supervisor-result[hidden]{display:none}
+#work .work-supervisor-result>summary{padding:7px 0;font:650 11px/1.4 Pretendard,sans-serif;cursor:pointer;color:var(--ao-cyan,#8cc8db)}
+#work .work-supervisor-result-log{max-height:160px;min-height:0;overflow:auto;padding:0}
+#work .work-supervisor-result-log .project-chat-message{margin:0 0 8px}
+#work .work-hand-companion{height:100%;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#work .work-hand-companion .work-companion-stage{width:min(100%,180px);height:auto;aspect-ratio:1;flex:0 1 auto}
+#work .work-hand-companion .work-companion-stage img{width:100%;height:100%;image-rendering:pixelated}
+#work .work-hand-status{margin:5px 0 0;color:var(--ao-muted,#a8afa1);font:500 11px/1.5 Pretendard,sans-serif}
+#work .work-assistant[data-supervisor=hand] #workConnection{display:none}
+@media(max-width:1200px){#work .work-supervisor-tab{font-size:14px;gap:4px;padding:4px 5px}#work .work-supervisor-tab-state{max-width:56px;overflow:hidden;text-overflow:ellipsis}}
+
+/* Reclaim the blank space under four small rows before taking space from notifications. */
+body.work-desktop #work .work-project-column.is-unified{--office-agent-portrait:clamp(76px,10.5dvh,96px)}
+#work .is-unified .project-section-heading{min-height:24px;padding-bottom:5px}
+#work .is-unified .department-agent-group{gap:5px}
+#work .is-unified .department-agent-group-heading{padding-bottom:4px}
+body.work-desktop #work .work-project-column.is-unified>#workStage{min-height:160px}
+#work .is-unified #projectSection{flex:0 0 auto;max-height:none;min-height:0}
+#work .is-unified .project-section-list.is-departments{flex:none;overflow:visible}
+#work .is-unified .department-agent-group{min-height:auto}
+#work .is-unified .department-agent-list{flex:none;grid-auto-rows:minmax(calc(var(--office-agent-portrait) + 14px),auto)}
+#work .is-unified .department-project-card{grid-template-columns:var(--office-agent-portrait) minmax(0,1fr);gap:8px;padding:6px}
+#work .is-unified .department-project-art{width:var(--office-agent-portrait);height:var(--office-agent-portrait)}
+#work .is-unified .department-project-content strong{font-size:12px;line-height:1.3}
+#work .is-unified .department-project-agent{font-size:10px;line-height:1.35}
+#work .is-unified .department-project-status{font-size:10px;line-height:1.35}
+@container office-right (max-width:335px){
+ #work .is-unified .department-project-card{--office-agent-portrait:64px;grid-template-columns:64px minmax(0,1fr);gap:5px;padding:5px}
+ #work .is-unified .department-project-art{width:64px;height:64px}
+ #work .is-unified .department-project-content strong{font-size:12px}
+}
+@media(max-height:680px){body.work-desktop #work .work-project-column.is-unified{--office-agent-portrait:64px}#work .is-unified #projectSection{min-height:0}}
+@media(max-height:620px){#work .is-unified #projectSection{flex:1 1 auto;min-height:180px;max-height:calc(100dvh - 260px)}#work .is-unified .project-section-list.is-departments{flex:1;min-height:0;overflow:auto}body.work-desktop #work .work-project-column.is-unified>#workStage{min-height:130px}}
+
+/* Header utilities reuse the original calendar and weather widgets. */
+body.work-desktop #work #workMasthead.has-top-widgets{justify-content:space-between;gap:16px;overflow:visible;z-index:30}
+body #work #workMasthead.has-top-widgets::after{display:none}
+body #work #workMasthead.has-top-widgets>p{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-right:8px}
+#work .work-masthead-tools{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex:none;position:relative;z-index:1}
+#work .work-top-calendar{position:relative;flex:none}
+#work .work-top-calendar>summary{list-style:none;display:flex;align-items:center;gap:8px;min-height:38px;padding:7px 11px;border:1px solid var(--ao-border,#414549);border-radius:6px;background:var(--ao-panel,#17191b);color:var(--ao-text,#f0f1ed);font:650 12px/1.4 Pretendard,sans-serif;cursor:pointer;white-space:nowrap}
+#work .work-top-calendar>summary::-webkit-details-marker{display:none}
+#work .work-top-calendar>summary:focus-visible{outline:2px solid var(--ao-accent,#b6f542);outline-offset:3px}
+#work .work-top-calendar-mark{font-size:18px;color:var(--ao-cyan,#8cc8db)}
+#work .work-top-calendar-caret{font-size:10px;color:var(--ao-muted,#a8afa1)}
+body.work-desktop #work #workMasthead #workCalendar{position:absolute;top:calc(100% + 8px);left:0;width:264px;margin:0;padding:11px;z-index:30;background:var(--ao-panel,#17191b);border:1px solid var(--ao-border,#414549);border-radius:8px;box-shadow:0 12px 28px #0008}
+#work #workMasthead .work-top-calendar:not([open])>#workCalendar{display:none}
+body.work-desktop #work #workMasthead #workCalendar .work-calendar-heading{padding-bottom:5px}
+body.work-desktop #work #workMasthead #workCalendar .work-calendar-heading h3{font-size:13px}
+body.work-desktop #work #workMasthead #workCalendar .work-calendar-navigation{margin:5px 0}
+body.work-desktop #work #workMasthead #workCalendar .work-calendar-navigation strong{font-size:15px}
+body.work-desktop #work #workMasthead #workCalendar .work-calendar-weekdays{font-size:10px;line-height:14px;margin-bottom:4px}
+body.work-desktop #work #workMasthead #workCalendar .work-calendar-grid{grid-auto-rows:24px;gap:3px}
+body.work-desktop #work #workMasthead #workCalendar .work-calendar-day{height:24px;min-height:0;font-size:11px;line-height:24px;padding:0}
+body #work #workMasthead #workAmbient{display:grid;grid-template-columns:auto auto;align-items:center;column-gap:12px;row-gap:2px;min-width:0;margin:0;padding:5px 10px;border-radius:6px;background:var(--ao-panel,#17191b);border-color:var(--ao-border,#414549)}
+body #work #workMasthead #workAmbient #workAmbientTime{grid-column:1;grid-row:1/3;font-size:23px;line-height:1.1;text-align:left}
+body #work #workMasthead #workAmbient .work-ambient-weather{grid-column:2;grid-row:1;margin:0;gap:5px;justify-content:flex-start}
+body #work #workMasthead #workAmbient .work-ambient-weather>span:last-child{display:flex;flex-direction:row;align-items:center;gap:6px}
+body #work #workMasthead #workAmbient #workAmbientTemperature{font-size:19px}
+body #work #workMasthead #workAmbient #workAmbientWeather{font-size:11px;line-height:1.2;white-space:nowrap}
+body #work #workMasthead #workAmbient #workAmbientWeatherIcon{font-size:16px}
+body #work #workMasthead #workAmbient #workAmbientUpdated{grid-column:2;grid-row:2;display:block;margin:0;text-align:left;font-size:9px;line-height:1.2}
+/* Both supervisors stay visible; only the existing chat/input target switches. */
+body.work-desktop #work .work-companion-rail.work-supervisor-stack{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(2,minmax(0,1fr));height:100%;min-height:0;gap:8px;container:supervisor-stack/size}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion){container:supervisor-card/size;position:static;min-width:0;min-height:0;height:auto;margin:0;padding:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;border:2px solid var(--ao-border,#414549);border-radius:10px;box-sizing:border-box}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>.work-companion[data-supervisor-selected=true]{border-color:var(--ao-cyan,#8cc8db)}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) .work-companion-stage{width:min(100%,180px,max(48px,calc(100cqh - 70px)));height:auto;aspect-ratio:1;flex:none;margin:0 auto}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>#workCompanion.has-notification .work-companion-stage{width:min(100%,180px,max(45px,calc(100cqh - 132px)))}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) .work-companion-stage img{width:100%;height:100%;object-fit:contain}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>#workHandCompanion .work-companion-stage img{image-rendering:auto}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) .work-companion-caption{flex:none;padding:4px 0 0;min-width:0;width:100%;text-align:center}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) .work-companion-caption>strong{font-size:14px;line-height:17px}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) :is(#workCompanionStatus,#workHandCompanionStatus){font-size:10px;line-height:1.3;min-height:0;margin:3px 0 0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+@media(max-width:1100px){#work .work-masthead-tools{gap:6px}#work .work-top-calendar>summary{padding:6px 8px;font-size:11px}body #work #workMasthead #workAmbient{column-gap:8px;padding:5px 7px}body #work #workMasthead #workAmbient #workAmbientTime{font-size:20px}}
+@media(max-width:700px){body.work-desktop #work #workMasthead.has-top-widgets{flex-wrap:wrap;flex-basis:auto;min-height:76px;gap:4px;padding:3px 0}body #work #workMasthead.has-top-widgets>p{flex-basis:100%;font-size:22px}#work .work-masthead-tools{width:100%;justify-content:space-between}}
+
+body #work #workMasthead #workAmbient{container-type:normal;width:max-content;flex:none}
+
+body #work #workMasthead #workAmbient{box-sizing:border-box;height:42px;min-height:0;grid-template-rows:18px 11px;align-self:center;padding:4px 10px}
+
+/* Team identity and small 1980s television cabinets; original cards remain buttons. */
+:root{--office-aemeath:#f080b4;--office-hand:#7ab9ed;--office-tv-shell:#303237;--office-tv-edge:#121416;--office-tv-glass:#080e12}
+body #work .work-assistant[data-supervisor=aemeath],.project-work-panel[data-office-team=aemeath]{--office-team:var(--office-aemeath)}
+body #work .work-assistant[data-supervisor=hand],.project-work-panel[data-office-team=hand]{--office-team:var(--office-hand)}
+body.work-desktop #work .work-assistant[data-supervisor]{border-color:var(--office-team);box-shadow:inset 0 0 0 1px #ffffff07,0 8px 24px #0004}
+body #work .work-assistant[data-supervisor] #workAssistantTitle::before{background:var(--office-team)}
+body #work .work-supervisor-tab[data-thread-id="01a13305-2586-7e53-956b-d1f6b9aeab93"]{--supervisor-color:var(--office-aemeath)}
+body #work .work-supervisor-tab[data-thread-id="01a0c670-7a18-7243-a9af-9ae8cb0a2548"]{--supervisor-color:var(--office-hand)}
+body #work .work-supervisor-tab{color:var(--supervisor-color)}
+body #work .work-supervisor-tab[aria-pressed=true]{border-color:var(--supervisor-color);color:var(--supervisor-color)}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>#workCompanion{--companion-color:var(--office-aemeath);border-color:var(--companion-color)}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>#workHandCompanion{--companion-color:var(--office-hand);border-color:var(--companion-color)}
+html body #work :is(#workCompanion,#workHandCompanion) .work-companion-caption>strong{color:var(--companion-color)}
+body #work .work-supervisor-recipient,body #work .work-supervisor-result>summary{color:var(--office-team)}
+body .project-work-panel[data-office-team]:not([data-office-team=""]):not(.is-supervisor-embedded){border:2px solid var(--office-team);box-shadow:0 12px 40px #0008,inset 0 0 0 1px #ffffff08}
+body .project-work-panel[data-office-team]:not([data-office-team=""]).is-focused:not(.is-supervisor-embedded){border-color:var(--office-team);box-shadow:0 12px 40px #0009,0 0 0 2px color-mix(in srgb,var(--office-team) 24%,transparent)}
+body .project-work-panel[data-office-team]:not([data-office-team=""]) .project-window-bar{border-bottom-color:var(--office-team);background:linear-gradient(90deg,color-mix(in srgb,var(--office-team) 13%,#23262a),#23262a 72%)}
+body .project-work-panel[data-office-team]:not([data-office-team=""]) :is(.project-window-mark,.project-location){color:var(--office-team)}
+/* User message colors stay in their original shared stylesheet. */
+body #work .is-unified .department-agent-group[data-agent-group=office]{--office-team:var(--office-aemeath)}
+body #work .is-unified .department-agent-group[data-agent-group="b3649dae-5b9f-4dfa-bce4-6ea7a4b090ed"]{--office-team:var(--office-hand)}
+body #work .is-unified .department-agent-group[data-agent-group] .department-agent-group-heading{color:var(--office-team,var(--ao-cyan));border-bottom-color:var(--office-team,var(--ao-border))}
+html body #work .is-unified .department-agent-group .department-project-card{position:relative;isolation:isolate;border:2px solid var(--office-team,var(--ao-border));border-radius:10px 10px 12px 12px;background:linear-gradient(135deg,#ffffff0b,transparent 48%),var(--office-tv-shell);box-shadow:inset 0 1px 0 #ffffff22,inset 0 -3px 0 #141619,0 3px 0 #101214;gap:7px;padding:6px;text-align:left;overflow:hidden}
+html body #work .is-unified .department-agent-group .department-project-card:hover{background-color:#393c42;box-shadow:inset 0 1px 0 #ffffff25,inset 0 -3px 0 #141619,0 3px 0 #101214,0 0 0 1px var(--office-team)}
+body #work .is-unified .department-agent-group .department-project-card:focus-visible{outline:2px solid var(--office-team);outline-offset:2px}
+body #work .is-unified .department-agent-group .department-project-card[data-state=attention]{outline:1px solid var(--ao-red,#f0ac86);outline-offset:-4px}
+body #work .is-unified .department-project-card::before{content:'';position:absolute;right:5px;top:5px;width:3px;height:3px;border-radius:50%;background:#95999b;box-shadow:0 0 0 1px #1117;pointer-events:none}
+html body #work .is-unified .department-project-card .department-project-art{position:relative;box-sizing:border-box;isolation:isolate;border:4px solid var(--office-tv-edge);border-radius:15% / 12%;background:var(--office-tv-glass);box-shadow:0 0 0 1px #64666a,inset 0 0 7px #000;overflow:hidden}
+body #work .is-unified .department-project-art .department-project-sprite{position:relative;z-index:0;width:100%;height:100%;object-fit:cover;border-radius:8%;filter:saturate(.94) contrast(1.04)}
+body #work .is-unified .department-project-art::before{content:'';position:absolute;inset:0;z-index:2;border-radius:8%;background:repeating-linear-gradient(0deg,#0000 0 2px,#0002 2px 3px);box-shadow:inset 0 0 9px 2px #0007;pointer-events:none}
+body #work .is-unified .department-project-art::after{content:'';position:absolute;inset:0;z-index:3;border-radius:8%;background:linear-gradient(135deg,#ffffff30,transparent 32%,transparent 78%,#ffffff07);pointer-events:none}
+body #work .is-unified .department-project-art .department-project-alert{z-index:4}
+body #work .is-unified .department-project-content{position:relative;align-self:center;gap:2px;padding:0 0 14px;min-width:0}
+body #work .is-unified .department-project-content::after{content:'';position:absolute;bottom:0;left:0;width:100%;max-width:66px;height:10px;background:radial-gradient(circle at 5px 5px,#a4a8aa 0 1px,#46494d 1px 3px,#111315 3px 5px,transparent 5px),radial-gradient(circle at 18px 5px,#797d81 0 1px,#41454a 1px 3px,#111315 3px 5px,transparent 5px),repeating-linear-gradient(0deg,#0e1114 0 1px,transparent 1px 3px) 30px 1px / calc(100% - 30px) 8px no-repeat;pointer-events:none}
+body #work .is-unified .department-project-content>strong{font-size:12px;line-height:1.25;color:#f0f1ee}
+body #work .is-unified .department-project-agent{color:#c3c5c8}
+@container office-right (max-width:335px){html body #work .is-unified .department-agent-group .department-project-card{gap:5px;padding:5px}body #work .is-unified .department-project-content>strong{font-size:11px}body #work .is-unified .department-project-content{padding-bottom:12px}body #work .is-unified .department-project-content::after{height:9px}}
+
+/* Two control-room monitors in one metal equipment rack. Original live regions remain. */
+body.work-desktop #work .work-companion-rail.work-supervisor-stack{box-sizing:border-box;gap:10px;padding:6px 7px;border:1px solid #64696e;border-radius:5px;background:linear-gradient(90deg,#4a4e54 0 4px,#171a1e 4px calc(100% - 4px),#42474d calc(100% - 4px));box-shadow:inset 1px 0 #a0a5aa66,inset -1px 0 #080b0e,0 3px 9px #0007}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion){--monitor-signal:color-mix(in srgb,var(--companion-color) 35%,#25292d);position:relative;isolation:isolate;gap:6px;padding:10px 7px 8px;border:2px solid var(--companion-color);border-radius:5px;background:linear-gradient(125deg,#3c4148,#282c32 45%,#22262b);box-shadow:inset 0 1px #ffffff27,inset 0 -3px #0b0e12,0 2px 0 #06090c}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion)::before{content:'';position:absolute;inset:0;z-index:3;background:radial-gradient(circle at 5px 5px,#92999e 0 1px,#11151a 1px 2.7px,transparent 3px),radial-gradient(circle at calc(100% - 5px) 5px,#92999e 0 1px,#11151a 1px 2.7px,transparent 3px),radial-gradient(circle at 5px calc(100% - 5px),#92999e 0 1px,#11151a 1px 2.7px,transparent 3px),radial-gradient(circle at calc(100% - 5px) calc(100% - 5px),#92999e 0 1px,#11151a 1px 2.7px,transparent 3px);pointer-events:none}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion)::after{content:'';position:absolute;top:4px;left:50%;width:34px;height:3px;transform:translateX(-50%);background:repeating-linear-gradient(90deg,#090c10 0 3px,transparent 3px 5px);box-shadow:0 1px #ffffff0c;pointer-events:none}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) .work-companion-stage{box-sizing:border-box;isolation:isolate;width:min(100%,180px,max(48px,calc(100cqh - 62px)));height:auto;aspect-ratio:1;margin:0 auto;flex:none;border:4px solid #0a0e12;border-radius:12% / 9%;background:#000;box-shadow:0 0 0 1px #777e85,inset 0 0 8px #000;overflow:hidden}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>#workCompanion.has-notification .work-companion-stage{width:min(100%,180px,max(40px,calc(100cqh - 132px)))}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) .work-companion-stage::before{content:'';position:absolute;inset:0;z-index:2;border-radius:8%;box-shadow:inset 0 0 9px #0006;background:repeating-linear-gradient(0deg,transparent 0 3px,#0000000e 3px 4px);pointer-events:none}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) .work-companion-stage::after{content:'';position:absolute;inset:0;z-index:3;border-radius:8%;background:linear-gradient(135deg,#ffffff21,transparent 30%,transparent 80%,#ffffff08);pointer-events:none}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) .work-companion-caption{position:relative;flex:none;min-width:0;width:100%;padding:0;text-align:left}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) .work-companion-caption>strong{display:block;box-sizing:border-box;min-width:0;padding:3px 17px 3px 5px;border:1px solid #59616a;border-radius:2px;background:linear-gradient(#22272d,#15191e);box-shadow:inset 0 1px #ffffff0a,0 1px #0c0f13;color:var(--companion-color);font:700 12px/16px Consolas,Pretendard,sans-serif;letter-spacing:.1px;text-align:left;white-space:nowrap}
+/* Recessed power emblem is decorative; it never changes a running task. */
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) .work-companion-caption::before{content:'';position:absolute;right:5px;top:6px;width:9px;height:9px;box-sizing:border-box;border:1px solid #a2aab1;border-radius:50%;background:linear-gradient(#a2aab1,#a2aab1) center 0/1px 4px no-repeat,#151a20;box-shadow:0 0 0 2px #0b1015;pointer-events:none}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) :is(#workCompanionStatus,#workHandCompanionStatus){margin:5px 1px 0;min-height:0;font:500 10px/13px Pretendard,sans-serif;color:#c5cbd1;text-align:left;-webkit-line-clamp:2;overflow-wrap:anywhere}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) :is(#workCompanionStatus,#workHandCompanionStatus)::before{content:'';display:inline-block;width:4px;height:4px;margin:0 5px 1px 0;border-radius:50%;background:var(--monitor-signal);box-shadow:0 0 0 1px #080b0e;vertical-align:middle}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion)[data-state=working],body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion)[data-state=completed],body.work-desktop #work .work-companion-rail.work-supervisor-stack>#workCompanion[data-state=success]{--monitor-signal:var(--companion-color)}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion)[data-state=working] :is(#workCompanionStatus,#workHandCompanionStatus){color:var(--companion-color)}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>#workCompanion:is([data-state=alert],[data-state=error]){--monitor-signal:#f0ac86}
+@container supervisor-stack (max-width:135px){body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion){padding-left:5px;padding-right:5px;gap:5px}body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) .work-companion-caption>strong{font-size:11px;letter-spacing:0;padding-left:4px}body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion) :is(#workCompanionStatus,#workHandCompanionStatus){font-size:9px;line-height:12px}}
+
+/* Relative positioning must not inherit the old sticky 12px top offset. */
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion){inset:auto}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>#workCompanion[data-state=working]:not(.has-notification):not([data-attention=action]){border-color:var(--office-frame-color,#59616b);animation:none}
+@keyframes office-monitor-working{0%,100%{box-shadow:inset 0 1px #ffffff27,inset 0 -3px #0b0e12,0 0 0 1px color-mix(in srgb,var(--companion-color) 22%,transparent)}50%{box-shadow:inset 0 1px #ffffff27,inset 0 -3px #0b0e12,0 0 0 1px color-mix(in srgb,var(--companion-color) 40%,transparent),0 0 6px color-mix(in srgb,var(--companion-color) 12%,transparent)}}
+@media(prefers-reduced-motion:reduce){body.work-desktop #work .work-companion-rail.work-supervisor-stack>#workCompanion[data-state=working]:not(.has-notification):not([data-attention=action]){animation:none}}
+
+/* Whole-monitor conversation selector; notification controls remain independent siblings. */
+body #work .work-supervisor-stack>.work-companion>.work-supervisor-monitor-select{position:absolute;inset:0;z-index:4;display:block;width:100%;height:100%;min-height:0;margin:0;padding:0;border:0;border-radius:3px;background:transparent;box-shadow:none;appearance:none;cursor:pointer;transform:none}
+body #work .work-supervisor-stack>.work-companion>.work-supervisor-monitor-select:hover{background:color-mix(in srgb,var(--companion-color) 5%,transparent);border:0;box-shadow:none}
+body #work .work-supervisor-stack>.work-companion>.work-supervisor-monitor-select:focus-visible{outline:2px solid var(--companion-color);outline-offset:-4px;box-shadow:inset 0 0 0 4px #090d12}
+body #work .work-supervisor-stack :is(#workCompanionAlert,#workNotificationAcknowledge){position:relative;z-index:5}
+
+/* Preserve the shared silhouette: generous top-left/bottom-right, tight opposite corners. */
+:root{--office-compact-corners:12px 4px 12px 4px;--office-instrument-corners:9px 3px 9px 3px}
+html body #work .is-unified .department-agent-group .department-project-card{border-radius:var(--office-compact-corners)}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack,body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion){border-radius:var(--office-compact-corners)}
+body #work .work-supervisor-stack>.work-companion>.work-supervisor-monitor-select{border-radius:inherit}
+body #work #workMasthead .work-top-calendar>summary,body #work #workMasthead #workAmbient{border-radius:var(--office-instrument-corners)}
+body.work-desktop #work #workMasthead #workCalendar{border-radius:var(--office-compact-corners)}
+body #work .work-supervisor-result{border-radius:var(--office-instrument-corners)}
+
+/* Team names identify the channel; frame color identifies actual work state. */
+body #work .work-assistant[data-supervisor],body .project-work-panel[data-office-team]:not([data-office-team=""]){--office-frame-color:#59616b}
+body #work .work-assistant[data-supervisor]:is([data-frame-state=working],[data-frame-state=completed]),body .project-work-panel[data-office-team]:not([data-office-team=""]):is([data-frame-state=working],[data-frame-state=completed]){--office-frame-color:var(--office-team)}
+body #work .work-assistant[data-supervisor][data-frame-state=attention],body .project-work-panel[data-office-team]:not([data-office-team=""])[data-frame-state=attention]{--office-frame-color:#e7a66c}
+body.work-desktop #work .work-assistant[data-supervisor][data-frame-state]{border-color:var(--office-frame-color)}
+body #work .work-assistant[data-supervisor][data-frame-state]::before{background:var(--office-frame-color)}
+body .project-work-panel[data-office-team]:not([data-office-team=""]):not(.is-supervisor-embedded),body .project-work-panel[data-office-team]:not([data-office-team=""]).is-focused:not(.is-supervisor-embedded){border-color:var(--office-frame-color);box-shadow:0 12px 40px #0008,inset 0 0 0 1px #ffffff08}
+body .project-work-panel[data-office-team]:not([data-office-team=""]) .project-window-bar{border-bottom-color:var(--office-frame-color)}
+html body #work .is-unified .department-agent-group .department-project-card{border-color:#59616b}
+html body #work .is-unified .department-agent-group .department-project-card:hover{box-shadow:inset 0 1px 0 #ffffff25,inset 0 -3px 0 #141619,0 3px 0 #101214}
+html body #work .is-unified .department-agent-group .department-project-card:is([data-state=working],[data-state=completed]){border-color:var(--office-team)}
+html body #work .is-unified .department-agent-group .department-project-card[data-state=attention]{border-color:#e7a66c}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion){--office-frame-color:#59616b;--monitor-signal:#68737b;border-color:var(--office-frame-color)}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion):is([data-frame-state=working],[data-frame-state=completed]),body.work-desktop #work .work-companion-rail.work-supervisor-stack>#workCompanion:is([data-state=working],[data-state=success]){--office-frame-color:var(--companion-color);--monitor-signal:var(--companion-color)}
+body.work-desktop #work .work-companion-rail.work-supervisor-stack>:is(#workCompanion,#workHandCompanion)[data-frame-state=attention],body.work-desktop #work .work-companion-rail.work-supervisor-stack>#workCompanion:is(.has-notification,[data-attention=action],[data-state=error]){--office-frame-color:#e7a66c;--monitor-signal:#e7a66c}
+/* Color belongs to the replying agent, never to the user's own message. */
+body .project-work-panel[data-office-team]:not([data-office-team=""]) .project-chat-message.is-assistant{border-left-color:var(--office-team)}
+body .project-work-panel[data-office-team]:not([data-office-team=""]) .project-chat-message.is-assistant>strong{background:var(--office-team);color:#111a22}
+/* Radio instrument: amber time under smoked glass; original 42px footprint. */
+body #work #workMasthead #workAmbient{background:linear-gradient(115deg,#ffffff0b,transparent 42%),linear-gradient(#172125,#091215);border-color:#5c666a;box-shadow:inset 0 0 0 2px #060b0d,inset 0 1px #c7c7b530,0 2px 0 #070b0d}
+body #work #workMasthead #workAmbient::after{content:'';position:absolute;left:11px;bottom:4px;width:96px;height:3px;background:repeating-linear-gradient(90deg,#bb995755 0 1px,transparent 1px 6px);pointer-events:none}
+body #work #workMasthead #workAmbient #workAmbientTime{font-family:Consolas,'Courier New',monospace;font-size:22px;line-height:1.1;letter-spacing:.2px;text-shadow:0 0 7px #f2b96b20}
+body #work #workMasthead #workAmbientTime [data-clock-part=hour],body #work #workMasthead #workAmbientTime [data-clock-part=minute]{color:#f2c88d}
+body #work #workMasthead #workAmbientTime [data-clock-part=second]{color:#bc9865}
+body #work #workMasthead #workAmbientTime .work-clock-colon{color:#8d7756}
+body #work #workMasthead #workAmbient #workAmbientTemperature{color:#e8ddbd}
+body #work #workMasthead #workAmbient #workAmbientWeather{color:#d0d5c7}
+body #work #workMasthead #workAmbient #workAmbientWeatherIcon{color:#d8c99f}
+body #work #workMasthead #workAmbient #workAmbientUpdated{color:#95a59f}
+body #work #workMasthead .work-top-calendar>summary{background:linear-gradient(#353b40,#242b30);color:#e8dec6;border-color:#626d73;box-shadow:inset 0 1px #ffffff16,inset 0 -2px #10161b,0 2px #080d10}
+body #work #workMasthead .work-top-calendar[open]>summary{background:#20292e;border-color:#bf9c65;box-shadow:inset 0 2px 3px #0007}
+/* Channel keys and a recessed console input; sizes and text remain intact. */
+body #work .work-supervisor-tab{border-radius:var(--office-instrument-corners);background:linear-gradient(#31393e,#252c31);border-color:#4e5960;box-shadow:inset 0 1px #ffffff10,inset 0 -2px #11191e}
+body #work .work-supervisor-tab[aria-pressed=true]{border-color:#89969d;background:#202a30;box-shadow:inset 0 2px 3px #0008}
+body #work .work-assistant>.work-panel-heading{border-bottom-color:#141c21;box-shadow:0 1px #465158}
+body #work #workCommand,body #work .is-supervisor-embedded .project-window-form textarea{background:#10191d;border-color:#58666e;box-shadow:inset 0 2px 5px #0008,inset 1px 0 #0004;border-radius:var(--office-instrument-corners)}
+body #work #workSend,body #work .is-supervisor-embedded .project-send{border-radius:var(--office-instrument-corners);box-shadow:inset 0 1px #ffffff65,inset 0 -3px #0005,0 2px 0 #060b0e}
+body #work #workSend:active:not(:disabled),body #work .is-supervisor-embedded .project-send:active:not(:disabled){box-shadow:inset 0 2px 3px #0005;transform:translateY(1px)}
+/* Dark labels follow the supplied Zenless Zone Zero UI references. */
+body #work :is(#workTasksTitle,#workOtherRequestsTitle){display:inline-block;max-width:100%;margin:0;padding:3px 7px;border:1px solid #5a6066;border-left:3px solid var(--ao-accent,#b6f542);border-radius:var(--office-instrument-corners);background:linear-gradient(135deg,#ffffff0a,transparent 45%),#25282b;box-shadow:inset 0 1px #ffffff10,inset 0 -2px #0b1013;color:#f1f2ed;font:800 14px/18px Pretendard,sans-serif;letter-spacing:-.3px}
+body #work .work-tasks>.work-panel-heading{border-bottom-color:#111b20;box-shadow:0 1px #455158}
+@media(max-width:1100px){body #work #workMasthead #workAmbient #workAmbientTime{font-size:20px}body #work #workMasthead #workAmbient::after{width:85px}}

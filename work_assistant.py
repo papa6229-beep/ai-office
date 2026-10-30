@@ -198,8 +198,10 @@ class WorkAssistant:
         events = [dict(row) for row in c.execute('SELECT * FROM work_events ORDER BY created DESC LIMIT 5000')]
         messages = [dict(row) for row in c.execute('SELECT id,role,content,created FROM (SELECT rowid seq,* FROM work_messages ORDER BY rowid DESC LIMIT 100) ORDER BY seq')]
         _project_chat_messages(c, messages)
+        import project_panel_links
         for message in messages:
             message['attachments']=work_attachments.for_message(c,message['id'])
+            message['parts']=project_panel_links.parts(message['content'],'office-main','local',str(message['id']),allow_files=message['role']=='assistant')
         row = c.execute('SELECT id,day,body,created FROM work_reports WHERE day=? ORDER BY created DESC LIMIT 1', (day,)).fetchone()
         counts = {status: 0 for status in ('todo', 'doing', 'review', 'done')}
         for count in c.execute('SELECT status,count(*) n FROM tasks GROUP BY status'):
@@ -277,7 +279,10 @@ class WorkAssistant:
 
     def _message(self, c, role, content, message_id=None):
         if role == 'assistant': content = assistant_voice.receipt(content)
-        c.execute('INSERT INTO work_messages VALUES (?,?,?,?)', (message_id or uuid.uuid4().hex, role, content, _now()))
+        message_id=message_id or uuid.uuid4().hex
+        c.execute('INSERT INTO work_messages VALUES (?,?,?,?)', (message_id, role, content, _now()))
+        import work_jobs
+        if work_jobs.current():work_jobs.tag(c,message_id)
 
     def _task(self, c, task_id):
         if not isinstance(task_id, str): raise ValueError('업무를 선택하세요.')

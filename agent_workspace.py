@@ -19,7 +19,7 @@ WORK = ROOT / 'local_backups' / 'codex-agent-workspaces'
 STATE = ROOT / 'local_backups' / 'codex-agent-state'
 MAX_OUTPUT = 30 * 1024 * 1024
 LOCK = threading.RLock()
-REFERENCES = ('README.md','PROJECT_CONTEXT.md')
+REFERENCES = ('README.md','PROJECT_CONTEXT.md',*sorted(self_edit.PROTECTED))
 
 
 def _id(value):
@@ -134,9 +134,33 @@ def status(session_id):
                 if path.name in self_edit.source_names() and (ROOT/path.name).exists():
                     live_hash=self_edit._hash(self_edit._load(path.name)[1])
                 rows.append({'path':'source/'+path.name,'state':'new' if not baseline else 'modified',
+                             'size':len(raw),'empty':not raw.strip(),
+                             'can_restore':live_hash is not None,
                              'conflict':bool(baseline and live_hash!=baseline['sha256'])})
         return {**locations,'changes':rows,
-                'instructions':'모든 모델은 workspace_list/read/write/run/image로 작업합니다. Codex는 네이티브 도구도 사용합니다. source 작업본은 agent_source_publish, outputs 결과물은 agent_output_publish로 게시합니다. reference와 inputs는 자료입니다. 실제 앱 반영·화면 확인은 별도입니다.'}
+                'instructions':'모든 모델은 공통 workspace 도구를 사용합니다. 큰 파일은 workspace_read(query)로 구간만 읽고 workspace_edit로 수정합니다. 비거나 손상된 사본은 workspace_read의 해시로 workspace_restore하여 현재 앱 원본을 복구할 수 있습니다. source 작업본은 agent_source_publish, outputs 결과물은 agent_output_publish로 게시합니다. 실제 앱 반영·화면 확인은 별도입니다.'}
+
+
+def restore_source(session_id,path,expected_sha256):
+    """Back up pending bytes, restore the current live source, and rebase safely."""
+    with LOCK,self_edit.LOCK:
+        prepare(session_id)
+        workspace,_=_paths(session_id);data=_manifest(session_id)
+        relative=_relative(path,'source')
+        if len(relative.parts)!=1:raise ValueError('복구할 앱 원본 한 개를 지정하세요.')
+        name=relative.name
+        _,live,_=self_edit._load(name)
+        target=workspace/'source'/name
+        before=_read(target,self_edit.MAX_BYTES)
+        if self_edit._hash(before)!=expected_sha256:raise ValueError('작업 사본이 바뀌었습니다. 현재 해시를 다시 읽으세요.')
+        backup_id=uuid.uuid4().hex
+        backup=_directory(STATE/'work-copy-recovery'/session_id/backup_id)
+        self_edit._atomic(backup/name,before)
+        self_edit._atomic(target,live)
+        data['sources'][name]={'sha256':self_edit._hash(live)};_save(session_id,data)
+        return {'path':'source/'+name,'sha256':self_edit._hash(live),'size':len(live),
+                'backup_id':backup_id,'restored_from':'current_live_source','published':False,
+                'next':'원본을 복구했습니다. workspace_read(query) → workspace_edit → agent_source_publish로 현재 요청을 이어가세요.'}
 
 
 def publish_source(session_id,path):
@@ -146,6 +170,7 @@ def publish_source(session_id,path):
         if len(relative.parts)!=1:raise ValueError('앱 원본은 source 바로 아래 파일이어야 합니다.')
         name=relative.name
         raw=_read(workspace/'source'/name,self_edit.MAX_BYTES)
+        if not raw.strip():raise ValueError('앱 작업 사본이 비어 있습니다. workspace_read의 현재 해시로 workspace_restore한 뒤 수정하세요. 실제 앱 원본은 바꾸지 않았습니다.')
         baseline=data['sources'].get(name)
         if not baseline and (name in self_edit.ALLOWED or (ROOT/name).exists()):
             raise ValueError('현재 원본의 작업 기준이 없습니다. 작업 사본을 다시 준비하세요.')

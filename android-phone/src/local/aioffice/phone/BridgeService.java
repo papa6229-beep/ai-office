@@ -42,13 +42,14 @@ public class BridgeService extends Service {
                 }
                 for(int i=0;i<notifications.length();i++)combined.put(notifications.getJSONObject(i));
                 long sequence=prefs.getLong("sequence",0)+1;prefs.edit().putLong("sequence",sequence).commit();
-                state.put("notifications",combined).put("protocol",1).put("sequence",sequence).put("acks",acks);
+                state.put("notifications",combined).put("protocol",2).put("sequence",sequence).put("acks",acks);
                 usedToken=token;
                 JSONObject response=Transport.request(prefs.getString("host",""),prefs.getString("pin",""),"/v1/sync",token,state);
                 Store.delivered(this,"events",combined,"revision");Store.delivered(this,"acks",acks,"id");
                 JSONArray commands=response.getJSONArray("commands");
                 for(int i=0;i<commands.length();i++){
-                    JSONObject command=commands.getJSONObject(i);String result=listener.dismiss(command.getString("key"),command.getString("revision"));
+                    JSONObject command=commands.getJSONObject(i);
+                    String result="reply".equals(command.optString("kind"))?listener.reply(command):listener.dismiss(command.getString("key"),command.getString("revision"));
                     Store.add(this,"acks",new JSONObject().put("id",command.getString("id")).put("state",result),"id");
                 }
                 Store.status(this,"PC 직접 연결됨 · 알림 "+notifications.length()+"개 동기화 중");

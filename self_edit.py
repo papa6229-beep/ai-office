@@ -27,20 +27,21 @@ MAX_TEXT = 12000
 # files, tests, diagnostics, and this module/restart boundary itself.
 ALLOWED = frozenset('''adobe_preview.py app.py assistant_extensions.py assistant_model.py
 assistant_runtime.py assistant_tools.py assistant_voice.py browser_bookmarks.py
-browser_workspace.py browser_controls.py desktop_control.py capabilities.py chat_launcher.py chat_stream.py codex_bridge.py
+browser_workspace.py browser_controls.py ego_workspace.py ego_runner.mjs office_fastlane.py fastlane_tools.py desktop_control.py capabilities.py chat_launcher.py chat_stream.py codex_bridge.py
 content_analysis.py desktop_collections.py desktop_judgment.py desktop_preferences.py
 desktop_recovery.py desktop_workspace.py document_reader.py file_executor.py
 file_workspace.py lmstudio_runtime.py local_content_review.py local_image_review.py
 model_connections.py provider_cli.py model_requests.py office_weather.py office_notifications.py notification_capture.py notification_reply.py phone_link_runtime.py organizer_lab.py organizer_policy.py
-project_intelligence.py quick_launcher.py scanner.py streamdock_import.py
+project_intelligence.py project_catalog.py project_profiles.py ai-projects.js ai-projects.css quick_launcher.py scanner.py streamdock_import.py
 system_settings.py updater.py windows_actions.py windows_app_catalog.py
 windows_workspace.py work_assistant.py work_stage.py workspace_insights.py
-attachment_tools.py work_attachments.py companion_assets.py office_context.py office_journal.py
+attachment_tools.py work_attachments.py companion_assets.py office_context.py office_journal.py material_links.py
 desk-collections.js desk-judgment.js desk-organizer.js desk-policy.js desk.js
 model-connections.js model-connections.css workambient.js workdesk.js workstage.js work-notifications.js work-notifications.css work-observer.js desk.css retro.css workambient.css
-workdesk.css workstage.css first-release.html index.html workdesk.html'''.split())
+workdesk.css workstage.css work-jobs.js work-jobs.css design-team.js design-team.css design-team-dashboard.js design-team-dashboard.css design_team.py first-release.html index.html workdesk.html
+office_feedback.py workspace_tools.py agent_workspace.py report_automation.py office_routines.py desktop_chat_bridge.py desktop_chat_mirror.py received_files.py received-files.js received-files.css messenger_attachments.py messenger_attachment_worker.py messenger-attachments.js file_history.py work_log.py work-log.js work-log.css messenger_conversations.py'''.split())
 MANAGED = ROOT / 'local_backups' / 'codex-agent-state' / 'managed-sources.json'
-PROTECTED = frozenset({'self_edit.py','office_reload.py','agent_workspace.py','agent_state.py','office_feedback.py','workspace_tools.py','direct_phone.py','claude_office_agent.py','office_mcp_stdio.py','task_control.py','credential_vault.py'})
+PROTECTED = frozenset({'self_edit.py','office_reload.py','agent_state.py','direct_phone.py','claude_office_agent.py','office_mcp_stdio.py','task_control.py','credential_vault.py','file_operations.py','file_transfer.py'})
 
 
 def _valid_new_name(name):
@@ -193,14 +194,14 @@ def _syntax(name, raw):
         try: ast.parse(text, filename=name)
         except (SyntaxError, ValueError): raise ValueError('Python 구문 오류가 있어 적용하지 않았습니다.') from None
         return 'python_ast'
-    if name.endswith('.js'):
+    if name.endswith(('.js','.mjs')):
         node = shutil.which('node')
         # The bundled runtime is a fixed executable location, never model input.
         bundled = pathlib.Path.home() / '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe'
         if not node and bundled.is_file(): node = str(bundled)
         if node:
             _backup_root()
-            fd, temporary = tempfile.mkstemp(prefix='syntax-', suffix='.js', dir=str(BACKUPS))
+            fd, temporary = tempfile.mkstemp(prefix='syntax-', suffix='.mjs' if name.endswith('.mjs') else '.js', dir=str(BACKUPS))
             try:
                 with os.fdopen(fd, 'wb') as stream: stream.write(raw)
                 result = subprocess.run([node, '--check', temporary], capture_output=True, timeout=10,
@@ -223,7 +224,11 @@ def _record(change_id):
     info = _unlinked(path)
     if info.st_size > 8192: raise ValueError('변경 이력이 올바르지 않습니다.')
     data = json.loads(path.read_text(encoding='utf-8'))
-    if data.get('change_id') != change_id or data.get('path') not in source_names():
+    if data.get('direct_project'):
+        import live_project
+        valid=live_project.valid_name(data.get('path'))
+    else:valid=data.get('path') in source_names()
+    if data.get('change_id') != change_id or not valid:
         raise ValueError('변경 이력이 올바르지 않습니다.')
     return folder, data
 
@@ -241,7 +246,7 @@ def history():
         return sorted(rows, key=lambda r:r['created'], reverse=True)[:50]
 
 
-def _write_change(name, before, after, *, rollback_of=None, creating=False, deleting=False):
+def _write_change(name, before, after, *, rollback_of=None, creating=False, deleting=False,direct_project=False,already_applied=False):
     validation = _syntax(name, after)
     _backup_root()
     change_id = uuid.uuid4().hex
@@ -252,18 +257,34 @@ def _write_change(name, before, after, *, rollback_of=None, creating=False, dele
                 'before_sha256':_hash(before), 'sha256':_hash(after), 'status':'prepared',
                 'kind':'backend' if name.endswith('.py') else 'frontend', 'validation':validation,
                 'created_file':creating,'deleted_file':deleting}
+    if direct_project:metadata['direct_project']=True
     if rollback_of: metadata['rollback_of'] = rollback_of
     _atomic(folder / 'before.bin', before)
     _atomic(folder / 'change.json', json.dumps(metadata, ensure_ascii=False).encode('utf-8'))
     path = ROOT / name
-    if creating:
+    if already_applied:
+        import live_project
+        if not direct_project or not live_project.valid_name(name):raise ValueError('실제 프로젝트 개발 기록을 확인하세요.')
+        if deleting:
+            if path.exists():raise ValueError('삭제 후 다른 소스가 생성되어 기록을 중단했습니다.')
+        elif live_project.load(name)[1]!=after:raise ValueError('개발 결과가 이후 편집으로 바뀌었습니다.')
+    elif direct_project:
+        import live_project
+        if not live_project.valid_name(name):raise ValueError('개발 소스 경로를 확인하세요.')
+        if creating:
+            if path.exists():raise ValueError('같은 위치에 다른 소스가 있습니다.')
+            import agent_workspace
+            agent_workspace._directory(path.parent)
+        elif live_project.load(name)[1]!=before:raise ValueError('이후 편집이 있어 복원하지 않았습니다.')
+    elif creating:
         _unlinked(ROOT,directory=True)
         if path.exists() or path.is_symlink(): raise ValueError('동일한 원본 이름이 이미 있습니다.')
         _register_name(name)
     else:
         path, current, _ = _load(name)
         if current != before: raise ValueError('다른 편집으로 원본이 바뀌었습니다. 다시 읽고 수정하세요.')
-    if deleting:
+    if already_applied:pass
+    elif deleting:
         path.unlink()
     elif creating:
         # Publish complete bytes without clobbering a concurrently created file.
@@ -280,7 +301,7 @@ def _write_change(name, before, after, *, rollback_of=None, creating=False, dele
     _atomic(folder / 'change.json', json.dumps(metadata, ensure_ascii=False).encode('utf-8'))
     diff = ''.join(difflib.unified_diff(before.decode('utf-8').splitlines(keepends=True),
                    after.decode('utf-8').splitlines(keepends=True), fromfile=name+' (before)', tofile=name+' (saved)'))
-    return {'source_change':{k:metadata[k] for k in ('change_id','path','kind','sha256','status')},
+    return {'source_change':{k:metadata[k] for k in ('change_id','path','kind','sha256','status','direct_project','deleted_file') if k in metadata},
             'validation':validation,
             'artifact':{'id':change_id, 'kind':'code', 'language':'diff', 'origin':'applied',
                         'title':name+' · 원본 저장됨', 'text':diff[:12000], 'truncated':len(diff)>12000}}
@@ -327,8 +348,11 @@ def rollback(selection):
             if (ROOT/data['path']).exists(): raise ValueError('삭제 이후 생성된 원본은 덮어쓰지 않습니다.')
             before=(folder/'before.bin').read_bytes()
             if _hash(before)!=data['before_sha256']:raise ValueError('백업 무결성을 확인할 수 없습니다.')
-            return _write_change(data['path'],b'',before,rollback_of=data['change_id'],creating=True)
-        _, current, _ = _load(data['path'])
+            return _write_change(data['path'],b'',before,rollback_of=data['change_id'],creating=True,direct_project=data.get('direct_project',False))
+        if data.get('direct_project'):
+            import live_project
+            _,current=live_project.load(data['path'])
+        else:_, current, _ = _load(data['path'])
         if _hash(current) != data['sha256']:
             raise ValueError('이후 변경이 있어 자동으로 덮어쓰지 않습니다. 현재 원본을 다시 확인하세요.')
         before_path = folder / 'before.bin'
@@ -336,7 +360,7 @@ def rollback(selection):
         if info.st_size > MAX_BYTES: raise ValueError('백업 크기가 올바르지 않습니다.')
         before = before_path.read_bytes()
         if _hash(before) != data['before_sha256']: raise ValueError('백업 무결성을 확인할 수 없습니다.')
-        return _write_change(data['path'], current, before, rollback_of=data['change_id'],deleting=bool(data.get('created_file')))
+        return _write_change(data['path'], current, before, rollback_of=data['change_id'],deleting=bool(data.get('created_file')),direct_project=data.get('direct_project',False))
 
 
 def restore_changes(change_ids):

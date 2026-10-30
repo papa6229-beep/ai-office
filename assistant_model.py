@@ -60,9 +60,13 @@ def call(messages, tools, settings, *, output_schema=None):
         return codex_bridge.call(messages, tools, settings, output_schema=output_schema)
     if settings.get('api_type') in {'gemini','claude'}:
         import provider_cli
+        import execution_router
+        execution_router.model_call(settings['api_type'],settings.get('gemma_model'))
         with model_requests.request_slot(background=settings.get('_judgment_background') is True):
             return provider_cli.call(_messages(messages,'ollama'),tools,settings,output_schema)
     lmstudio_runtime.ensure_ready(settings)
+    import execution_router
+    execution_router.model_call('local',settings.get('gemma_model'))
     managed = lmstudio_runtime.is_managed(settings)
     try:
         base = validate_endpoint(settings.get('gemma_url', ''))

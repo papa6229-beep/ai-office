@@ -6,6 +6,7 @@ user's permissions: its cwd is not an OS filesystem sandbox.
 import base64
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -53,14 +54,24 @@ def listing(session_id, section='source'):
     return {'files':rows, 'truncated':False}
 
 
-def read(session_id, path, offset=0, length=10000):
+def read(session_id, path, offset=0, length=10000, query=''):
     workspace.prepare(session_id)
     target = _path(session_id, path)
     raw = workspace._read(target, self_edit.MAX_BYTES)
     try:text = raw.decode('utf-8-sig')
     except UnicodeDecodeError:raise ValueError('바이너리 파일입니다. 이미지는 workspace_image, 문서는 첨부 도구나 코드로 처리하세요.') from None
-    return {'path':path, 'sha256':self_edit._hash(raw), 'offset':offset,
-            'text':text[offset:offset+length], 'total_chars':len(text), 'truncated':offset+length<len(text)}
+    found=text.casefold().find(query.casefold(),offset) if query else -1
+    start=max(0,found-300) if found>=0 else offset
+    return {'path':path, 'sha256':self_edit._hash(raw), 'offset':start,
+            'text':text[start:start+length], 'total_chars':len(text), 'truncated':start+length<len(text),
+            'next_offset':start+length if start+length<len(text) else None,
+            'query_found':found>=0 if query else None}
+
+
+def _content(path,raw):
+    if path.split('/',1)[0]=='source' and not raw.strip():
+        raise ValueError('앱 작업 사본은 빈 내용으로 저장할 수 없습니다. 이미 비어 있다면 workspace_restore로 현재 앱 원본을 복구하세요.')
+    if len(raw)>self_edit.MAX_BYTES:raise ValueError('파일 크기 제한을 넘었습니다.')
 
 
 def write(session_id, path, content, expected_sha256=None):
@@ -68,7 +79,7 @@ def write(session_id, path, content, expected_sha256=None):
         workspace.prepare(session_id)
         target = _path(session_id, path, writing=True)
         raw = content.encode('utf-8')
-        if len(raw)>self_edit.MAX_BYTES:raise ValueError('파일 크기 제한을 넘었습니다.')
+        _content(path,raw)
         if target.exists():
             old = workspace._read(target, self_edit.MAX_BYTES)
             if expected_sha256!=self_edit._hash(old):
@@ -77,6 +88,30 @@ def write(session_id, path, content, expected_sha256=None):
         self_edit._atomic(target, raw)
         return {'path':path, 'sha256':self_edit._hash(raw), 'size':len(raw),
                 'published':False, 'next':'source는 agent_source_publish, 결과물은 agent_output_publish로 게시하세요.'}
+
+
+def edit(session_id,path,expected_sha256,old_text,new_text):
+    """Replace one observed, unique fragment without returning the whole file."""
+    if not old_text:raise ValueError('workspace_read에서 확인한 비어 있지 않은 수정 구간을 사용하세요.')
+    with workspace.LOCK:
+        workspace.prepare(session_id)
+        target=_path(session_id,path,writing=True)
+        before=workspace._read(target,self_edit.MAX_BYTES)
+        if self_edit._hash(before)!=expected_sha256:raise ValueError('작업 사본이 바뀌었습니다. workspace_read로 필요한 구간과 현재 해시를 다시 읽으세요.')
+        text=before.decode('utf-8')
+        # Model JSON often uses LF even when the observed Windows file uses CRLF.
+        pattern=r'\r?\n'.join(re.escape(part) for part in old_text.replace('\r\n','\n').split('\n'))
+        matches=[]
+        for match in re.finditer(pattern,text):
+            matches.append(match)
+            if len(matches)>1:break
+        if len(matches)!=1:raise ValueError('수정 구간이 없거나 여러 곳입니다. workspace_read의 query로 문맥을 좁혀 고유한 구간을 선택하세요. 파일은 바꾸지 않았습니다.')
+        match=matches[0];replacement=new_text.replace('\r\n','\n')
+        if '\r\n' in text:replacement=replacement.replace('\n','\r\n')
+        after=(text[:match.start()]+replacement+text[match.end():]).encode('utf-8');_content(path,after)
+        self_edit._atomic(target,after)
+        return {'path':path,'sha256':self_edit._hash(after),'size':len(after),'replacements':1,'published':False,
+                'next':'필요한 구간을 확인하고 source는 agent_source_publish로 게시하세요.'}
 
 
 def image(session_id, path, question, vision_model):

@@ -45,7 +45,7 @@ def profiles(settings):
                       gemma_model='google/gemma-4-e4b', vision_model='google/gemma-4-e4b',
                       api_key='', timeout=120, lmstudio_auto_start=True),
     }
-    for provider,model in [('gemini',''),('claude','haiku')]:
+    for provider,model in [('gemini',''),('claude','sonnet')]:
         result[provider]=dict(api_type=provider,gemma_url='',gemma_model=model,vision_model='',api_key='',timeout=120,lmstudio_auto_start=False)
     saved = settings.get('model_profiles', {})
     if isinstance(saved, dict):
@@ -189,6 +189,8 @@ def connection_facts(settings):
 
 
 def snapshot(settings):
+    import desktop_chat_bridge
+    desktop=desktop_chat_bridge.public_status()
     with LOCK:
         observed = _observations.get('observations', {})
         active = active_id(settings)
@@ -199,7 +201,7 @@ def snapshot(settings):
                 ['대화', '연결됨' if runnable else '어댑터 연결 필요'],
                 ['오피스·브라우저·PC 도구', ('공통 도구 연결됨' if native else '공통 도구 경로 있음 · 모델 동작 미확인') if runnable else '공통 도구 연결 필요'],
                 ['알림·업무·보고서', '같은 오피스 도구·기록 사용'],
-                ['파일 수정·코드 실행', '공통 작업 사본·수정·실행·게시 연결됨'],
+                ['파일 수정·코드 실행', '실제 프로젝트 개발 · Sol High' if native else '공통 작업 사본·수정·실행·게시 연결됨'],
                 ['이미지 이해', '이미지 입력 연결됨 · 실제 모델 지원 확인 필요' if key!='local' else '이미지 경로 연결됨 · 선택한 로컬 모델 지원 필요'],
             ]
             cards.append({'id': key, 'title': title, 'billing': billing,
@@ -207,9 +209,14 @@ def snapshot(settings):
                           'readiness': observed.get(key, {'text': '준비 상태 확인 전'}),
                           'capabilities': capabilities,
                           'login_available':key in {'gemini','claude'},
-                          'note': ('낮은 추론 · Standard · 요청할 때만 호출' if native else
+                          'note': ('개발: 6.1 Sol High · 일반 판단: Luna Low · 등록 반복 업무: 코드 실행' if native else
                                    '모델 목록 확인은 로드·응답·도구 성공 확인과 달라요.' if key == 'local' else
                                    '구독 CLI · 에이메스 공통 도구·이미지·작업 파일 연결됨 · 실제 모델의 수행 능력은 확인 필요')})
+            if native and desktop['enabled']:
+                cards[-1].update(title='Codex · 현재 개발 대화',
+                    note='에이메스 입력과 답변을 연결한 Codex 대화에서 주고받아요. Codex 앱이 실행 중이어야 해요. 앱의 현재 모델·사용량을 사용하며 등록 반복 업무는 코드로 처리해요.',
+                    capabilities=[['대화','현재 Codex 개발 대화에 연결'],['파일·브라우저·오피스','연결한 개발 대화의 실제 실행 환경 사용'],['알림·업무·보고서','오피스 기록·등록 코드 실행 유지'],['모델·추론 설정','Codex 앱의 현재 대화 설정 유지']],
+                    readiness={'text':'연결 확인됨' if desktop['available'] else 'Codex 앱 연결 대기' if desktop['available'] is False else '현재 개발 대화 연결 설정됨'})
         return {'active': active, 'providers': cards, 'checked_at': _observations.get('checked_at'),
                 'uses_ai': False, 'automatic_fallback': False,
                 'local_model': profiles(settings)['local']['gemma_model']}

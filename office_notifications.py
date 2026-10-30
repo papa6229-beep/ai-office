@@ -6,11 +6,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import uuid
 
 ROOT=Path(__file__).resolve().parent
@@ -18,6 +20,23 @@ _guard=threading.Lock()
 _SCHEMA_LOCK=threading.Lock()
 _ACTION_LOCK=threading.Lock()
 _service=None
+
+ALLOWED_SOURCE_ALIASES=(
+    ('messages','message','androidmessages','문자','메시지','메세지','sms'),
+    ('between','비트윈'),
+    ('kakaotalk','kakao','카카오톡','카카오'),
+    ('hanbiro','한비로'),
+    ('nateon','nate on','네이트온'),
+    ('danggeun','karrot','당근마켓','당근'),
+    ('coupang','쿠팡'),
+)
+
+def source_allowed(source):
+    if not isinstance(source,str):return False
+    normalized=unicodedata.normalize('NFKC',source).casefold()
+    normalized=re.sub(r'[\W_]+','',normalized)
+    return any(re.sub(r'[\W_]+','',unicodedata.normalize('NFKC',alias).casefold()) in normalized
+               for group in ALLOWED_SOURCE_ALIASES for alias in group)
 
 @contextlib.contextmanager
 def _db(path):
@@ -89,12 +108,12 @@ def ingest(db,event):
     source=_text(event.get('source',''),160)
     title=_text(event.get('title',''),400)
     body=_text(event.get('body',''),12000)
-    if not source or not (title or body):return
+    if not source or not (title or body) or not source_allowed(source):return
     digest=hashlib.sha256(json.dumps([source,title,body],ensure_ascii=False).encode()).hexdigest()
     now=time.time()
     event_key=event.get('event_key')
     if event_key is not None and (not isinstance(event_key,str) or not 1<=len(event_key)<=200):return
-    origin=event.get('origin') if event.get('origin') in {'phone_link_panel','native_between_banner'} else 'windows_banner'
+    origin=event.get('origin') if event.get('origin') in {'phone_link_panel','native_between_banner','codex_task'} else 'windows_banner'
     with _db(db) as c:
         c.execute('BEGIN IMMEDIATE')
         if event_key:
@@ -119,7 +138,7 @@ def _phone_action(payload,timeout=25):
     return data
 
 
-def confirm(db,identifier=None,through=None):
+def confirm(db,identifier=None,through=None,*,mark_local=True):
     service=start(db)
     with _ACTION_LOCK:
         with _db(db) as c:
@@ -127,12 +146,20 @@ def confirm(db,identifier=None,through=None):
                 if not isinstance(identifier,str) or len(identifier)!=32:raise ValueError('알림을 다시 선택해 주세요.')
                 rows=c.execute('SELECT * FROM office_notifications WHERE id=?',(identifier,)).fetchall()
             elif type(through) in (int,float) and 0<through<=time.time()+5:
-                rows=c.execute("SELECT * FROM office_notifications WHERE superseded_by IS NULL AND COALESCE(ingested,received)<=? AND (confirmed IS NULL OR phone_sync IN ('local_only','unavailable','pending')) ORDER BY COALESCE(ingested,received) DESC,received DESC LIMIT 80",(through,)).fetchall()
+                rows=c.execute("SELECT * FROM office_notifications WHERE superseded_by IS NULL AND COALESCE(ingested,received)<=? AND (confirmed IS NULL OR (origin='android_direct' AND source_state='present')) ORDER BY COALESCE(ingested,received) DESC,received DESC",(through,)).fetchall()
             else:raise ValueError('확인할 알림 범위를 다시 불러와 주세요.')
             if identifier and not rows:raise ValueError('알림을 찾지 못했어요.')
-            items=[dict(row) for row in rows]
+            items=[dict(row) for row in rows if source_allowed(row['source'])]
+            if identifier and not items:raise ValueError('허용 목록에 없는 알림이에요.')
+            local_summary=None
+            if identifier is None and mark_local:
+                import notification_conversations
+                local_summary=notification_conversations.read_all(c,through)
             for item in items:
-                c.execute("UPDATE office_notifications SET confirmed=COALESCE(confirmed,?),phone_sync='pending' WHERE id=?",(time.time(),item['id']))
+                if mark_local:
+                    c.execute("UPDATE office_notifications SET confirmed=COALESCE(confirmed,?),phone_sync='pending' WHERE id=?",(time.time(),item['id']))
+                else:
+                    c.execute("UPDATE office_notifications SET phone_sync='pending' WHERE id=?",(item['id'],))
         results=[]
         if items:
             direct=[item for item in items if item['origin']=='android_direct']
@@ -145,12 +172,14 @@ def confirm(db,identifier=None,through=None):
                     if state=='pending':continue  # A fast phone acknowledgment may already have completed.
                     c.execute('UPDATE office_notifications SET phone_sync=? WHERE id=?',(state,item['id']))
         data=snapshot(db)
+        if local_summary is not None:data['confirmed_all']=local_summary
         counts={key:sum(row.get('state')==key for row in results) for key in ('dismissed','not_present','unsupported','unavailable','pending','local_only')}
         data['sync_summary']=counts
         data['confirmation_message']=('오피스에서 확인했어요. 휴대폰이 실제 정리 결과를 보내면 동기화 상태가 바뀌어요.' if counts['pending'] else
             '오피스에서 확인했어요. 일부 휴대폰 알림 정리는 아직 연결되지 않았어요. 해당 카드에서 다시 확인할 수 있어요.' if counts['unavailable'] else
             '오피스와 휴대폰의 해당 알림을 정리했어요. 메신저 대화의 읽음 상태와는 별개예요.' if counts['dismissed'] else
             '확인했어요. 해당 원본 알림은 이미 없거나 현재 휴대폰 동기화 대상이 아니에요.')
+        if not mark_local:data['confirmation_message']='휴대폰 알림 삭제를 요청했어요. 원본이 실제로 사라진 뒤 오피스 상태에도 반영해요. 메신저 읽음 처리는 아니에요.'
         return data
 
 
@@ -159,18 +188,29 @@ def get(db,identifier):
     with _db(db) as c:
         row=c.execute('SELECT id,source,title,body,received,ingested,confirmed,origin,phone_sync,event_key,source_state FROM office_notifications WHERE id=?',(identifier,)).fetchone()
     if row is None:raise ValueError('알림을 찾지 못했어요. 목록을 새로 불러와 주세요.')
+    if not source_allowed(row['source']):raise ValueError('허용 목록에 없는 알림이에요.')
     return dict(row)
 
 
 def snapshot(db):
     through=time.time()
     with _db(db) as c:
-        rows=c.execute('SELECT id,source,title,body,received,ingested,confirmed,origin,phone_sync,source_state FROM office_notifications WHERE superseded_by IS NULL AND COALESCE(ingested,received)<=? ORDER BY COALESCE(ingested,received) DESC,received DESC,rowid DESC LIMIT 80',(through,)).fetchall()
-        unread=c.execute('SELECT count(*) FROM office_notifications WHERE confirmed IS NULL AND superseded_by IS NULL').fetchone()[0]
+        rows=c.execute('SELECT id,source,title,body,received,ingested,confirmed,origin,phone_sync,source_state FROM office_notifications WHERE superseded_by IS NULL AND COALESCE(ingested,received)<=? ORDER BY COALESCE(ingested,received) DESC,received DESC,rowid DESC LIMIT 4000',(through,)).fetchall()
+        unread_rows=c.execute('SELECT source FROM office_notifications WHERE confirmed IS NULL AND superseded_by IS NULL').fetchall()
+        import notification_conversations
+        conversations=notification_conversations.summaries(c)
+        support=notification_conversations.support(c)
+    rows=[dict(row) for row in rows if source_allowed(row['source'])][:80]
+    for row in rows:
+        row['needs_confirmation']=row['confirmed'] is None
+        row['needs_sync']=bool(row['confirmed'] is not None and row['origin']=='android_direct' and row['source_state']=='present')
+    unread_messages=sum(source_allowed(row['source']) and not notification_conversations.messenger(row['source']) for row in unread_rows)+sum(row['unread'] for row in conversations)
+    unread=sum(row['needs_confirmation'] and not notification_conversations.messenger(row['source']) for row in rows)+sum(row['needs_confirmation'] for row in conversations)
     service=_service
     status=service.status() if service else {'state':'stopped','message':'알림 수신기를 준비하고 있어요.'}
-    return {'items':[dict(row) for row in rows],'unread':unread,'through':through,'receiver':status,
-            'scope':'휴대폰 연결 앱이 직접 전달한 알림을 보관해요. 확인 완료는 휴대폰 알림 정리이며 메신저 대화의 읽음 상태와는 별개예요. 인증문자 등 민감한 내용은 Android 권한·보호 정책에 따라 가려질 수 있어요.' if status.get('mode')=='android_direct' else 'Phone Link에 전달된 알림과 지원 PC 배너를 수집해요. 메신저 앱 안의 전체 미확인 대화 개수와는 달라요.'}
+    return {'items':[dict(row) for row in rows],'conversations':conversations,'reply_support':support,'message_preview_version':1,
+            'unread':unread,'unread_messages':unread_messages,'unread_basis':'office_unconfirmed_cards','through':through,'receiver':status,
+            'scope':'숫자는 오피스에서 아직 확인하지 않은 대화·알림 수예요. 확인 완료는 오피스에 즉시 기록하고 휴대폰 알림 정리·지원되는 PC 읽음 동기화도 요청해요. 기기의 실제 동기화 대기·실패는 별도 표시해요.'}
 
 
 def wait_for(db,after,source='',seconds=20):
@@ -186,6 +226,7 @@ def wait_for(db,after,source='',seconds=20):
         through=time.time()
         with _db(db) as c:
             rows=c.execute('SELECT id,source,title,received,ingested,confirmed,phone_sync,source_state FROM office_notifications WHERE superseded_by IS NULL AND COALESCE(ingested,received)>? AND COALESCE(ingested,received)<=? AND instr(lower(source),lower(?))>0 ORDER BY COALESCE(ingested,received) DESC,received DESC,rowid DESC LIMIT 80',(after,through,source)).fetchall()
+        rows=[row for row in rows if source_allowed(row['source'])]
         if rows or time.monotonic()>=deadline:break
         time.sleep(min(1,max(0,deadline-time.monotonic())))
     service=_service

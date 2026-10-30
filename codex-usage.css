@@ -1,0 +1,29 @@
+.codex-usage-widget{--usage-color:#bce568;margin:12px 3px 16px;padding:12px;border:1px solid #424a3b;border-radius:12px;background:#191d19;color:#e6eddf;flex-shrink:0}
+.codex-usage-heading{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.codex-usage-title{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800}
+.codex-usage-mark{color:var(--usage-color);font-size:16px;font-weight:900}
+.codex-usage-refresh{width:25px;height:25px;padding:0!important;border:1px solid #3b4638!important;border-radius:7px!important;background:transparent!important;color:#c7d6b9!important;font-size:17px!important;line-height:1;box-shadow:none!important}
+.codex-usage-refresh:focus-visible{outline:2px solid #c4f36d;outline-offset:2px}
+.codex-usage-refresh:disabled{opacity:.45;cursor:wait}
+.codex-usage-gauge{position:relative;width:112px;height:112px;margin:10px auto 4px;display:grid;place-items:center;color:var(--usage-color)}
+.codex-usage-gauge svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg);overflow:visible}
+.codex-usage-gauge circle{fill:none;stroke-width:7}
+.codex-usage-track{stroke:#343c31}
+.codex-usage-arc{stroke:var(--usage-color);stroke-linecap:round;stroke-dasharray:var(--remaining,0) 100;transition:stroke-dasharray .4s ease}
+.codex-usage-center{text-align:center}
+.codex-usage-value{display:block;font-size:32px;line-height:1.15;font-weight:800;letter-spacing:-1.5px;font-variant-numeric:tabular-nums}
+.codex-usage-value small{font-size:14px;letter-spacing:0;margin-left:2px}
+.codex-usage-period{display:block;margin-top:4px;font-size:10px;color:#c3cfbb}
+.codex-usage-status{margin-top:8px;color:#b8c5af;font-size:10px;line-height:1.5;text-align:center;overflow-wrap:anywhere}
+.codex-usage-reset{margin-top:5px;color:#a0ad98;font-size:9px;line-height:1.5;text-align:center}
+.codex-usage-window{margin-top:12px}
+.codex-usage-window-label{display:flex;justify-content:space-between;gap:6px;margin-bottom:5px;color:#bec8b8;font-size:10px}
+.codex-usage-window-label b{color:#eff7e7;font-variant-numeric:tabular-nums}
+.codex-usage-meter{height:5px;overflow:hidden;border-radius:8px;background:#343c31}
+.codex-usage-meter span{display:block;height:100%;border-radius:inherit;background:#bce568}
+.codex-usage-foot{margin-top:10px;color:#a0ad98;font-size:9px;line-height:1.4;text-align:center}
+.codex-usage-widget[data-state="low"]{--usage-color:#f29a8c}
+.codex-usage-widget[data-state="warning"]{--usage-color:#f0cd77}
+.codex-usage-widget[data-state="loading"],.codex-usage-widget[data-state="unavailable"]{--usage-color:#a0ad98}
+@media(max-width:700px){.codex-usage-widget{width:205px;margin:0 5px;align-self:center}}
+@media(prefers-reduced-motion:reduce){.codex-usage-arc{transition:none}}

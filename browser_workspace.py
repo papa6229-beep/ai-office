@@ -9,6 +9,7 @@ import queue
 import re
 import threading
 import uuid
+import urllib.request
 from urllib.parse import urlsplit, urlunsplit
 
 from content_analysis import SECRET_ASSIGNMENT, SECRET_XML
@@ -176,6 +177,8 @@ class BrowserWorkspace:
         self._queue = queue.Queue(maxsize=32)
         self._pages = {}
         self._snapshots = {}
+        self._tab_titles = {}
+        self._dialogs = {}
         self._context = None
         self._playwright = None
         self._closed = False
@@ -185,7 +188,16 @@ class BrowserWorkspace:
 
     def _worker(self):
         while True:
-            item = self._queue.get()
+            # All requests are intercepted on this same Playwright thread.
+            # Blocking on Queue.get indefinitely also freezes human navigation.
+            if self._context is not None:
+                try:
+                    pages = self._context.pages
+                    if pages:pages[0].wait_for_timeout(25)
+                except Exception:
+                    pass
+            try:item = self._queue.get(timeout=.05 if self._context is not None else None)
+            except queue.Empty:continue
             if item is None:
                 self._cleanup()
                 return
@@ -260,6 +272,7 @@ class BrowserWorkspace:
                 self._playwright = sync_playwright().start()
             self._context = self._playwright.chromium.launch_persistent_context(
                 str(self.profile_root), channel='chrome', headless=self.headless,
+                args=['--remote-debugging-port=0','--remote-debugging-address=127.0.0.1'],
                 viewport={'width': 1440, 'height': 1000} if self.headless else None,
                 no_viewport=not self.headless, accept_downloads=False,
                 service_workers='block')
@@ -275,6 +288,8 @@ class BrowserWorkspace:
             self._context.set_default_timeout(15000)
             self._context.set_default_navigation_timeout(20000)
             self._context.route('**/*', self._route)
+            import browser_dialogs
+            browser_dialogs.install(self, self._context)
             context = self._context
             context.on('close', lambda *_args: self._on_context_closed(context))
         except Exception:
@@ -287,6 +302,8 @@ class BrowserWorkspace:
         self._context = None
         self._pages.clear()
         self._snapshots.clear()
+        self._tab_titles.clear()
+        self._dialogs.clear()
         getattr(self,'_control_snapshots',{}).clear()
 
     def _route(self, route):
@@ -310,6 +327,9 @@ class BrowserWorkspace:
                 self._pages.pop(tab_id, None)
                 self._snapshots.pop(tab_id, None)
                 getattr(self,'_control_snapshots',{}).pop(tab_id,None)
+                self._tab_titles.pop(tab_id,None)
+                for ident, dialog in list(self._dialogs.items()):
+                    if dialog['page'] is page:self._dialogs.pop(ident,None)
         # A person can navigate a new tab in this dedicated window as well.
         # Adopt only supported pages; never attach to any other Chrome window.
         if self._context is not None:
@@ -330,10 +350,23 @@ class BrowserWorkspace:
             raise BrowserWorkspaceError('열린 사이트 목록에서 탭을 다시 선택하세요.')
         page = self._pages[tab_id]
         validate_url(page.url)
+        import browser_dialogs
+        if browser_dialogs.pending(self,page):
+            raise BrowserWorkspaceError('사이트 대화상자가 열려 있습니다. browser_tabs에서 대화상자 ref와 내용을 확인한 뒤 browser_dialog로 응답하세요.')
         return page
 
     def _meta(self, tab_id, page):
-        return {'tab_id': tab_id, 'title': _redact(page.title()[:300]), 'url': public_url(page.url),
+        import browser_dialogs
+        dialogs=browser_dialogs.pending(self,page)
+        title=self._tab_titles.get(tab_id,'사이트')
+        if not dialogs:
+            try:
+                title=_redact((page.locator('title').text_content(timeout=1500) or '')[:300])
+                self._tab_titles[tab_id]=title
+            except Exception:
+                dialogs=browser_dialogs.pending(self,page)
+        return {'tab_id': tab_id, 'title': title, 'url': public_url(page.url),
+                'blocked_by_dialog':bool(dialogs),'dialogs':dialogs,
                 'background':True,'headless':self.headless,'visible_window':not self.headless,
                 'session':'office_automation', 'shares_user_browser':False}
 
@@ -345,6 +378,49 @@ class BrowserWorkspace:
 
     def tabs(self):
         return self._dispatch('tabs')
+
+    def connection(self):return self._dispatch('connection')
+
+    def _do_connection(self):
+        self._ensure()
+        path=self.profile_root/'DevToolsActivePort'
+        try:
+            if path.is_symlink():raise ValueError()
+            port=int(path.read_text(encoding='utf-8').splitlines()[0])
+            if not 1<=port<=65535:raise ValueError()
+            endpoint='http://127.0.0.1:'+str(port)
+            with urllib.request.urlopen(endpoint+'/json/version',timeout=3) as response:
+                import json
+                metadata=json.loads(response.read(16000))
+            ws=urlsplit(metadata.get('webSocketDebuggerUrl',''))
+            if ws.hostname not in {'127.0.0.1','localhost'} or ws.port!=port:raise ValueError()
+        except Exception:
+            raise BrowserWorkspaceError('작업용 브라우저의 코드 연결 주소를 확인하지 못했습니다. 연결 상태를 먼저 확인하세요.') from None
+        return {'endpoint':endpoint,'engine':'chromium','session':'office_automation',
+            'scope':'현재 전용 작업용 Chrome만 연결합니다. 일반 사용자 Chrome은 대상이 아닙니다.',
+            'instructions':'Playwright chromium.connect_over_cdp(endpoint)로 기존 contexts[0]·실제 pages를 사용하세요. 새 브라우저/프로필을 띄우지 마세요. 브라우저 전체나 context를 닫지 말고 작업한 탭만 닫으세요. 일반 도구에 없는 DOM/폼/클릭·재조회는 같은 연결에서 코드로 처리할 수 있습니다. 사용자 요청 범위를 지키고 실제 저장 결과를 확인하세요.'}
+
+    def close_tab(self,tab_id):return self._dispatch('close_tab',tab_id)
+
+    def _do_close_tab(self,tab_id):
+        page=self._page(tab_id)
+        meta=self._meta(tab_id,page)
+        page.close(run_before_unload=False)
+        closed=page.is_closed()
+        self._prune()
+        return dict(meta,closed=closed,note='선택한 실제 작업용 탭만 닫았습니다. 다른 탭은 유지합니다.')
+
+    def dialog(self,ident,action):return self._dispatch('dialog',ident,action)
+
+    def status(self):return self._dispatch('status')
+
+    def _do_dialog(self,ident,action):
+        import browser_dialogs
+        return browser_dialogs.resolve(self,ident,action)
+
+    def _do_status(self):
+        import browser_dialogs
+        return browser_dialogs.status(self)
 
     def read(self, tab_id, query='', offset=0):
         return self._dispatch('read', tab_id, query, offset)
@@ -379,6 +455,12 @@ class BrowserWorkspace:
     def _do_inspect(self,tab_id,query=''):
         import browser_controls
         return browser_controls.inspect(self,tab_id,query)
+
+    def form(self,tab_id,query=''):return self._dispatch('form',tab_id,query)
+
+    def _do_form(self,tab_id,query=''):
+        import browser_controls
+        return browser_controls.read_form(self,tab_id,query)
 
     def _do_act(self,*args):
         import browser_controls

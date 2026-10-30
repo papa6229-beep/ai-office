@@ -1,0 +1,79 @@
+#department-manager{--dm-panel:var(--ao-panel,#1d2020);--dm-raised:var(--ao-raised,#252a25);--dm-line:var(--ao-border,#454c42);--dm-text:var(--ao-text,#f2f0e8);--dm-muted:var(--ao-muted,#b3b3ad);--dm-accent:var(--ao-accent,#b6f542);color:var(--dm-text);max-width:1360px;margin:auto}
+#department-manager .dm-heading,#department-manager .dm-team-heading{display:flex;justify-content:space-between;align-items:center;gap:20px;margin:0 0 20px}
+#department-manager h2{font-size:26px;line-height:1.3;margin:0 0 8px}#department-manager h3{font-size:22px;margin:0 0 8px}#department-manager h4{font-size:16px;margin:0 0 7px}
+#department-manager .dm-subtitle{color:var(--dm-muted);font-size:13px;line-height:1.6;margin:0;max-width:68ch}
+#department-manager .dm-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#department-manager button,.dm-dialog button{padding:9px 13px;border:1px solid transparent;border-radius:8px;background:var(--ao-accent,#b6f542);color:#171b12;font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer}
+#department-manager button.dm-secondary,.dm-dialog .dm-secondary{background:var(--ao-raised,#292d28);border-color:var(--ao-border,#454c42);color:var(--ao-text,#f2f0e8)}
+#department-manager button.dm-text-button{background:transparent;color:var(--dm-muted);font-weight:400;padding:8px}
+#department-manager button:focus-visible,#department-manager a:focus-visible,.dm-dialog button:focus-visible{outline:2px solid var(--ao-accent,#b6f542);outline-offset:3px}
+#department-manager .dm-link{color:var(--ao-accent-text,var(--dm-accent));font-size:12px;text-decoration:underline;text-underline-offset:3px}
+#department-manager .dm-notice{font-size:13px;min-height:20px;color:var(--dm-muted)}#department-manager .dm-notice[data-error=true]{color:var(--ao-red,#ff9e8a)}
+#department-manager .dm-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:22px;align-items:start}
+#department-manager .dm-roster{display:grid;gap:8px;position:sticky;top:20px}
+#department-manager .dm-team{display:flex;flex-direction:column;gap:9px;text-align:left;white-space:normal;background:transparent;border:1px solid var(--dm-line);color:var(--dm-text);padding:17px 16px;border-radius:10px}
+#department-manager .dm-team strong{font-size:15px}#department-manager .dm-team span{font-size:11px;color:var(--dm-muted);font-weight:400}
+#department-manager .dm-team[aria-current=true]{border-color:var(--dm-accent);background:var(--ao-accent-muted,#29351e);box-shadow:inset 3px 0 var(--dm-accent)}
+#department-manager .dm-detail{min-width:0;background:var(--dm-panel);border:1px solid var(--dm-line);border-radius:14px;padding:25px}
+#department-manager .dm-tabs{display:flex;gap:3px;border-bottom:1px solid var(--dm-line);margin:20px 0 16px;overflow:auto}
+#department-manager .dm-tabs button{background:transparent;color:var(--dm-muted);border-radius:0;border:0;border-bottom:2px solid transparent;padding:12px 15px}
+#department-manager .dm-tabs button[aria-pressed=true]{color:var(--dm-accent);border-bottom-color:var(--dm-accent)}
+#department-manager .dm-tools{display:flex;gap:18px;justify-content:space-between;align-items:center;margin:0 0 15px}
+#department-manager .dm-hint,.dm-dialog .dm-hint{font-size:12px;line-height:1.7;color:var(--ao-muted,#b3b3ad);max-width:68ch}
+#department-manager .dm-agent{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:20px 0;border-top:1px solid var(--dm-line)}
+#department-manager .dm-agent p{font-size:13px;color:var(--dm-muted);margin:0 0 8px;white-space:pre-wrap}#department-manager small{color:var(--dm-muted);font-size:11px}
+#department-manager .dm-resource{padding:18px 0;border-top:1px solid var(--dm-line)}#department-manager .dm-resource-heading{display:flex;gap:10px;align-items:baseline;justify-content:space-between}
+#department-manager .dm-state{font-size:11px;color:var(--dm-muted);border:1px solid var(--dm-line);border-radius:5px;padding:3px 6px}
+#department-manager .dm-content{font-size:13px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto;margin:12px 0}
+#department-manager .dm-path{font-size:12px;overflow-wrap:anywhere;color:var(--dm-muted)}#department-manager .dm-resource .dm-actions{margin-top:13px}
+#department-manager .dm-empty{font-size:13px;line-height:1.7;color:var(--dm-muted);padding:36px 4px;max-width:65ch}
+#department-manager .dm-footer{display:flex;gap:16px;flex-wrap:wrap;padding-top:22px;margin-top:20px;border-top:1px solid var(--dm-line);font-size:11px;color:var(--dm-muted)}
+.dm-dialog{width:min(640px,calc(100vw - 32px));max-height:86vh;overflow:auto;padding:26px;background:var(--ao-panel,#1d2020);color:var(--ao-text,#f2f0e8);border:1px solid var(--ao-accent,#b6f542);border-radius:14px;box-shadow:0 20px 80px #0008}
+.dm-dialog::backdrop{background:#0008}.dm-dialog header{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:24px}.dm-dialog h3{margin:0;font-size:20px}.dm-dialog button.dm-close{background:transparent;color:inherit;font-size:21px;padding:2px 8px}
+.dm-dialog .dm-field{display:flex;flex-direction:column;gap:8px;margin:0 0 18px;font-size:12px;color:var(--ao-muted,#b3b3ad)}
+.dm-dialog input,.dm-dialog select,.dm-dialog textarea{width:100%;background:var(--ao-raised,#292d28);color:var(--ao-text,#f2f0e8);border:1px solid var(--ao-border,#454c42);border-radius:7px;padding:11px;font:inherit;font-size:13px;box-sizing:border-box}.dm-dialog textarea{min-height:140px;resize:vertical;line-height:1.7}
+.dm-dialog .dm-form-error{color:var(--ao-red,#ff9e8a);font-size:12px;white-space:pre-wrap}.dm-dialog footer{display:flex;justify-content:flex-end;gap:8px;margin-top:22px}
+@media(max-width:1050px){#department-manager .dm-layout{grid-template-columns:190px minmax(0,1fr);gap:15px}#department-manager .dm-agent{align-items:flex-start;flex-direction:column}}
+@media(max-width:760px){#department-manager .dm-heading{align-items:flex-start;flex-direction:column}#department-manager .dm-layout{grid-template-columns:1fr}#department-manager .dm-roster{position:static;grid-template-columns:repeat(2,minmax(0,1fr))}#department-manager .dm-detail{padding:18px}#department-manager .dm-tools{align-items:flex-start;flex-direction:column}#department-manager .dm-team-heading{align-items:flex-start}}
+
+.dm-dialog footer{position:sticky;bottom:-26px;background:var(--ao-panel,#1d2020);padding:16px 0;margin-bottom:-10px;border-top:1px solid var(--ao-border,#454c42)}
+
+/* The journal uses the Office palette in both console and silver themes. */
+#department-manager .dm-journal-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#department-manager .dm-journal-filter{display:flex;gap:10px;align-items:center;font-size:12px;color:var(--dm-muted)}
+#department-manager .dm-journal-filter select{font:inherit;background:var(--dm-raised);color:var(--dm-text);border:1px solid var(--dm-line);border-radius:5px;padding:9px 30px 9px 10px;max-width:100%}
+#department-manager .dm-journal-filter select:focus-visible{outline:2px solid var(--dm-accent);outline-offset:2px}
+#department-manager .dm-journal-sync{font-size:11px;line-height:1.7;color:var(--dm-muted);margin:13px 0 22px;border-left:2px solid var(--dm-line);padding-left:10px;max-width:80ch}
+#department-manager .dm-journal-sync[data-error=true]{color:var(--ao-red,#ff9e8a)}
+#department-manager .dm-journal-layout{display:grid;grid-template-columns:minmax(250px,.85fr) minmax(280px,1.15fr);gap:24px;align-items:start}
+#department-manager .dm-calendar{border:1px solid var(--dm-line);border-radius:8px;padding:16px;background:var(--dm-raised)}
+#department-manager .dm-calendar-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:20px}
+#department-manager .dm-calendar-heading h4{font-size:17px;margin:0;font-variant-numeric:tabular-nums}
+#department-manager .dm-calendar-heading button{font-size:22px;line-height:1;padding:5px 10px}
+#department-manager .dm-calendar-weekdays,#department-manager .dm-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
+#department-manager .dm-calendar-weekdays{font-size:10px;text-align:center;color:var(--dm-muted);margin-bottom:8px}
+#department-manager button.dm-calendar-day{min-width:0;min-height:50px;display:flex;flex-direction:column;gap:5px;align-items:center;justify-content:flex-start;padding:8px 1px 4px;background:transparent;color:var(--dm-text);border:1px solid transparent;border-radius:5px;font-weight:400;font-variant-numeric:tabular-nums;white-space:normal}
+#department-manager .dm-calendar-day span{font-size:12px}#department-manager .dm-calendar-day small{font-size:9px;color:var(--ao-accent-text,var(--dm-accent))}
+#department-manager .dm-calendar-day[aria-current=date]{border-color:var(--dm-line);font-weight:800}
+#department-manager .dm-calendar-day:hover{background:var(--dm-panel);border-color:var(--dm-line)}
+#department-manager .dm-calendar-day[aria-pressed=true]{background:var(--dm-accent);border-color:var(--dm-accent);color:#171b12}
+#department-manager .dm-calendar-day[aria-pressed=true] small{color:#171b12}
+#department-manager .dm-calendar-footer{border-top:1px solid var(--dm-line);margin-top:12px;padding-top:12px;display:flex;justify-content:space-between;gap:8px}
+#department-manager .dm-journal-list{min-width:0}
+#department-manager .dm-journal-list-heading{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:0 0 13px;border-bottom:1px solid var(--dm-line)}
+#department-manager .dm-journal-list-heading h4{margin:0;font-size:15px;font-variant-numeric:tabular-nums}
+#department-manager .dm-journal-list-heading>span{font-size:12px;color:var(--dm-muted)}
+#department-manager .dm-journal-card{display:block;background:var(--dm-raised);border:1px solid var(--dm-line);border-radius:8px;color:var(--dm-text);padding:16px;margin-top:12px;text-decoration:none;overflow-wrap:anywhere}
+#department-manager a.dm-journal-card:hover{border-color:var(--dm-accent)}
+#department-manager .dm-journal-card h4{font-size:15px;line-height:1.6;margin:12px 0 8px;font-weight:700}
+#department-manager .dm-journal-card-top,#department-manager .dm-journal-card-foot{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
+#department-manager .dm-journal-team{color:var(--dm-muted);font-size:11px}
+#department-manager .dm-journal-meta{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--dm-muted);margin:0;font-variant-numeric:tabular-nums}
+#department-manager .dm-journal-summary{font-size:12px;line-height:1.8;margin:12px 0 15px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line}
+#department-manager .dm-journal-card-foot{font-size:10px;color:var(--dm-muted);border-top:1px solid var(--dm-line);padding-top:12px}
+#department-manager .dm-sync-pending{color:var(--ao-accent-text,var(--dm-accent))}
+#department-manager .dm-sync-ok{color:var(--dm-muted)}
+#department-manager .dm-journal-last{display:block;margin-top:10px;line-height:1.6;font-size:10px}
+html[data-office-theme=silver] #department-manager :is(.dm-detail,.dm-team,.dm-calendar,.dm-journal-card){border-radius:4px}
+@media(max-width:1200px){#department-manager .dm-journal-layout{grid-template-columns:1fr}#department-manager .dm-calendar{max-width:420px;width:100%;box-sizing:border-box}}
+@media(max-width:760px){#department-manager .dm-journal-layout{gap:20px}#department-manager .dm-calendar{max-width:none}#department-manager .dm-journal-toolbar{align-items:flex-start}#department-manager .dm-journal-card{padding:14px}}

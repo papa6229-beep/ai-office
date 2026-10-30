@@ -1,4 +1,5 @@
 import contextlib
+import gc
 import json
 import datetime
 import pathlib
@@ -18,6 +19,7 @@ def call(name, arguments=None):
 class Registry:
     def __init__(self):
         self.calls = []
+        self.model_settings = {'api_type':'openai','model_provider':'local'}
     def definitions(self):
         return [{'type': 'function', 'function': {'name': n, 'parameters': {'type': 'object'}}}
                 for n in ['apps', 'add', 'launch', 'choice', 'approval', 'crash']]
@@ -53,6 +55,8 @@ class RuntimeTests(unittest.TestCase):
         self.db = pathlib.Path(self.temp.name) / 'office.db'
         WorkAssistant(self.db, lambda: {}, None)
         self.registry = Registry()
+        self.registry.db_path = self.db
+        self.addCleanup(gc.collect)
     def runtime(self, rounds):
         self.model_inputs = []
         def model(messages, tools):

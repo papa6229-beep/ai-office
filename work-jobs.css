@@ -1,0 +1,11 @@
+#independentWorkDialog{width:min(680px,94vw);max-height:88vh;overflow:auto;background:#171b19;color:#e5e9df;border:1px solid var(--ao-accent,#b6f542);border-radius:14px;padding:20px;box-shadow:0 20px 80px #0009}
+#independentWorkDialog::backdrop{background:#0009}
+#independentWorkDialog header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#independentWorkDialog h3{margin:0;font-size:19px}#independentWorkDialog p{font-size:12px;line-height:1.7;color:#bec8b2}
+#independentWorkDialog form{display:grid;gap:8px}#independentWorkDialog label{font-size:12px}
+#independentWorkDialog textarea,#independentWorkDialog select{box-sizing:border-box;width:100%;padding:10px;background:#101412;color:#f0f2ed;border:1px solid #58624f;border-radius:7px;font:inherit;font-size:13px}
+#independentWorkDialog button{cursor:pointer;background:#252e20;color:#dff0bd;border:1px solid #b6f542;border-radius:7px;padding:8px 12px}
+#independentWorkDialog button:disabled{opacity:.45;cursor:default}#independentStart{justify-self:end;background:#b6f542!important;color:#162007!important}
+#independentList{display:grid;gap:7px;max-height:220px;overflow:auto;margin:12px 0}#independentList .independent-job{text-align:left;display:grid;gap:6px}#independentList small{color:#b7c7a6}
+#independentDetail{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7;max-height:240px;overflow:auto;padding:12px;background:#101412;border-radius:8px}
+#independentWorkDialog section>div{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}

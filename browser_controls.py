@@ -34,7 +34,7 @@ DESCRIBE=r'''(e,query) => {
  const all=e.tagName==='SELECT'?Array.from(e.options):[];
  const matches=query?all.filter(o=>norm(o.text).includes(norm(query))):[];
  const options=matches.length?matches:all;
- return {connected:e.isConnected,tag:e.tagName.toLowerCase(),type:e.type||'',role:e.getAttribute('role')||'',name:(e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>l.innerText).join(' ')||e.getAttribute('placeholder')||(['BUTTON','A'].includes(e.tagName)||['option','button'].includes(e.getAttribute('role'))?e.innerText:e.tagName==='INPUT'&&['submit','button','reset'].includes(e.type)?e.value:'')||e.getAttribute('name')||e.id||e.tagName).slice(0,300),disabled:!!e.disabled||e.getAttribute('aria-disabled')==='true',readonly:!!e.readOnly,href:e.tagName==='A'?e.href:'',editable:e.isContentEditable,option_count:all.length,option_matches:matches.length,options:options.slice(0,80).map(o=>({label:o.text.slice(0,200),value:o.value,disabled:o.disabled}))};
+ const cell=e.closest('td,th');const prior=cell?.previousElementSibling;const label=(Array.from(e.labels||[]).map(l=>l.innerText).join(' ')||prior?.innerText||'').replace(/\s+/g,' ').slice(0,160);const headings=Array.from(document.querySelectorAll('h1,h2,h3,h4,legend'));const heading=headings.filter(h=>(h.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING)).pop();return {field_name:e.getAttribute('name')||e.id||'',label,section:(heading?.innerText||'').slice(0,120),connected:e.isConnected,tag:e.tagName.toLowerCase(),type:e.type||'',role:e.getAttribute('role')||'',name:(e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>l.innerText).join(' ')||e.getAttribute('placeholder')||(['BUTTON','A'].includes(e.tagName)||['option','button'].includes(e.getAttribute('role'))?e.innerText:e.tagName==='INPUT'&&['submit','button','reset'].includes(e.type)?e.value:'')||e.getAttribute('name')||e.id||e.tagName).slice(0,300),disabled:!!e.disabled||e.getAttribute('aria-disabled')==='true',readonly:!!e.readOnly,href:e.tagName==='A'?e.href:'',editable:e.isContentEditable,option_count:all.length,option_matches:matches.length,options:options.slice(0,80).map(o=>({label:o.text.slice(0,200),value:o.value,disabled:o.disabled}))};
 }'''
 
 
@@ -104,7 +104,7 @@ def inspect(workspace,tab_id,query=''):
                         if kind in {'checkbox','radio'} or data['role'] in {'checkbox','radio'}:operations+=['check','uncheck']
                     ident=uuid.uuid4().hex
                     controls[ident]={'handle':element,'signature':signature(data),'operations':operations,'frame':frame,'descriptor':data,'query':query}
-                    rows.append({'id':ident,'name':_redact(data['name']),'tag':tag,'type':kind,'role':data['role'],'password':kind=='password','operations':operations,'options':data['options'],'option_count':data['option_count'],'frame_url':public_url(frame.url)})
+                    rows.append({'id':ident,'name':_redact(data['name']),'field_name':data.get('field_name',''),'label':_redact(data.get('label','')),'section':_redact(data.get('section','')),'tag':tag,'type':kind,'role':data['role'],'password':kind=='password','operations':operations,'options':data['options'],'option_count':data['option_count'],'frame_url':public_url(frame.url)})
             except Exception:unread.add(id(frame))
             finally:
                 if array:
@@ -149,6 +149,26 @@ def read_value(workspace,tab_id,snapshot_id,control_id):
     element=item['handle']
     text=element.input_value() if data['tag'] in {'input','textarea','select'} else element.inner_text()
     return dict(workspace._meta(tab_id,page),name=data['name'],text=_redact(text[:60000]),total_characters=len(text),truncated=len(text)>60000)
+
+
+def read_form(workspace,tab_id,query=''):
+    from browser_workspace import _redact
+    import re
+    result=inspect(workspace,tab_id,query)
+    snapshot=workspace._control_snapshots[tab_id]
+    fields=[]
+    for ident,item in snapshot['controls'].items():
+        d=item['descriptor']
+        if d['tag'] not in {'input','textarea','select'} or d['type'] in {'password','hidden','file','button','submit','reset','image'}:continue
+        if re.search(r'(?i)password|비밀번호|암호|api.?key|token|secret',d['name']+' '+d.get('field_name','')):continue
+        try:
+            value=item['handle'].input_value(timeout=1500)
+            fields.append({'field_name':d.get('field_name',''),'label':_redact(d.get('label','')),
+                'section':_redact(d.get('section','')),'value':_redact(value[:1200])})
+        except Exception:continue
+    result['fields']=fields
+    result['note']='입력란의 실제 name·라벨·섹션·값입니다. 비슷한 이름의 필드를 혼동하지 말고 사용자 기준과 정확히 대조하세요.'
+    return result
 
 def fill_login(workspace,tab_id,snapshot_id,control_id,account_id,username_target=None):
     import credential_vault
@@ -195,6 +215,10 @@ def act(workspace,tab_id,snapshot_id,control_id,operation,value=None):
         else:element.press(value,timeout=10000)
         page.wait_for_timeout(300)
     except Exception:
+        import browser_dialogs
+        if browser_dialogs.pending(workspace,page):
+            return dict(workspace._meta(tab_id,page),action_dispatched=True,operation=operation,
+                note='클릭/입력 뒤 사이트 대화상자가 열렸습니다. 자동으로 취소하지 않았습니다. 대화상자 내용을 읽고 현재 사용자 요청 범위에서 browser_dialog로 응답하세요. 저장은 아직 확인되지 않았습니다.')
         return {'action_dispatched':None,'execution_uncertain':True,'note':'동작 결과를 확정하지 못했습니다. 반복하지 말고 browser_inspect로 현재 상태를 읽으세요.'}
     try:result=inspect(workspace,tab_id)
     except Exception:result=workspace._meta(tab_id,page)

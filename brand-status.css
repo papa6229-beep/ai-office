@@ -1,0 +1,20 @@
+#brand-status{max-width:1500px;margin:0 auto;color:#e9eddf}
+#brand-status .brand-head{display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:18px}
+#brand-status h2{font-size:28px;margin:0 0 6px}#brand-status .brand-head p{margin:0;color:#abb6a5}
+#brand-status #brandStamp{min-height:24px;font-size:13px;color:#a9bb9e;margin-bottom:16px}
+#brand-status .brand-summary{display:flex;gap:0;background:#171e19;border:1px solid #394538;border-radius:14px;margin-bottom:24px}
+#brand-status .brand-summary>div{flex:1;padding:18px 22px;border-right:1px solid #394538}#brand-status .brand-summary>div:last-child{border:0}
+#brand-status .brand-summary span{display:block;font-size:12px;color:#bac7ad}#brand-status .brand-summary strong{font-size:31px;font-weight:750;color:#c5f24d}
+#brand-status .brand-tools{display:flex;align-items:end;gap:16px;flex-wrap:wrap}#brand-status label{font-size:12px;color:#b6c6a6;display:grid;gap:8px}
+#brand-status label:first-child{flex:1;min-width:200px}#brand-status input,#brand-status select{margin:0;min-height:42px;background:#111811;border:1px solid #56634c;color:#f3f7ed;border-radius:8px;padding:9px 12px}
+#brand-status .brand-note{font-size:12px;color:#afbba5;margin:15px 0}
+#brand-status .brand-table-wrap{overflow:auto;border:1px solid #3b4738;border-radius:12px;background:#141b16}
+#brand-status table{border-collapse:collapse;width:100%;min-width:850px;font-size:13px}#brand-status th{text-align:left;padding:14px 16px;background:#212c21;color:#c9d5bd;font-size:12px;white-space:nowrap}
+#brand-status td{padding:17px 16px;border-top:1px solid #303c2f;vertical-align:top;line-height:1.6}#brand-status td:first-child{width:27%}#brand-status td small{display:block;color:#9dab95;font-size:11px}
+#brand-status tr:hover td{background:#1b261c}#brand-status td details{margin-top:6px}#brand-status td summary{font-size:11px;color:#afc59d;cursor:pointer}#brand-status td details p{font-size:12px;margin:6px 0}
+#brand-status .brand-path{overflow-wrap:anywhere;color:#a3ae9b;font-size:11px}#brand-status .brand-state{display:inline-block;padding:3px 9px;border:1px solid #6b765f;border-radius:5px;font-size:12px;white-space:nowrap}
+#brand-status .done{color:#c9ef8b;border-color:#66864b;background:#243323}#brand-status .doing{color:#94d9e6;border-color:#46727b;background:#1c3035}#brand-status .hold{color:#f0c17b;border-color:#816b46;background:#342b1c}#brand-status .unknown{color:#c2c8ba}
+#brand-status .brand-extra{margin-top:18px;border-top:1px solid #3a4835;padding-top:16px}#brand-status .brand-extra>summary{cursor:pointer;font-size:14px;color:#c8d6bc}
+#brand-status .brand-extra>div>div{padding:14px 0;border-bottom:1px solid #303b2b}#brand-status .brand-extra span{display:block;font-size:12px;color:#adbaa2}#brand-status .brand-extra p{font-size:12px;margin:6px 0}
+#brand-status :focus-visible{outline:2px solid #c2ef56;outline-offset:3px}
+@media(max-width:700px){#brand-status .brand-head{align-items:start;flex-direction:column;gap:12px}#brand-status .brand-summary>div{padding:12px 10px}#brand-status .brand-summary strong{font-size:24px}#brand-status .brand-tools>label{min-width:120px;flex:1}}

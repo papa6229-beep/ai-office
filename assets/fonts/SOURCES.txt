@@ -28,5 +28,17 @@
     "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/barlowcondensed/OFL.txt",
     "sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f",
     "bytes": 4377
+  },
+  {
+    "name": "Silkscreen-Regular.ttf",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/silkscreen/Silkscreen-Regular.ttf",
+    "sha256": "c845473330b94c2079ce9af01c51ac8ba2d99c24f4d14c039843bbb8e642ebd8",
+    "bytes": 32220
+  },
+  {
+    "name": "Silkscreen-OFL.txt",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/silkscreen/OFL.txt",
+    "sha256": "86c5e9c9382cdcc5948704fdfe60f2aa164a719746931219a42736ecd9cefbd3",
+    "bytes": 4394
   }
 ]

@@ -1,0 +1,52 @@
+#workReceivedFiles{display:flex;flex:1;flex-direction:column;min-height:0;gap:6px;overflow:hidden}
+#workStageTasksTab[hidden]{display:none!important}
+#workReceivedFiles.is-sent .messenger-attachment-open{display:none}
+#receivedTimeline{padding:0 0 0 18px;margin:15px 0;border-top:1px solid #414b43}
+#receivedTimeline li{margin:12px 0;padding-left:5px;font-size:12px;color:#d6dfd7}
+#receivedTimeline li strong{display:block;color:#c2ef70;font-size:12px}
+#receivedTimeline li span{display:block;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#aeb9b1;line-height:1.6}
+#receivedPersonArea[hidden],.received-dialog label[hidden],.received-dialog details[hidden]{display:none}
+#work #workReceivedFiles[hidden]{display:none}
+#work .received-toolbar{display:flex;gap:7px;align-items:center;flex:none}
+#work .received-toolbar>input{width:100%;min-width:0;padding:5px 7px;font-size:11px}
+#work .received-toolbar label{display:flex;align-items:center;white-space:nowrap;gap:4px;font-size:10px;margin:0}
+#work .received-toolbar input[type=checkbox]{padding:0;width:12px;height:12px}
+#receivedSummary,#receivedNote,#receivedPage{font-size:10px;color:#aeb7b1;margin:0;line-height:1.4}
+#receivedNote:empty{display:none}#receivedNote.is-error{color:#f3b583}
+#receivedCount{margin-left:4px;font-size:10px}
+#receivedList{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;padding-right:2px}
+#work .received-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 6px;width:100%;text-align:left;min-height:46px;margin-bottom:5px;padding:6px 8px;border:1px solid #424b50;border-radius:8px;background:#202225;color:#eef0ec;box-shadow:none}
+#work .received-card strong{font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#work .received-card span{grid-column:1/-1;font-size:10px;font-weight:400;color:#a8b5ba}
+#work .received-card small{font-size:9px;line-height:12px;border:1px solid #54616c;border-radius:8px;color:#aebbc5;padding:1px 4px}
+#work .received-card[data-state=ready] small{color:#86c8ff;border-color:#507da8}
+#work .received-card[data-state=organizing] small{color:#c6aaff;border-color:#8061b0}
+#work .received-card[data-state=error] small{color:#f3b579;border-color:#99703b}
+#work .received-card:hover{border-color:#b6f542}
+#receivedList>p{font-size:11px;line-height:1.6;color:#aeb7b1}
+#work .received-pagination{display:flex;justify-content:space-between;align-items:center;flex:none}
+#work .received-pagination button{padding:1px 9px;border-radius:5px;background:#25292c;border-color:#41494e;color:#cad3cc;box-shadow:none}
+.received-settings{font-size:10px;flex:none;max-height:45%;overflow:auto;color:#b6c2b9}
+.received-settings summary{cursor:pointer}.received-settings p{font-size:11px;line-height:1.6;margin:8px 0!important}
+#work .received-settings :is(label,input,select,button){font-size:11px}#work .received-settings input{width:100%;padding:5px}
+#receivedRuleList{display:grid;gap:5px;margin-top:8px}#work #receivedRuleList button{border-radius:6px;background:#25292c;color:#cdd5cc;border-color:#424b50;box-shadow:none;padding:6px;text-align:left}
+.received-dialog{width:min(580px,92vw);max-height:88vh;overflow:auto;background:#1b1d20;color:#f0f1ed;border:1px solid #515c49;border-radius:13px;padding:20px}
+.received-dialog>header{display:flex;justify-content:space-between;gap:12px;align-items:center}.received-dialog h3{margin:0;overflow-wrap:anywhere;font-size:17px}
+.received-dialog p{font-size:12px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-wrap;color:#b7c3ba}
+.received-dialog label{display:grid;gap:5px;font-size:12px;margin:13px 0 7px}.received-dialog :is(input,select){box-sizing:border-box;width:100%;padding:8px;background:#111416;color:#f0f1ed;border:1px solid #515a60;border-radius:7px;font:inherit;font-size:12px}
+.received-dialog button{font-size:12px;padding:6px 11px;cursor:pointer}.received-dialog details{margin-top:17px;border-top:1px solid #424b50;padding-top:10px;font-size:12px}
+.received-dialog .received-auto{display:flex;align-items:center;gap:7px}.received-auto input{width:14px;height:14px}.received-dialog :is(button,input,select):focus-visible{outline:2px solid #b6f542;outline-offset:2px}
+#work .messenger-attachment-open{flex:none;font-size:11px;padding:6px 10px;border-radius:7px;background:#242c2d;color:#e2ebdf;border:1px solid #57644d;box-shadow:none}
+.messenger-attachment-dialog section{border:1px solid #414b43;border-radius:8px;padding:12px;margin-top:9px;overflow-wrap:anywhere}.messenger-attachment-dialog section strong{font-size:12px}.messenger-attachment-dialog section p{margin:7px 0}
+
+#work .material-filters{display:flex;align-items:center;flex-wrap:wrap;gap:5px;flex:none}
+#work .material-filters label{display:flex;gap:4px;align-items:center;font-size:10px;margin:0;color:#c8d2cb}
+#work .material-filters input{width:12px;height:12px;margin:0}
+#work .material-filters select{width:auto;max-width:110px;padding:3px 5px;font-size:10px;background:#25292c;color:#dce5df;border:1px solid #47534a;border-radius:5px}
+#receivedConnections{border-top:1px solid #424b50;margin-top:13px;padding-top:10px}
+#receivedConnections h4{font-size:13px;margin:0 0 10px;color:#e6eedf}
+#receivedConnections>strong{display:block;font-size:12px;margin-top:12px}
+#receivedConnections ul{padding-left:18px;font-size:12px;color:#d5dfd8}
+#receivedConnections>button{display:block;max-width:100%;margin:7px 0;white-space:normal;overflow-wrap:anywhere;text-align:left;background:#252d2b;color:#e3eddf;border:1px solid #50624b;border-radius:7px}
+#receivedConnections .material-link-controls{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+#receivedConnections .material-link-controls select{flex:1;min-width:150px;max-width:100%}

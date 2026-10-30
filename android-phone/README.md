@@ -3,7 +3,20 @@
 Receives the user's Android notifications with explicit notification-listener
 access and sends them to the paired AI OFFICE PC over certificate-pinned HTTPS.
 PC Ethernet and phone Wi-Fi can coexist on the same reachable LAN. No cloud relay,
-SMS sender, messenger reply, accessibility service or desktop controller is included.
+SMS sender, accessibility service or desktop controller is included.
+
+Version 0.2 adds conversation/message metadata and observes actual text RemoteInput
+actions for NateOn, Hanbiro Talk, Between and KakaoTalk. A reply is dispatched only after the
+user explicitly submits it in Office, with an exact live notification key,
+conversation identity, revision, short expiry and persistent command deduplication.
+PendingIntents stay on Android. An accepted action means handed to the messenger,
+not confirmed server delivery or recipient read. Ambiguous name-only targets are
+not used for sending. Other applications remain receive-only.
+
+Version 0.2.2 includes KakaoTalk in the observed reply capabilities. The PC checks
+the latest phone inventory before issuing a queued reply; removed or replaced
+notifications are reported without dispatch. Office retains the input until the
+phone reports acceptance, and never automatically resends a failed reply.
 
 ## Install and pair
 

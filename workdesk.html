@@ -8,6 +8,7 @@
         <div class="work-conversation-layout">
           <div class="work-companion-rail">
           <aside id="workCompanion" class="work-companion" data-state="idle" aria-label="Aemeath 상태">
+            <button id="workCompanionAlert" type="button" class="work-companion-alert" hidden aria-label="새 알림 보기"><span id="workCompanionAlertTitle"></span><span id="workCompanionAlertPreview"></span></button>
             <div class="work-companion-stage" aria-hidden="true"><img id="workCompanionAnimation" class="work-companion-animation" src="/assets/aemeath/idle.gif" alt="" width="140" height="140"><img id="workCompanionStill" class="work-companion-still" src="/assets/aemeath/idle.png" alt="" width="140" height="140"><span class="work-companion-fallback">A</span></div>
             <div class="work-companion-caption"><strong>Aemeath</strong><p id="workCompanionStatus" role="status" aria-live="polite">이야기를 기다리고 있어요</p></div>
             <button id="workNotificationAcknowledge" type="button" class="work-quiet" hidden>확인 완료</button>
@@ -45,6 +46,8 @@
           </form>
         </dialog>
         <div id="workTaskList" class="work-task-list"><p class="work-empty">업무를 불러오고 있습니다.</p></div>
+        <p id="workRecordNotice" class="work-muted" role="status" aria-live="polite" hidden></p>
+        <div id="workRecordRetry" class="work-retry" hidden><span>업무 저장 결과를 확인하지 못했어요.</span><button type="button" data-work-action="retry-record">같은 저장 요청 다시 확인</button></div>
       </article>
       <article id="workOtherRequests" class="work-tasks work-other-requests" aria-labelledby="workOtherRequestsTitle">
         <div class="work-panel-heading"><div><h3 id="workOtherRequestsTitle">타부서 요청사항</h3><p class="work-muted">보고서의 타부서 요청 항목</p></div><button type="button" data-work-action="add-other-request" class="work-secondary">+ 요청 추가</button></div>
@@ -57,7 +60,8 @@
             <label for="workRequestStatus">상태</label><select id="workRequestStatus"><option value="review">검토 중</option><option value="doing">진행 중</option><option value="done">완료</option></select>
             <label for="workRequestStart">시작일</label><input id="workRequestStart" type="date">
             <label for="workRequestDue">완료일</label><input id="workRequestDue" type="date">
-            <div class="work-form-actions"><button type="button" class="work-quiet" data-work-action="cancel-other-request">취소</button><button type="submit">요청 저장</button></div>
+            <p id="workOtherRequestError" class="work-muted" role="alert" hidden></p>
+            <div class="work-form-actions"><button id="workOtherRequestDelete" type="button" class="work-quiet" hidden>요청 삭제</button><button type="button" class="work-quiet" data-work-action="cancel-other-request">취소</button><button type="submit">요청 저장</button></div>
           </form>
         </dialog>
       </article>
@@ -74,8 +78,8 @@
         <div class="work-launcher-footer"><div><p id="workLauncherCount" class="work-launcher-count"></p><p class="work-launcher-tip">드래그로 순서 변경 · 우클릭으로 수정</p></div><button type="button" class="work-launcher-refresh" data-launcher-action="reload">목록 새로고침</button></div>
       </article>
       <article id="workStage" class="work-stage" aria-labelledby="workStageTitle" tabindex="-1">
-        <div class="work-panel-heading"><h3 id="workStageTitle">WORKSPACE</h3><span id="workStageStatus" class="work-stage-status">준비됨</span></div>
-        <div class="work-stage-primary-tabs" role="tablist" aria-label="워크스페이스 보기">
+        <div class="work-panel-heading"><h3 id="workStageTitle">알림센터</h3><span id="workStageStatus" class="work-stage-status">준비됨</span></div>
+        <div class="work-stage-primary-tabs" role="tablist" aria-label="알림센터 보기">
           <button id="workStageTasksTab" type="button" role="tab" aria-selected="true" aria-controls="workStageTasks">작업내역</button>
           <button id="workStageNotificationsTab" type="button" role="tab" aria-selected="false" aria-controls="workNotifications" tabindex="-1">알림 <small id="workNotificationUnread">0</small></button>
         </div>
@@ -86,10 +90,10 @@
         <p id="workStageNotice" class="work-stage-notice" role="status" aria-live="polite"></p>
         </div>
       <article id="workNotifications" class="work-notifications" role="tabpanel" aria-labelledby="workStageNotificationsTab" hidden aria-labelledby="workNotificationsTitle">
-        <div class="work-panel-heading"><div><h3 id="workNotificationsTitle" class="work-sr-only">알림</h3><p id="workNotificationReceiver" class="work-muted">알림 수신기 연결 중</p></div><div class="work-notification-actions"><button id="workNotificationsReconnect" type="button" class="work-secondary">휴대폰 연결</button><button id="workNotificationsConfirmAll" type="button" class="work-secondary">모두 확인</button></div></div><details class="work-notification-connection"><summary>수신 연결 상태</summary><p id="workNotificationScope" class="work-muted"></p><p id="workNotificationSources" class="work-muted"></p></details>
+        <div class="work-panel-heading"><div><h3 id="workNotificationsTitle" class="work-sr-only">알림</h3><p id="workNotificationReceiver" class="work-muted">연결 확인 중</p></div><div class="work-notification-actions"><button id="workNotificationsReconnect" type="button" class="work-secondary" title="휴대폰 연결 설정">연결</button><button id="workNotificationsConfirmAll" type="button" class="work-secondary">양쪽 모두 확인</button></div></div>
         <p id="workNotificationPanelNotice" class="work-muted" role="status" hidden></p>
         <div id="workNotificationList" class="work-notification-list"><p class="work-muted">새 알림을 기다리고 있어요.</p></div>
-        <details class="work-notification-help"><summary>알림 수신 설정</summary><p>휴대폰에 에이메스 연결 앱을 설치하고, 휴대폰 연결 버튼의 QR을 읽어 주세요. PC는 랜선, 휴대폰은 같은 사내망 Wi-Fi여도 돼요.</p><p>알림 접근과 백그라운드 연결을 허용하면 휴대폰이 직접 전달해요. 확인 완료는 휴대폰의 해당 알림을 정리하며 메신저 대화 읽음과는 달라요. Android가 민감한 알림을 가리면 인증번호가 보이지 않을 수 있어요.</p></details>
+        <details class="work-notification-connection work-notification-help"><summary>연결·수신 설정</summary><p id="workNotificationReplySupport" class="work-muted"></p><p id="workNotificationScope" class="work-muted"></p><p id="workNotificationSources" class="work-muted"></p><p id="workNotificationFilterSummary" class="work-muted">받는 알림: 메시지 · 비트윈 · 카카오톡 · 한비로 · 네이트온 · 당근 · 쿠팡</p><p>휴대폰에 에이메스 연결 앱을 설치하고, 연결 버튼의 QR을 읽어 주세요. PC는 랜선, 휴대폰은 같은 사내망 Wi-Fi여도 돼요.</p><p>알림 접근과 백그라운드 연결을 허용하면 휴대폰이 직접 전달해요. 대화 확인은 오피스 기록만 확인하며 휴대폰 알림 지우기는 별도예요. Android가 민감한 알림을 가리면 인증번호가 보이지 않을 수 있어요.</p></details>
       </article>
       </article>
     </aside>
@@ -138,9 +142,9 @@
   </dialog>
       <dialog id="workNotificationDialog" class="work-dialog work-notification-dialog" aria-labelledby="workNotificationTitle">
         <div class="work-dialog-heading"><h3 id="workNotificationTitle">알림</h3><button id="workNotificationClose" type="button" class="work-quiet">닫기 ×</button></div>
-        <p id="workNotificationMeta" class="work-muted"></p><div id="workNotificationBody" class="work-notification-body"></div>
-        <div class="work-notification-actions"><button id="workNotificationConfirm" type="button">확인 완료</button><button id="workNotificationOpen" type="button" class="work-secondary">원래 앱에서 확인</button></div>
-        <p class="work-muted">확인 완료하면 휴대폰의 원본 알림도 정리해요. 메신저 대화의 읽음 상태와는 달라요.</p>
+        <p id="workNotificationMeta" class="work-muted"></p><button id="workConversationOlder" type="button" class="work-quiet" hidden>이전 메시지 보기</button><div id="workNotificationBody" class="work-notification-body"></div>
+        <div class="work-notification-actions"><button id="workNotificationConfirm" type="button">확인 · 휴대폰도 정리</button><button id="workNotificationOpen" type="button" class="work-secondary">원래 앱에서 확인</button></div>
+        <form id="workConversationReply" class="conversation-reply" hidden><label for="workConversationInput">메시지</label><textarea id="workConversationInput" rows="2" maxlength="2000" placeholder="이 대화에 보낼 메시지"></textarea><div><span id="workConversationCapability" class="work-muted"></span><button id="workConversationSend" type="submit" disabled>보내기</button></div></form><button id="workConversationDismiss" type="button" class="work-quiet" hidden>휴대폰 알림 지우기</button><p id="workNotificationDismissHelp" class="work-muted">확인 완료하면 휴대폰의 원본 알림도 정리해요. 메신저 대화의 읽음 상태와는 달라요.</p>
         <p id="workNotificationDialogNotice" role="status" class="work-muted"></p>
       </dialog>
 </section>

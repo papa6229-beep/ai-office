@@ -13,7 +13,7 @@ import unicodedata
 import uuid
 from collections import deque
 
-SOURCES=re.compile(r'휴대폰과\s*연결|Phone\s*Link|YourPhone|카카오|Kakao|비트윈|Between|네이트온|Nate\s*On|한비로|Hanbiro|메시지|Messages|문자',re.I)
+SOURCES=re.compile(r'휴대폰과\s*연결|Phone\s*Link|YourPhone|카카오|Kakao|비트윈|Between|네이트온|Nate\s*On|한비로|Hanbiro|메시지|메세지|Messages|Message|문자|당근|Danggeun|Karrot|쿠팡|Coupang|Codex|코덱스',re.I)
 BANNERS=re.compile(r'새\s*알림|알림\s*창|new\s*notification|toast',re.I)
 SHELL={'shellexperiencehost.exe','sihost.exe','explorer.exe'}
 PHONES={'yourphone.exe','phoneexperiencehost.exe'}

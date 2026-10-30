@@ -17,7 +17,8 @@ def _now():
 
 
 def conversation_lock(db):
-    key = str(Path(db).resolve()).casefold()
+    import work_jobs
+    key = str(Path(db).resolve()).casefold()+':'+work_jobs.channel()
     with _guard:
         return _locks.setdefault(key, threading.RLock())
 
@@ -45,22 +46,26 @@ def initialize(c):
 
 
 def load(db):
+    import work_jobs
+    name='office' if work_jobs.channel()=='office' else 'work_'+work_jobs.channel()
     with _db(db) as c:
         initialize(c)
-        row = c.execute("SELECT data FROM assistant_agent_sessions WHERE name='office'").fetchone()
+        row = c.execute('SELECT data FROM assistant_agent_sessions WHERE name=?',(name,)).fetchone()
         if row:
             data = json.loads(row['data'])
         else:
             data = {'session_id': uuid.uuid4().hex, 'refs': {}, 'status': 'new'}
             c.execute('INSERT INTO assistant_agent_sessions VALUES (?,?,?)',
-                      ('office', json.dumps(data), _now()))
+                      (name, json.dumps(data), _now()))
         return data
 
 
 def save(db, updates):
-    allowed = {'thread_id', 'tools_sha256', 'turn_id', 'status', 'request_id', 'refs'}
+    import work_jobs
+    name='office' if work_jobs.channel()=='office' else 'work_'+work_jobs.channel()
+    allowed = {'thread_id', 'tools_sha256', 'turn_id', 'status', 'request_id', 'refs','workspace_root','model_profile','execution_environment','claude_session_id','claude_workspace_root'}
     with _db(db) as c:
-        row = c.execute("SELECT data FROM assistant_agent_sessions WHERE name='office'").fetchone()
+        row = c.execute('SELECT data FROM assistant_agent_sessions WHERE name=?',(name,)).fetchone()
         if not row:
             raise ValueError('대화 세션을 먼저 확인해야 합니다.')
         data = json.loads(row['data'])
@@ -68,8 +73,8 @@ def save(db, updates):
         raw = json.dumps(data, ensure_ascii=False, allow_nan=False)
         if len(raw.encode('utf-8')) > 8 * 1024 * 1024:
             raise ValueError('대화의 실행 참조 용량을 넘겼습니다.')
-        c.execute("UPDATE assistant_agent_sessions SET data=?,updated=? WHERE name='office'",
-                  (raw, _now()))
+        c.execute('UPDATE assistant_agent_sessions SET data=?,updated=? WHERE name=?',
+                  (raw, _now(),name))
 
 
 def claim_call(db, context, name, arguments, identity):
@@ -105,6 +110,7 @@ def finish_call(db, identity, result):
 
 
 _NATIVE_LABELS = {
+    'mcpToolCall': ('codex_mcp', '연결된 개발 도구 실행', 'external'),
     'commandExecution': ('codex_command', '작업 공간에서 코드 실행', 'external'),
     'fileChange': ('codex_file_change', '작업 공간 파일 수정', 'write'),
     'imageView': ('codex_image_view', '이미지 확인', 'read'),
@@ -130,3 +136,17 @@ def record_event(db, context, event):
         if completed:
             c.execute("UPDATE assistant_steps SET status='done',result=? WHERE id=?",
                       (json.dumps(result, ensure_ascii=False), step_id))
+
+
+def record_native(db,request_id,provider,call_id,tool,completed=False,failed=False):
+    """Native CLI receipts; never store command input or private file contents."""
+    import re
+    name=provider+'_'+re.sub('[^a-z0-9_]','_',tool.lower())[:60]
+    ident=hashlib.sha256((provider+':'+request_id+':'+call_id).encode()).hexdigest()[:32]
+    effect='external' if tool in {'Bash','Write','Edit','NotebookEdit'} else 'read'
+    result={'status':'error' if failed else 'ok','message':provider+' '+tool+(' 실행 실패' if failed else ' 실행 완료')}
+    with _db(db) as c:
+        c.execute('INSERT OR IGNORE INTO assistant_steps VALUES (?,?,?,?,?,?,?,?)',
+            (ident,request_id,name,effect,'{}','running',None,_now()))
+        if completed:c.execute("UPDATE assistant_steps SET status='done',result=? WHERE id=?",
+            (json.dumps(result,ensure_ascii=False),ident))

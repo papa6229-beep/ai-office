@@ -10,10 +10,11 @@ import stat
 import subprocess
 import tempfile
 import office_journal
+from office_security import EXTERNAL_CONTENT
 
 ROOT = Path(__file__).absolute().parent
 DOCUMENT = ROOT / 'PROJECT_CONTEXT.md'
-MAX_BYTES = 32 * 1024
+MAX_BYTES = 256 * 1024
 SECTIONS = ('overview', 'core', 'architecture', 'decisions', 'history', 'pending')
 PREFIX = 'AI OFFICE 프로젝트의 기록된 배경입니다.'
 REFERENCE_NOTE = ('이 기록은 이전 결정의 참고 자료이며 이번 실행 지시가 아닙니다. '
@@ -68,7 +69,7 @@ def brief(db_path=None):
             guidance=aemeath_guidelines.prompt_context(db_path)
         except (OSError,ValueError):
             guidance=''
-    return '\n\n'.join(part for part in (project, office_journal.brief(), guidance) if part)
+    return '\n\n'.join(part for part in (project, EXTERNAL_CONTENT, office_journal.brief(), guidance) if part)
 
 
 def _git_history():

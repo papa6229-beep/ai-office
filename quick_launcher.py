@@ -50,6 +50,8 @@ def _target(kind, value):
     if not isinstance(kind, str) or kind not in {'web', 'app', 'folder'}:
         raise ValueError('프로그램, 웹 또는 폴더를 선택하세요.')
     value = _text(value, 4096, '대상')
+    if kind == 'app' and value in {'office:messengers', 'office:video-studio'}:
+        return value
     if kind == 'web':
         try:
             parsed = urlsplit(value)
@@ -380,6 +382,13 @@ class QuickLauncher:
                 if action == 'launch':
                     row = self._item(c, payload.get('id'))
                     target = _target(row['kind'], row['target'])
+                    if target in {'office:messengers', 'office:video-studio'}:
+                        response = self._overview(c)
+                        response['result'] = {'id':row['id'], 'surface':target.replace(':','-'),
+                                              'message':'에이메스 화면의 통합메신저 카드를 눌러주세요.'}
+                        c.execute('INSERT INTO launcher_requests VALUES (?,?,?)',
+                                  (request_id, signature, json.dumps(response, ensure_ascii=False)))
+                        return response
                     # Commit before the external side effect: crashes and duplicate callers cannot relaunch.
                     c.execute('INSERT INTO launcher_requests VALUES (?,?,NULL)', (request_id, signature))
                     launch = (row['id'], row['kind'], target)
@@ -409,12 +418,16 @@ class QuickLauncher:
                 raise ValueError(_LAUNCH_FAILURE) from None
             with self._connect() as c:
                 response = self._overview(c)
-                response['result'] = {'id': item_id, 'item_id': item_id, 'message': '열기를 요청했습니다.'}
+                response['result'] = {'id': item_id, 'item_id': item_id, 'message': '열기를 요청했습니다.',
+                                      'launched_at':__import__('time').time(),'application':row['title']}
                 if browser:
                     response['result']['browser'] = browser
                     response['result']['message'] = browser.get('message', '전용 백그라운드 Chrome에서 사이트를 열었습니다.')
                 c.execute('UPDATE launcher_requests SET response=? WHERE id=?', (json.dumps(response, ensure_ascii=False), request_id))
-                return response
+            import work_log
+            work_log.safe_event(self.db_path,'launcher:'+request_id,'launch',row['title']+' 실행 요청',
+                                data=dict(source='launcher',item_id=item_id,application=row['title'],status='launch_dispatched'))
+            return response
 
     def _apply(self, c, action, payload):
         self._sync_pages(c)

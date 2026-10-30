@@ -1,0 +1,3 @@
+interface:
+  display_name: "Office 공통 스킬"
+  short_description: "모든 부서의 스킬 검색·원문·런타임·실제 실행"

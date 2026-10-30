@@ -8,9 +8,17 @@
     const node = byId('workAmbientTime');
     if (!node || document.hidden) return;
     const now = new Date();
-    node.textContent = clock.format(now);
+    const formatted=clock.format(now),parts=formatted.split(':');
+    if(!node.querySelector('[data-clock-part]')){
+      node.replaceChildren();
+      ['hour','minute','second'].forEach((part,index)=>{
+        if(index){const colon=document.createElement('span');colon.className='work-clock-colon';colon.textContent=':';node.append(colon);}
+        const digit=document.createElement('span');digit.dataset.clockPart=part;node.append(digit);
+      });
+    }
+    ['hour','minute','second'].forEach((part,index)=>{node.querySelector('[data-clock-part="'+part+'"]').textContent=parts[index];});
     node.dateTime = now.toISOString();
-    node.setAttribute('aria-label', '한국 시각 '+node.textContent);
+    node.setAttribute('aria-label', '한국 시각 '+formatted);
   }
   function conditions(code, day) {
     if (code === 0) return [day ? '☀' : '☾', day ? '맑음' : '맑은 밤'];

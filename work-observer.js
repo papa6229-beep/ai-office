@@ -32,7 +32,11 @@
       elements.push({selector:selector(element),tag:element.tagName.toLowerCase(),role:element.getAttribute('role')||'',
         label:short(element.getAttribute('aria-label')||element.innerText),href:element.hasAttribute('href')?publicURL(element.href).slice(0,300):''});
     }
-    return {id:client,version:build,url:publicURL(location.href),title:short(document.title),
+    let reportInputs={available:false,requests:[]};
+    try{const rows=JSON.parse(localStorage.getItem('aemeath.otherRequests.v1')||'[]');
+      if(Array.isArray(rows)&&rows.length<=100&&JSON.stringify(rows).length<=16000)reportInputs={available:true,requests:rows.map(row=>({team:row.team,status:row.status,content:row.content,start:row.start||'',due:row.due||''}))};
+    }catch{}
+    return {id:client,version:build,url:publicURL(location.href),title:short(document.title),report_inputs:reportInputs,
       view:document.body.dataset.activeView||'',visible:!document.hidden,focused:document.hasFocus(),
       viewport:{width:innerWidth,height:innerHeight,scale:devicePixelRatio,x:screenX,y:screenY,outer_width:outerWidth,outer_height:outerHeight},
       elements,errors:errors.slice(-8)};
@@ -42,7 +46,10 @@
       const nodes=Array.from(document.querySelectorAll(check.selector));
       const result={count:nodes.length};
       if(check.kind==='visible')result.visible=nodes.some(visible);
-      if(check.kind==='text')result.text=short(nodes.map(x=>x.innerText||x.textContent||'').join('\n'),2500);
+      if(check.kind==='text'){
+        if(['*','html','body',':root'].includes(check.selector.trim().toLowerCase())||nodes.length>50)return {error:'문구 확인 범위가 너무 넓습니다. 수정한 요소의 구체적인 selector가 필요합니다.'};
+        result.text=short(nodes.map(x=>x.innerText||x.textContent||'').join('\n'),2500);
+      }
       if(check.kind==='attribute')result.attribute=nodes[0]?.getAttribute(check.attribute)??null;
       return result;
     }catch{return {error:'화면 요소 선택 조건을 읽지 못했습니다.'};}
@@ -62,10 +69,7 @@
       const previous=seenStates.get(state.request_id);seenStates.set(state.request_id,state.state);
       if(previous!==undefined&&previous!==state.state)document.dispatchEvent(new CustomEvent('work-stage-verification',{detail:state}));
     }
-    if(result.needs_reload&&!document.hidden){
-      const command=document.getElementById('workCommand');if(command?.value)sessionStorage.setItem('ai-office-command-draft',command.value);
-      location.reload();
-    }
+    if(result.version?.ui&&result.version.ui!==build.ui)window.officeUpdates?.offer('ui:'+result.version.ui);
     return result;
   }
   async function pulse(){

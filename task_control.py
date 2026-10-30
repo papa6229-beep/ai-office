@@ -86,6 +86,9 @@ def submit(db,payload):
         stamp=datetime.datetime.now().astimezone().isoformat()
         c.execute('INSERT INTO assistant_inputs VALUES (?,?,?,?,?,?)',(ident,request_id,kind,text,'queued' if kind=='message' else 'stopping',stamp))
         c.execute('INSERT INTO work_messages VALUES (?,?,?,?)',(ident,'user',text if kind=='message' else '작업 중지 요청',stamp))
+        import work_jobs
+        channel=c.execute('SELECT channel FROM assistant_work_channels WHERE request_id=?',(request_id,)).fetchone()
+        if channel:work_jobs.tag(c,ident,channel[0])
         if kind=='stop':control.stopped.set()
         callbacks=list(control.callbacks) if kind=='stop' else []
     for callback in callbacks:

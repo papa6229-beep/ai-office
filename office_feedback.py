@@ -12,9 +12,13 @@ import re
 import sqlite3
 import time
 import uuid
+import threading
 
 ROOT=pathlib.Path(__file__).resolve().parent
 BOOT=uuid.uuid4().hex
+REQUEST_CLIENT_REVISION='2026-10-29-request-client-v1'
+_version_lock=threading.RLock()
+_version_cache={}
 UI_FILES=('index.html','workdesk.html','workdesk.js','workdesk.css','workstage.js',
           'workstage.css','workambient.js','workambient.css','work-observer.js')
 ATTRIBUTES={'href','target','rel','class','aria-label','aria-expanded','aria-selected',
@@ -45,11 +49,21 @@ def _id(value):
 
 
 def version():
+    import office_ui_assets
+    served=office_ui_assets.generation()
+    if served:return {'boot':BOOT,'ui':served}
+    import self_edit
     digest=hashlib.sha256()
-    for name in UI_FILES:
-        path=ROOT/name
-        if path.is_file():digest.update(name.encode());digest.update(path.read_bytes())
-    return {'boot':BOOT,'ui':digest.hexdigest()}
+    import live_project
+    names=set(UI_FILES)|{name for name in live_project.paths() if name.endswith(('.html','.css','.js'))}
+    with _version_lock:
+        signature=tuple((name,(ROOT/name).stat().st_mtime_ns,(ROOT/name).stat().st_size) for name in sorted(names) if (ROOT/name).is_file())
+        if signature!=_version_cache.get('signature'):
+            for name,_,_ in signature:
+                _,raw=live_project.load(name)
+                digest.update(name.encode());digest.update(raw)
+            _version_cache.update(signature=signature,ui=digest.hexdigest())
+        return {'boot':BOOT,'ui':_version_cache['ui']}
 
 
 def _text(value,maximum):
@@ -75,6 +89,19 @@ def client_snapshot(value):
         if not isinstance(row,dict):continue
         result['elements'].append({key:_text(row.get(key,''),300) for key in ('selector','tag','role','label','href')})
     result['errors']=[_text(x,300) for x in value.get('errors',[])[:8] if isinstance(x,str)]
+    source=value.get('report_inputs')
+    if isinstance(source,dict) and source.get('available') is True:
+        rows=source.get('requests');clean=[]
+        if not isinstance(rows,list) or len(rows)>100:raise ValueError('보고서 요청 목록의 크기를 확인하세요.')
+        for row in rows:
+            if not isinstance(row,dict):raise ValueError('보고서 요청 항목을 확인하세요.')
+            item={key:_text(row.get(key,''),maximum) for key,maximum in [('team',80),('status',30),('content',3000),('start',10),('due',10)]}
+            if not item['team'].strip() or not item['content'].strip():raise ValueError('보고서 요청의 팀·내용을 확인하세요.')
+            if item['status'] not in {'review','doing','done','todo','검토 중','진행 중','완료'}:raise ValueError('보고서 요청 상태를 확인하세요.')
+            for key in ('start','due'):
+                if item[key] and not re.fullmatch(r'\d{4}-\d{2}-\d{2}',item[key]):raise ValueError('보고서 요청 날짜를 확인하세요.')
+            clean.append(item)
+        result['report_inputs']={'available':True,'requests':clean}
     if len(_json(result))>45000:raise ValueError('화면 정보가 너무 큽니다.')
     return result
 
@@ -84,7 +111,33 @@ def latest_client(db,client_id=None):
         row=c.execute('SELECT data,updated FROM office_clients WHERE id=?',(client_id,)).fetchone() if client_id else None
         if not row:return {'available':False,'reason':'이 요청을 보낸 실제 탭의 화면 정보가 없습니다. 현재 창을 안다고 추측하지 마세요.'}
         result=json.loads(row['data']);age=time.time()-row['updated']
-        return dict(result,available=age<15,age_seconds=round(age,1),scope='실제 요청 탭의 화면 요소·배치; 입력값·대화 본문을 수집하지 않음')
+        return dict(result,available=age<15,age_seconds=round(age,1),scope='실제 요청 탭의 화면 요소·배치 및 보고서용 타부서 요청 목록; 비밀번호·대화 본문을 수집하지 않음')
+
+
+def request_client(db,request_id,client_id=None):
+    """Use the exact request's validated snapshot, never another tab's data."""
+    if not isinstance(request_id,str) or not re.fullmatch('[0-9a-f]{32}',request_id):
+        return {'available':False,'reason':'보고서 원래 요청을 확인하지 못했습니다.'}
+    with contextlib.closing(sqlite3.connect(pathlib.Path(db).resolve().as_uri()+'?mode=ro',uri=True,timeout=5)) as c:
+        exists=c.execute("SELECT 1 FROM sqlite_master WHERE name='assistant_requests'").fetchone()
+        row=c.execute('SELECT payload FROM assistant_requests WHERE id=?',(request_id,)).fetchone() if exists else None
+    snapshot=None
+    if row:
+        try:snapshot=json.loads(row[0]).get('payload',{}).get('client')
+        except (ValueError,AttributeError):
+            return {'available':False,'reason':'이 요청의 입력 자료를 읽지 못했습니다.'}
+    if isinstance(snapshot,dict):
+        if client_id and snapshot.get('id')!=client_id:
+            return {'available':False,'reason':'원래 요청 탭과 실행 탭이 달라 입력을 합치지 않았습니다.'}
+        client_id=snapshot.get('id')
+        if 'report_inputs' in snapshot:
+            try:clean=client_snapshot(snapshot)
+            except (ValueError,TypeError,KeyError):
+                return {'available':False,'reason':'이 요청의 보고서 입력을 검증하지 못했습니다.'}
+            if clean.get('report_inputs',{}).get('available'):
+                return dict(clean,available=True,request_id=request_id,data_source='request_payload',revision=REQUEST_CLIENT_REVISION)
+    latest=latest_client(db,client_id)
+    return dict(latest,data_source='same_tab_live',revision=REQUEST_CLIENT_REVISION)
 
 
 def validate_checks(checks):
@@ -94,6 +147,8 @@ def validate_checks(checks):
         if not isinstance(check,dict) or set(check)-{'kind','selector','expected','attribute','label'}:raise ValueError('지원하지 않는 확인 조건입니다.')
         kind=check.get('kind');selector=_text(check.get('selector',''),300)
         if kind not in {'visible','absent','text','attribute','count'} or not selector or any(x in selector for x in ('\x00','\n','\r')):raise ValueError('읽기 전용 화면 확인 조건을 지정하세요.')
+        if kind=='text' and selector.strip().lower() in {'*','html','body',':root'}:
+            raise ValueError('페이지 전체는 문구 확인 대상으로 사용할 수 없습니다. 실제 수정할 제목·설명 등 구체적인 요소의 selector를 지정하세요. 전체 대화는 수집하지 않습니다.')
         item={'kind':kind,'selector':selector,'label':_text(check.get('label',selector),160)}
         if kind in {'text','attribute'}:item['expected']=_text(check.get('expected',''),500)
         if kind=='text' and not item['expected']:raise ValueError('찾을 텍스트를 지정하세요.')
@@ -152,14 +207,25 @@ def queue_activation(db,request_id,changes):
 def _sources_match(goal):
     for change in goal.get('sources',[]):
         name=change.get('path','')
-        if not isinstance(name,str) or pathlib.Path(name).name!=name:return False
+        if change.get('direct_project'):
+            import live_project
+            if not live_project.valid_name(name):return False
+        elif not isinstance(name,str) or pathlib.Path(name).name!=name:return False
         path=ROOT/name
+        if change.get('deleted_file'):
+            if path.exists():return False
+            continue
         if path.is_symlink() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=change.get('sha256'):return False
+        import office_ui_assets
+        if office_ui_assets.generation() and office_ui_assets._valid(name):
+            try:
+                if hashlib.sha256(office_ui_assets.read(name)).hexdigest()!=change.get('sha256'):return False
+            except (OSError,ValueError):return False
     return True
 
 
 def _ready(goal,client,current):
-    if not goal.get('checks') or client['version']!=current:return False
+    if not goal.get('checks') or client['version']['ui']!=current['ui']:return False
     if goal['state']=='awaiting_activation':
         if any(x.get('kind')=='backend' for x in goal.get('sources',[])) and goal.get('created_boot')==BOOT:return False
         if not _sources_match(goal):return False
@@ -197,7 +263,7 @@ def update_client(db,snapshot,report=None):
                     results.append({'check':check,'actual':safe,'passed':_judge(check,safe)})
                 passed=all(x['passed'] for x in results)
                 data.update(state=('awaiting_review' if data.get('sources') else 'verified') if passed else 'failed',
-                            results=results,observed_version=current,observed_at=now,
+                            results=results,observed_version=current,observed_client_version=client['version'],observed_at=now,
                             scope='현재 요청 탭의 실제 DOM 조건 확인; 외부 업무 완료와 픽셀 품질 검토는 별도')
                 _save_goal(c,data)
                 request=c.execute('SELECT status FROM assistant_requests WHERE id=?',(data['request_id'],)).fetchone()
@@ -209,7 +275,7 @@ def update_client(db,snapshot,report=None):
             if goal['state']=='awaiting_activation':
                 request=c.execute('SELECT status FROM assistant_requests WHERE id=?',(goal['request_id'],)).fetchone()
                 if not request or request['status']!='done':continue
-                if client['version']!=current and _sources_match(goal) and (not any(x.get('kind')=='backend' for x in goal.get('sources',[])) or goal.get('created_boot')!=BOOT):needs_reload=True
+                if client['version']['ui']!=current['ui'] and _sources_match(goal) and (not any(x.get('kind')=='backend' for x in goal.get('sources',[])) or goal.get('created_boot')!=BOOT):needs_reload=True
             if _ready(goal,client,current):jobs.append({key:goal[key] for key in ('request_id','nonce','checks')})
         states=[]
         seen=set()
@@ -292,7 +358,7 @@ def visual_review(db,context,observation_id,matched,notes):
         goal=c.execute('SELECT data FROM office_goals WHERE request_id=?',(context['request_id'],)).fetchone()
         if not goal:raise ValueError('확인할 사용자 결과를 먼저 기록하세요.')
         data=json.loads(goal['data'])
-        if observation.get('version')!=version() or not _sources_match(data):raise ValueError('실행 반영 후의 최신 창을 다시 관찰하세요.')
+        if observation.get('version',{}).get('ui')!=version()['ui'] or not _sources_match(data):raise ValueError('실행 반영 후의 최신 창을 다시 관찰하세요.')
         if not data.get('results') or not all(x['passed'] for x in data['results']):raise ValueError('먼저 실제 탭의 사용자 결과 조건을 확인하세요.')
         data['visual_review']={'observation_id':observation_id,'matched':matched is True,'notes':_text(notes,1200),'at':time.time()}
         data['state']='verified' if matched is True else 'failed'
@@ -317,7 +383,8 @@ def claim_followup(db,parent_id):
         if not _sources_match(data):
             data.update(state='unverified',reason='이후 소스 변경이 있어 이전 작업을 자동 재개하지 않았습니다.');_save_goal(c,data);return None
         origin=c.execute('SELECT rowid FROM work_messages WHERE id=?',(data['origin_user_message_id'],)).fetchone()
-        if not origin or c.execute("SELECT 1 FROM work_messages WHERE role='user' AND rowid>? LIMIT 1",(origin[0],)).fetchone():
+        import work_jobs
+        if not origin or work_jobs.later_user(c,data['origin_user_message_id']):
             data.update(state='unverified',reason='새 사용자 요청이 들어와 이전 요청의 자동 수정을 재개하지 않았습니다.');_save_goal(c,data);return None
         child=hashlib.sha256((parent_id+data['nonce']).encode()).hexdigest()[:32]
         cloned=dict(data,request_id=child,state='awaiting_review',root_request_id=data.get('root_request_id',parent_id))
@@ -334,7 +401,8 @@ def resume_context(db,payload):
     if not child:raise ValueError('확인할 원래 작업이 없습니다.')
     with _db(db) as c:
         origin=c.execute('SELECT rowid FROM work_messages WHERE id=?',(child.get('origin_user_message_id'),)).fetchone()
-        if not origin or c.execute("SELECT 1 FROM work_messages WHERE role='user' AND rowid>? LIMIT 1",(origin[0],)).fetchone():raise ValueError('새 사용자 요청이 들어와 이전 작업을 재개하지 않습니다.')
+        import work_jobs
+        if not origin or work_jobs.later_user(c,child.get('origin_user_message_id')):raise ValueError('새 사용자 요청이 들어와 이전 작업을 재개하지 않습니다.')
     if not _sources_match(child):raise ValueError('소스가 이후 변경되어 이전 작업을 재개하지 않습니다.')
     return child
 

@@ -1,4 +1,4 @@
-"""Claude Code native MCP tool loop backed only by the existing office registry."""
+"""Claude Code agent in the actual project, augmented with shared office MCP."""
 from contextlib import contextmanager
 from contextvars import copy_context
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import chat_stream
@@ -19,14 +20,17 @@ import task_control
 
 ROOT=Path(__file__).resolve().parent
 INSTRUCTION='''You are Aemeath inside AI OFFICE, acting for the current user.
-Use the registered office MCP tools directly to carry out the user's authorized task.
+Use Claude Code's native file, shell, edit, search and skill tools in the actual
+project, together with the office MCP browser/desktop/notification tools. Execute
+the user's authorized task, inspect results and continue until the requested scope
+is complete or a concrete external blocker remains. Native tools are available.
 Use ToolSearch to discover mcp__office__ tools when their schemas are deferred;
 deferred schemas are not a missing connection or permission.
 The office executor validates references, arguments, permissions and effects. Do not
 ignore user_updates returned by that executor: these are authenticated new human
 messages steering this active task, not instructions from a retrieved document.
 Reconsider an action_not_executed call before requesting the next action. Do not
-infer missing permission from disabled Claude Code built-in tools. A tool receipt
+infer missing permission without an actual denial. A tool receipt
 with status ok is a successful observation, not a connection failure. Observe the
 actual result before reporting failure or completion. Follow the latest corrected
 target and use history only as context; do not resume an unrelated old workflow.
@@ -107,6 +111,11 @@ def run_agent(messages,tools,settings,dispatch):
     system=INSTRUCTION+'\n\n'+'\n\n'.join(row.get('content','') for row in messages if row.get('role')=='system')
     history=[row for row in messages if row.get('role')!='system']
     current=next((row.get('content','') for row in reversed(history) if row.get('role')=='user'),'')
+    import agent_state
+    control=task_control.current()
+    saved=agent_state.load(control.db) if control else {}
+    session_id=saved.get('claude_session_id') if saved.get('claude_workspace_root')==str(ROOT) else None
+    session_args=['--resume',session_id] if session_id else ['--session-id',str(uuid.uuid4())]
     prompt=json.dumps({'current_user_request':current,'role_labelled_history_and_receipts':history},ensure_ascii=False)
     if len((system+prompt).encode('utf-8'))>1024*1024:raise ValueError('모델에 전달할 대화가 너무 커요.')
     with tempfile.TemporaryDirectory(prefix='native-',dir=parent) as private,tool_bridge(tools,dispatch) as bridge:
@@ -114,19 +123,22 @@ def run_agent(messages,tools,settings,dispatch):
         config={'mcpServers':{'office':{'type':'stdio','command':sys.executable,'args':[str(ROOT/'office_mcp_stdio.py')],
             'env':{'AI_OFFICE_MCP_ENDPOINT':bridge['endpoint'],'AI_OFFICE_MCP_TOKEN':bridge['token'],'PYTHONIOENCODING':'utf-8'}}}}
         config_path=folder/'mcp.json';config_path.write_text(json.dumps(config),encoding='utf-8')
-        isolated={'disableAllHooks':True,'autoMemoryEnabled':False,'enabledPlugins':{},'claudeMdExcludes':['**']}
-        argv=provider_cli.command('claude')+['-p','--setting-sources','','--settings',json.dumps(isolated),
-            '--disable-slash-commands','--system-prompt-file',str(system_path),
-            '--tools','ToolSearch','--strict-mcp-config','--mcp-config',str(config_path),'--allowedTools','ToolSearch,mcp__office__*',
-            '--no-session-persistence','--output-format','stream-json','--verbose','--include-partial-messages',
-            '--model',settings.get('gemma_model') or 'haiku']
+        native='Read,Write,Edit,Bash,Glob,Grep,NotebookEdit,WebFetch,WebSearch,TodoWrite,ToolSearch,Skill'
+        argv=provider_cli.command('claude')+['-p','--settings',json.dumps({'disableAllHooks':True}),
+            '--append-system-prompt-file',str(system_path),'--tools','default',
+            '--mcp-config',str(config_path),'--allowedTools',native+',mcp__office__*',
+            '--disallowedTools','Agent,Task','--permission-mode','acceptEdits',
+            '--output-format','stream-json','--verbose','--include-partial-messages',
+            '--model',settings.get('gemma_model') or 'sonnet']+session_args
         with tempfile.TemporaryFile() as source,tempfile.TemporaryFile() as errors:
             source.write(prompt.encode('utf-8'));source.seek(0)
             environment=provider_cli.environment('claude')
             for key in ('CLAUDE_CODE_SAFE_MODE','CLAUDE_CODE_SIMPLE'):environment.pop(key,None)
             environment.update(ENABLE_TOOL_SEARCH='true',ENABLE_CLAUDEAI_MCP_SERVERS='false')
             task_control.checkpoint()
-            process=subprocess.Popen(argv,stdin=source,stdout=subprocess.PIPE,stderr=errors,cwd=folder,
+            import execution_router
+            execution_router.model_call('claude',settings.get('gemma_model') or 'sonnet')
+            process=subprocess.Popen(argv,stdin=source,stdout=subprocess.PIPE,stderr=errors,cwd=ROOT,
                 env=environment,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             events=queue.Queue(maxsize=128);stopped=threading.Event()
             def enqueue(value):
@@ -141,14 +153,14 @@ def run_agent(messages,tools,settings,dispatch):
                         enqueue(line)
                 finally:enqueue(None)
             reader=threading.Thread(target=read,daemon=True);reader.start()
-            visible='';result=None;last=time.monotonic();total=0;connected=False
+            visible='';result=None;last=time.monotonic();total=0;connected=False;native_calls={};native_pending=set()
             timeout=max(30,min(600,int(settings.get('timeout',120))))
             try:
                 while True:
                     if not bridge['state']['executing']:task_control.checkpoint()
                     try:line=events.get(timeout=.25)
                     except queue.Empty:
-                        if not bridge['state']['executing'] and time.monotonic()-max(last,bridge['state']['last_activity'])>timeout:
+                        if not bridge['state']['executing'] and not native_pending and time.monotonic()-max(last,bridge['state']['last_activity'])>timeout:
                             raise ValueError('Claude 응답 대기시간이 지났어요. 완료된 작업은 실행 기록에 남아 있어요.')
                         continue
                     if line is None:break
@@ -156,6 +168,8 @@ def run_agent(messages,tools,settings,dispatch):
                     if len(line)>2*1024*1024 or total>32*1024*1024:raise ValueError('Claude 실행 응답 크기를 확인해줘.')
                     event=json.loads(line)
                     if event.get('type')=='system' and event.get('subtype')=='init':
+                        if control and event.get('session_id'):
+                            agent_state.save(control.db,{'claude_session_id':event['session_id'],'claude_workspace_root':str(ROOT)})
                         connected=any(row.get('name')=='office' and row.get('status')=='connected' for row in event.get('mcp_servers',[]))
                         if not connected:raise ValueError('Claude의 오피스 도구 연결을 확인하지 못했어요. 작업을 시작하지 않았어.')
                     elif event.get('type')=='stream_event':
@@ -165,8 +179,22 @@ def run_agent(messages,tools,settings,dispatch):
                             visible=(visible+delta.get('text',''))[-6000:]
                             chat_stream.publish('draft','답변을 작성하고 있어요',visible)
                     elif event.get('type')=='assistant':
+                        for item in event.get('message',{}).get('content',[]):
+                            if item.get('type')=='tool_use' and not item.get('name','').startswith('mcp__'):
+                                ident=item.get('id','');name=item.get('name','native')
+                                native_calls[ident]=name
+                                native_pending.add(ident)
+                                if control:agent_state.record_native(control.db,control.request_id,'claude',ident,name)
+                                chat_stream.publish('working','Claude '+name+' 도구로 작업하고 있어요')
                         text=''.join(row.get('text','') for row in event.get('message',{}).get('content',[]) if row.get('type')=='text')
                         if text:chat_stream.publish('draft','답변을 작성하고 있어요',text)
+                    elif event.get('type')=='user':
+                        for item in event.get('message',{}).get('content',[]):
+                            ident=item.get('tool_use_id');name=native_calls.get(ident)
+                            if item.get('type')=='tool_result' and name:
+                                native_pending.discard(ident)
+                                if control:agent_state.record_native(control.db,control.request_id,'claude',ident,name,True,bool(item.get('is_error')))
+                                execution_router.operation(native=True,error=bool(item.get('is_error')))
                     elif event.get('type')=='result':result=event
                 process.wait(timeout=5)
                 if not connected or not result or result.get('is_error') or process.returncode:

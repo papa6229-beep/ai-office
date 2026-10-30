@@ -20,6 +20,7 @@ VIDEO_MAX = 256 * 1024 * 1024
 IMAGE_TYPES = {'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif'}
 VIDEO_TYPES = {'.mp4':'video/mp4','.webm':'video/webm'}
 STEP_LABELS={'files_find':'파일 찾기','files_preview':'자료 미리보기','files_reveal':'탐색기 열기','documents_read':'문서 읽기','documents_find':'문서 찾기','stage_publish':'초안 표시','browser_open':'웹사이트 열기','browser_read':'웹페이지 읽기','browser_scroll':'웹페이지 살펴보기','apps_launch':'프로그램 실행','work_create':'업무 등록','work_status':'업무 상태 변경','work_report':'보고서 정리'}
+STEP_LABELS.update({'files_batch':'파일 묶음 처리','files_sort':'파일 규칙 분류','ego_status':'에고 연결 확인','ego_batch':'에고 웹 절차 실행'})
 STEP_LABELS.update({'attachments_list':'첨부 자료 확인','attachment_read':'첨부 자료 읽기·분석',
                     'attachment_preview':'첨부 미리보기','companion_assets':'캐릭터 목록 확인','companion_apply':'캐릭터 적용'})
 STEP_LABELS['work_edit']='업무 내용·상태 수정'
@@ -30,7 +31,10 @@ STEP_LABELS.update({'office_source_list':'앱 원본 찾기','office_source_read
                     'office_source_rollback':'앱 변경 되돌리기'})
 STEP_LABELS.update({'agent_workspace_status':'작업 사본 확인','agent_source_publish':'앱 변경 게시','agent_output_publish':'결과물 게시'})
 STEP_LABELS.update({'workspace_list':'작업 파일 목록','workspace_read':'작업 파일 읽기','workspace_write':'작업 파일 저장','workspace_run':'작업 코드 실행','workspace_image':'이미지 내용 확인'})
+STEP_LABELS.update({'workspace_edit':'필요한 구간 수정','workspace_restore':'앱 원본에서 작업 사본 복구'})
+STEP_LABELS['codex_project_change']='실제 프로젝트 변경 기록'
 STEP_LABELS['conversation_history']='이전 대화 문맥 확인'
+STEP_LABELS.update({'files_locations':'실제 폴더·드라이브 확인','files_browse':'폴더 내용 확인','files_read':'분류 자료 읽기','files_plan':'파일·폴더 작업 계획','files_jobs':'파일 작업 기록 조회','files_job_status':'파일 작업 결과 확인','files_job_run':'파일·폴더 정리 실행','files_job_undo':'파일 작업 되돌리기'})
 STEP_LABELS.update({'login_accounts':'등록 로그인 계정 확인','login_account_save':'로그인 계정 등록','browser_login_fill':'저장된 계정으로 로그인 입력'})
 STEP_LABELS.update({'office_ui_observe':'실제 화면 관찰','office_task_goal':'사용자 결과·확인 조건 기록',
                     'office_ui_check':'현재 화면 결과 확인','office_ui_review':'실제 창 이미지 검토'})
@@ -87,7 +91,7 @@ def _task_identity(note, operations, artifacts):
     actual=[op for op in operations if op['name'] not in {'workspace_task_note','office_task_goal'} and
             (op['effect'] in {'write','external','approval'} and op['name']!='codex_command')]
     analysis={'documents_read','attachment_read','browser_read','browser_view','codex_command','codex_image_view','codex_web_search'}
-    eligible=bool(actual or artifacts or (note and any(op['name'] in analysis for op in operations)))
+    eligible=bool(actual or artifacts or any(op['name']=='code_routine' for op in operations) or (note and any(op['name'] in analysis for op in operations)))
     if note:return eligible,note['title'],note['summary']
     names={op['name'] for op in actual}
     if names & {'office_source_apply','agent_source_publish','office_source_rollback','codex_file_change'}:
@@ -105,6 +109,7 @@ def _task_identity(note, operations, artifacts):
     elif actual:
         title=STEP_LABELS.get(actual[-1]['name'],'업무 작업 처리')
         summary='실제 수행 단계와 처리 결과'
+    elif any(op['name']=='code_routine' for op in operations):title='반복 업무 · 코드 실행';summary='AI 호출 없이 처리한 업무와 실제 실행 기록'
     else:title='작업 요청';summary=''
     return eligible,title,summary
 
@@ -309,7 +314,7 @@ def snapshot(db, request_id=None):
             key=('source',source_path) if source_path and step['name'] in {'office_source_apply','agent_source_publish'} else (step['name'],json.dumps(arguments,sort_keys=True))
             if status in {'error','pending','unknown'}:unresolved[key]=status
             elif status=='ok':unresolved.pop(key,None)
-            steps.append({'id':step['id'],'name':step['name'],'label':STEP_LABELS.get(step['name'],'작업 처리'),'status':status,'created':step['created'],'message':_text(result.get('message'),500)})
+            steps.append({'id':step['id'],'name':step['name'],'label':STEP_LABELS.get(step['name'],'작업 처리'),'status':status,'created':step['created'],'message':_text(result.get('message'),500),'elapsed_ms':result.get('timing',{}).get('elapsed_ms') if isinstance(result.get('timing'),dict) else None})
             artifact=result.get('data',{}).get('artifact') if isinstance(result.get('data'),dict) else None
             safe_artifact=_artifact(artifact)
             if safe_artifact:artifacts.append(safe_artifact)
@@ -321,7 +326,7 @@ def snapshot(db, request_id=None):
         review=c.execute('SELECT decision FROM stage_reviews WHERE request_id=?',(row['id'],)).fetchone()
         result=response.get('result',{})
         stopped=result.get('execution_state')=='cancelled'
-        attention=stopped or bool(unresolved) or (not operations and any(r.get('status')=='error' for r in result.get('tool_results',[]) if isinstance(r,dict)))
+        attention=stopped or result.get('execution_state')=='error' or bool(unresolved) or (not operations and any(r.get('status')=='error' for r in result.get('tool_results',[]) if isinstance(r,dict)))
         # Fenced code in a chat answer is not a published deliverable. Only
         # explicit stage publications and actual tool artifacts belong here.
         artifacts=list({a['id']:a for a in artifacts if isinstance(a,dict) and 'id' in a}.values())[:12]
@@ -330,7 +335,7 @@ def snapshot(db, request_id=None):
         try:stale=(datetime.datetime.now().astimezone()-datetime.datetime.fromisoformat(row['created'])).total_seconds()>600
         except (ValueError,TypeError):stale=True
         status=('attention' if attention else 'done') if row['status']=='done' else 'running'
-        if row['status']=='done' and verification and not stopped:
+        if row['status']=='done' and verification and not stopped and result.get('execution_state')!='error':
             if verification['state'] in {'failed','unverified'}:status='attention'
             elif verification['state']=='verified':status='done'
             else:status='verifying'
@@ -353,5 +358,7 @@ def snapshot(db, request_id=None):
                 if message and message not in {entry['message'] for entry in diagnostics}:
                     diagnostics.append({'status':receipt['status'],'message':message})
                 if len(diagnostics)>=20:break
-        return {'request':request,'workspace_eligible':eligible,'steps':steps[-100:],'artifacts':artifacts,
+        import execution_router
+        execution=execution_router.load(db,request_id)
+        return {'request':request,'workspace_eligible':eligible,'steps':steps[-100:],'artifacts':artifacts,'execution':execution,
                 'diagnostics':diagnostics,'verification':verification,'answer':''}

@@ -1,0 +1,9 @@
+.office-chat-link{color:var(--ao-cyan,#9fc6ff);text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere;font-weight:650}
+.office-chat-download{display:inline-flex;align-items:center;justify-content:center;margin:0 5px;min-width:25px;min-height:25px;border:1px solid var(--ao-border,#586c84);border-radius:5px;color:var(--ao-text,#cce0ff);background:var(--ao-raised,#253344);text-decoration:none;font-size:15px;vertical-align:middle}
+body #work button.office-chat-image,body button.office-chat-image{display:inline-flex;flex-direction:column;gap:6px;align-items:flex-start;vertical-align:middle;max-width:100%;padding:7px;margin:5px 3px 5px 0;background:var(--ao-raised,#25282b);border:1px solid var(--ao-border,#49494d);border-radius:7px;color:var(--ao-text,#f2f0e8);box-shadow:none;font:600 11px/1.5 Pretendard,sans-serif;text-align:left;white-space:normal;cursor:zoom-in}
+body #work button.office-chat-image img,body button.office-chat-image img{display:block;object-fit:contain;max-width:min(220px,100%);width:auto;max-height:130px;height:auto;border-radius:3px;background:var(--ao-bg,#101113)}
+.office-chat-image span{max-width:220px;overflow-wrap:anywhere}.office-chat-image:hover{border-color:var(--ao-accent,#b6f542)!important}
+body #work button.office-chat-video,body button.office-chat-video{cursor:pointer}
+.office-chat-link:focus-visible,.office-chat-download:focus-visible,button.office-chat-image:focus-visible{outline:2px solid var(--ao-accent,#b6f542);outline-offset:3px}
+body #work .work-attachment-chip>.office-chat-image{margin:0;padding:3px;flex:none}body #work .work-attachment-chip>.office-chat-image img{width:58px;height:46px}body #work .work-attachment-chip>.office-chat-image span{font-size:9px;max-width:90px}
+html[data-office-theme=silver] .office-chat-link{color:var(--ao-cyan,#315f77)}

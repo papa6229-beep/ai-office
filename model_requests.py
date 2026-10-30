@@ -1,55 +1,47 @@
-"""Process-local model request admission, with priority for active chats.
-
-A foreground scope spans the whole conversation, including gaps between model
-calls. An already admitted request finishes normally before another can start.
-"""
+"""Bounded provider pools; local GPU calls remain serial and backgrounds yield."""
 from contextlib import contextmanager
+from contextvars import ContextVar
 import threading
 
+_condition=threading.Condition()
+_foreground_scopes=0
+_waiting={}
+_active={}
+_pool=ContextVar('office_model_pool',default='default')
+CAPACITY={'codex':2,'claude':1,'gemini':1,'local':1,'default':1}
 
-_condition = threading.Condition()
-_foreground_scopes = 0
-_foreground_waiting = 0
-_request_active = False
-
+@contextmanager
+def provider_scope(provider):
+    token=_pool.set(provider if provider in CAPACITY else 'default')
+    try:yield
+    finally:_pool.reset(token)
 
 def is_idle():
-    with _condition:
-        return not _request_active and _foreground_scopes == 0
-
+    with _condition:return not any(_active.values()) and _foreground_scopes==0
 
 @contextmanager
 def foreground_scope():
-    """Keep background requests waiting until this conversation finishes."""
     global _foreground_scopes
-    with _condition:
-        _foreground_scopes += 1
-    try:
-        yield
+    with _condition:_foreground_scopes+=1
+    try:yield
     finally:
         with _condition:
-            _foreground_scopes -= 1
-            _condition.notify_all()
-
+            _foreground_scopes-=1;_condition.notify_all()
 
 @contextmanager
 def request_slot(background=False):
-    """Serialize HTTP requests, admitting waiting foreground work first."""
-    global _foreground_waiting, _request_active
+    import task_control
+    key=_pool.get()
     with _condition:
-        if not background:
-            _foreground_waiting += 1
+        if not background:_waiting[key]=_waiting.get(key,0)+1
         try:
-            while _request_active or (background and (_foreground_scopes or _foreground_waiting)):
-                _condition.wait()
-            _request_active = True
+            while _active.get(key,0)>=CAPACITY[key] or (background and (_foreground_scopes or any(_waiting.values()))):
+                task_control.checkpoint();_condition.wait(.2)
+            task_control.checkpoint();_active[key]=_active.get(key,0)+1
         finally:
-            if not background:
-                _foreground_waiting -= 1
-                _condition.notify_all()
-    try:
-        yield
+            if not background:_waiting[key]-=1
+            _condition.notify_all()
+    try:yield
     finally:
         with _condition:
-            _request_active = False
-            _condition.notify_all()
+            _active[key]-=1;_condition.notify_all()
