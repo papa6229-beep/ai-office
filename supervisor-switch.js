@@ -18,13 +18,18 @@
   $('workAssistantTitle').replaceChildren(tabs);
   for(const r of records.values()){
     const button=make('button','work-supervisor-tab');button.type='button';button.dataset.threadId=r.row.id;
-    const name=make('span','',r.row.title),state=make('small','work-supervisor-tab-state','연결 확인 중'),complete=make('span','work-supervisor-complete','완료');complete.hidden=true;
-    button.append(name,state,complete);button.onclick=event=>select(r.row.id,event.isTrusted);tabs.append(button);Object.assign(r,{button,state,complete});
+    const name=make('span','work-supervisor-tab-name',r.row.title),selectedBadge=make('span','work-supervisor-selected','✓ 선택됨'),state=make('small','work-supervisor-tab-state','연결 확인 중'),complete=make('span','work-supervisor-complete','완료');complete.hidden=true;selectedBadge.hidden=true;selectedBadge.setAttribute('aria-hidden','true');
+    button.append(name,selectedBadge,state,complete);button.onclick=event=>select(r.row.id,event.isTrusted);tabs.append(button);Object.assign(r,{button,selectedBadge,state,complete});
   }
   const originalNodes=[...content.children],aemeathView=make('div','work-supervisor-aemeath');aemeathView.id='workSupervisorAemeath';
   for(const child of originalNodes)aemeathView.append(child);content.append(aemeathView);
   const handView=make('div','work-supervisor-hand');handView.id='workSupervisorHand';handView.dataset.independentWork='true';handView.hidden=true;content.append(handView);
-  const recipient=make('p','work-supervisor-recipient','보내는 대상: Aemeath · 운영본부');recipient.id='workSupervisorRecipient';$('workCommandForm').prepend(recipient);
+  function recipientLabel(row){
+    const label=make('p','work-supervisor-recipient');
+    label.append(make('span','work-supervisor-recipient-caption','대화 상대'),make('strong','',row.title),make('span','work-supervisor-recipient-team',row.id===HQ?'운영본부':'더핸드 HQ'));
+    return label;
+  }
+  const recipient=recipientLabel(records.get(HQ).row);recipient.id='workSupervisorRecipient';$('workCommandForm').prepend(recipient);$('workSend').dataset.recipientName='Aemeath';
   $('workCommand').setAttribute('aria-label','Aemeath 운영본부에 보낼 메시지');$('workCommand').placeholder='Aemeath에게 맡길 일';
   // Hidden composers cannot submit through an old pending Enter or programmatic submit.
   $('workCommandForm').addEventListener('submit',event=>{if(active!==HQ){event.preventDefault();event.stopImmediatePropagation();}},true);
@@ -59,7 +64,7 @@
   function render(){
     for(const r of records.values()){
       if(r.unread&&api.seen(r.row)===r.unread){r.unread=null;persist();}
-      const selected=r.row.id===active,label=stateLabel(r),busy=label==='작업 중';r.button.setAttribute('aria-pressed',String(selected));r.button.classList.toggle('is-running',busy);r.button.classList.toggle('has-completion',!!r.unread);r.complete.hidden=!r.unread;r.state.textContent=label;
+      const selected=r.row.id===active,label=stateLabel(r),busy=label==='작업 중';r.button.setAttribute('aria-pressed',String(selected));r.selectedBadge.hidden=!selected;r.button.classList.toggle('is-running',busy);r.button.classList.toggle('has-completion',!!r.unread);r.complete.hidden=!r.unread;r.state.textContent=label;
       r.frameState=busy?'working':['승인 대기','입력 대기','확인 필요'].includes(label)?'attention':r.unread?'completed':r.error||!r.data||label==='갱신 지연'?'unknown':'idle';
       (r.row.id===HQ?originalCompanion:handCompanion).dataset.frameState=r.frameState;
       r.button.setAttribute('aria-label',r.row.title+' · '+label+(r.unread?' · 새 완료 결과 있음':'')+' · '+(selected?'현재 대화':'전환'));
@@ -125,7 +130,7 @@
   addEventListener('office-main-conversation-rendered',()=>requestAnimationFrame(confirmMainConversation));
   hand=api.mount({...records.get(HAND).row,kind:'codex'},handView);
   records.get(HAND).scroll=hand.scroll;records.get(HAND).followBottom=hand.scroll===null;
-  const handForm=hand.element.querySelector('form');handForm.prepend(make('p','work-supervisor-recipient','보내는 대상: The Hand · 고도·메두사 총괄'));hand.input.placeholder='The Hand에게 맡길 일';hand.input.setAttribute('aria-label','The Hand 고도·메두사 총괄에 보낼 메시지');
+  const handForm=hand.element.querySelector('form');handForm.prepend(recipientLabel(records.get(HAND).row));handForm.querySelector('.project-send').dataset.recipientName='The Hand';hand.input.placeholder='The Hand에게 맡길 일';hand.input.setAttribute('aria-label','The Hand 고도·메두사 총괄에 보낼 메시지');
   handForm.addEventListener('submit',event=>{if(active!==HAND){event.preventDefault();event.stopImmediatePropagation();}},true);
   const handLabels=hand.element.querySelector('.project-window-meta');if(handLabels)handLabels.setAttribute('aria-label','The Hand 실제 대화 연결 상태');
   let polling=false;
