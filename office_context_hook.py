@@ -24,7 +24,7 @@ LEGACY_DATA=ROOT/'local_backups'/'current-task-hooks'
 # Keep the trusted installation scope and existing fences readable in place.
 DATA=Path(tempfile.gettempdir())/('ai-office-current-task-hooks-'+hashlib.sha256(str(ROOT).casefold().encode('utf-8')).hexdigest()[:16])
 SETTINGS=LEGACY_DATA/'installation.json'
-REVISION='2026-10-29-request-bound-live-read-fence-v5'
+REVISION='2026-10-30-live-input-transition-fence-v6'
 UUID=r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 
 
@@ -132,11 +132,11 @@ def recovery_command(thread,request_id=None):
 
 
 def _recovery_read(data,thread,fence):
-    command=recovery_command(thread,fence.get('request_id'))
+    commands={recovery_command(thread,fence.get('request_id')),recovery_command(thread)}
     args=data.get('tool_input')
     name=str(data.get('tool_name','')).rsplit('.',1)[-1]
     if name in {'Bash','exec_command'} and isinstance(args,dict):
-        return (args.get('cmd') or args.get('command') or '').strip()==command
+        return (args.get('cmd') or args.get('command') or '').strip() in commands
     # Code-mode is just transport for the same single read. No arbitrary JS,
     # parallel calls, file edits or appended commands pass this narrow shape.
     if name=='exec':
@@ -145,13 +145,13 @@ def _recovery_read(data,thread,fence):
         if match:
             try:
                 call=json.loads(match[1])
-                return (call.get('cmd','').strip()==command and
+                return (call.get('cmd','').strip() in commands and
                         set(call)<={'cmd','sandbox_permissions','justification','max_output_tokens','workdir','yield_time_ms','login','shell','tty'})
             except (ValueError,TypeError,AttributeError):pass
     return False
 
 
-def acknowledge_live_input(value):
+def acknowledge_live_input(value, *, read_started=None):
     """A real successful lookup, never context emission, releases recovery."""
     thread=value.get('thread_id')
     if (not isinstance(thread,str) or not re.fullmatch(UUID,thread) or
@@ -159,12 +159,24 @@ def acknowledge_live_input(value):
             not value.get('input_id') or not value.get('turn_id')):return False
     path=DATA/(thread+'.fence.json');fence=_load(path,{})
     if not fence.get('pending') or fence.get('reason') not in {'live_read_required','PreCompact','recovery_failed','context_emitted'}:return False
-    # A delayed successful lookup from another request cannot release this fence.
-    if fence.get('request_id') and fence['request_id']!=value.get('request_id'):return False
+    # A lookup begun before this recovery epoch cannot acknowledge it.
+    if read_started is not None and (not isinstance(read_started,(int,float))
+            or not fence.get('created',0)<=read_started<=time.time()):return False
+    previous=fence.get('request_id')
+    if previous and previous!=value.get('request_id'):
+        # Only a fresh authoritative lookup, corroborated by the latest local
+        # input, can supersede a stale request binding. Cached/delayed ACKs
+        # without a lookup start time remain unable to release this fence.
+        if read_started is None:return False
+        checkpoint=read_checkpoint(thread)
+        if (not checkpoint.get('context_valid')
+                or checkpoint.get('request_id')!=value.get('request_id')):return False
     # Never clear an Interrupt fence with the old input's live read.
     _save(path,{'pending':False,'reason':'live_input_confirmed','created':time.time(),
                 'request_id':value['request_id'],'input_id':value['input_id'],
-                'turn_id':value['turn_id'],'recovery_epoch':fence.get('recovery_epoch')})
+                'turn_id':value['turn_id'],'recovery_epoch':fence.get('recovery_epoch'),
+                'read_started':read_started,
+                'superseded_request_id':previous if previous!=value['request_id'] else None})
     return True
 
 
@@ -226,10 +238,8 @@ def handle(data):
         fence=_load(fence_path,{})
         if fence.get('pending'):
             if _recovery_read(data,thread,fence):return {}
-            if fence.get('reason')=='live_read_required':
-                return _stop(event,'복원 문구만으로 도구 실행을 재개하지 않습니다. 먼저 실제 현재 원문을 읽으세요. '
-                             '옛 user 메시지를 새 요청으로 해석하거나 그 내용을 사용자에게 되묻지 마세요.\n'
-                             +recovery_command(thread,fence.get('request_id')))
+            # Tool-delivered Office inputs do not trigger UserPromptSubmit.
+            # Inspect a newer local input before rejecting against the old ID.
             checkpoint=read_checkpoint(thread)
             if checkpoint.get('context_valid') and checkpoint.get('created',0)>fence.get('created',0):
                 # A fresh Office delivery may arrive as a tool input instead
@@ -242,7 +252,11 @@ def handle(data):
                     _save(fence_path,{'pending':True,'reason':'live_read_required','revision':checkpoint['checkpoint_revision'],
                                      'request_id':checkpoint.get('request_id') if checkpoint.get('source')!='native_prompt' else None,
                                      'recovery_epoch':uuid.uuid4().hex,'created':time.time()})
-                    return _stop(event,notice)
+                    return _stop(event,notice+'\n'+recovery_command(thread,checkpoint.get('request_id') if checkpoint.get('source')!='native_prompt' else None))
+            if fence.get('reason')=='live_read_required':
+                return _stop(event,'복원 문구만으로 도구 실행을 재개하지 않습니다. 먼저 실제 현재 원문을 읽으세요. '
+                             '옛 user 메시지를 새 요청으로 해석하거나 그 내용을 사용자에게 되묻지 마세요.\n'
+                             +recovery_command(thread,fence.get('request_id')))
             return _stop(event,'축약/중지 뒤 현재 지시 복구가 확인되지 않았습니다. 과거 업무의 도구 실행을 보류합니다.')
     return {}
 

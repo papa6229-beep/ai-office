@@ -123,3 +123,12 @@ These are delivery/registry controls, not proof of semantic correctness of every
 
 ## 2026-10-29 verification and request-bound ACK
 Reproduction/regression suite: 19 checks passed. A stale successful lookup from a different request could previously release a compact fence; hook v5 now requires the expected request ID to match. Actual production PreToolUse v5 callback was observed. One ephemeral read-only Luna/low session completed two current-goal responses around a real contextCompaction item/turn. This does not replay the production Office SessionStart(compact) end-to-end. No actual business work was executed. Evidence: local_backups/current-task-guard-20261029/automatic-closure-verification-summary.json.
+
+
+## New Office input during recovery (2026-10-30)
+
+v5 checked live_read_required before considering a newer tool-delivered Office input, so a fence could keep requiring an obsolete request ID. v6 considers newer local input before that rejection and permits only the canonical bound recovery read or canonical unbound current-input discovery. This does not allow arbitrary commands, parallel calls or edits through the recovery-read exception.
+
+The v9 reader records the start time of its actual live lookup. An ACK started before the current fence cannot release it. A different request ID requires this fresh lookup plus agreement with the latest eligible local checkpoint; an uncorroborated or timestamp-less delayed ACK remains rejected. Interrupt fences, stopped inputs, unsuccessful lookups and non-executable/completed turns still do not receive an execution ACK. No hook trust or platform permission setting was changed.
+
+Verification: both Python files passed syntax parsing and git diff checks; an actual native PreToolUse callback in the Office chat reported hook v6. The affected HQ chat's latest input was read from the actual desktop conversation, but that turn had already completed, so can_execute remained false and its fence was not cleared by that lookup. The affected caller's next live input/PreToolUse transition and business completion remain separate verification; no synthetic callback or business replay was presented as such evidence. No tests were added or run. Private operational/source receipts: local_backups/live-input-transition-20261030/.
