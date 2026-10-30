@@ -27,7 +27,7 @@
   function update(){
     if(!bar||!pending)return;
     const busy=reasons();button.disabled=applying||busy.length>0;
-    label.textContent=busy.length?'새 버전이 있어요. 입력·첨부·열린 창을 정리한 뒤 적용할 수 있어요.':'새 버전이 준비됐어요. 원하는 때 적용하세요.';
+    label.textContent=busy.length?'새 버전 적용 대기: '+[...new Set(busy)].join(' · '):'새 버전이 준비됐어요. 원하는 때 적용하세요.';
   }
   function offer(key){
     if(!key||seen.has(key))return;seen.add(key);pending=key;
@@ -66,7 +66,7 @@
       if(!workRestored&&window.officeWorkSession?.state().ready){workRestored=true;window.officeWorkSession.restore(saved.work);}
     }catch{}
   }
-  window.officeUpdates={offer,snapshot,reasons,restore,prepareRecovery(){snapshot();return !reasons(false).length;}};
+  window.officeUpdates={offer,snapshot,reasons,restore,refresh:update,prepareRecovery(){snapshot();return !reasons(false).length;}};
   window.chrome?.webview?.addEventListener('message',event=>{
     const data=event.data;if(data?.type!=='office-page-update-result'||data.id!==nativeRequest)return;
     nativeRequest=null;
@@ -335,6 +335,7 @@
     if($('workStop'))$('workStop').textContent=stopRequested ? '중지 요청됨' : controlSubmitting.stop ? '중지 요청 중…' : '작업 중지';
     companionUpdate();
     settleChatScroll();
+    window.officeUpdates?.refresh?.();
   }
   let attachmentDraft='', attachments=[], uploading=false;
   window.officeWorkSession={
