@@ -78,3 +78,8 @@ Proactively select and apply installed skills needed for the current task. Use t
 - Exclude private DBs, settings, credentials, browser profiles, private attachments and personal work artifacts. A new destination or newly included sensitive material still needs its own actual authorization. Do not bypass platform approval or stop boundaries.
 - Verify the commit and the destination branch's resulting commit. Report saved/activated, verified, committed and pushed as separate facts. If blocked, retain local results and report the commit ID and the remaining synchronization step; never claim that GitHub is current solely because local code runs.
 - Do not force-push, rewrite shared history or create an automatic schedule under this standing instruction. Existing verification rules remain: do not add or run tests unless the user asks.
+
+
+## Managed chat handoff identity (2026-10-30)
+
+For actionable messages to an existing managed Office/project chat, use the existing project_panels.send or department_tasks.assign path so the target-bound request record and canonical request marker are created together. Preserve the human's actual authorization and requested scope; a stored row is not new consent. A raw send_message_to_thread prompt has no managed execution identity unless it already corresponds to a recorded supported request. Use raw messages only for authorized reference/status communication; do not use them to resume managed work or loosen the receiver's identity checks. Never reuse the sending chat's request ID as the receiving chat's request ID. After an authorized handoff, verify the receiver recognized its own current request; distinguish dispatch, execution recovery and business completion.
