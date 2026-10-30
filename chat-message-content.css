@@ -7,3 +7,9 @@ body #work button.office-chat-video,body button.office-chat-video{cursor:pointer
 .office-chat-link:focus-visible,.office-chat-download:focus-visible,button.office-chat-image:focus-visible{outline:2px solid var(--ao-accent,#b6f542);outline-offset:3px}
 body #work .work-attachment-chip>.office-chat-image{margin:0;padding:3px;flex:none}body #work .work-attachment-chip>.office-chat-image img{width:58px;height:46px}body #work .work-attachment-chip>.office-chat-image span{font-size:9px;max-width:90px}
 html[data-office-theme=silver] .office-chat-link{color:var(--ao-cyan,#315f77)}
+
+body #work button.office-chat-folder,body button.office-chat-folder{display:inline-flex;align-items:center;justify-content:center;min-height:27px;margin:0 4px;padding:3px 8px;border:1px solid var(--ao-border,#586c84);border-radius:5px;background:var(--ao-raised,#253344);color:var(--ao-text,#cce0ff);font:650 11px/1.4 Pretendard,sans-serif;vertical-align:middle;white-space:nowrap;cursor:pointer;box-shadow:none}
+body button.office-chat-folder:hover{border-color:var(--ao-accent,#b6f542);color:var(--ao-accent,#b6f542)}
+body button.office-chat-folder:focus-visible{outline:2px solid var(--ao-accent,#b6f542);outline-offset:3px}
+body button.office-chat-folder:disabled{opacity:.55;cursor:wait}
+.office-chat-folder-status{font-size:10px;color:var(--ao-muted,#9aa9b5);margin-right:4px;white-space:normal}.office-chat-folder-status:empty{display:none}.office-chat-folder-status[data-state=error]{color:var(--ao-danger,#ff9e91)}

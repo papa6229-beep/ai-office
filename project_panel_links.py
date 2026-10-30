@@ -156,6 +156,28 @@ def _regular(path):
     return info
 
 
+def folder_target(identifier):
+    """Resolve only an opaque local file reference already emitted in chat."""
+    if not isinstance(identifier,str) or not re.fullmatch('[a-f0-9]{32}',identifier):
+        raise ValueError('대화의 폴더 열기 버튼을 다시 선택해 주세요.')
+    with _LOCK:raw=_FILES.get(identifier)
+    if not raw:raise ValueError('파일 링크를 갱신하려면 대화를 다시 열어 주세요.')
+    path=_local(raw)
+    if path is None:raise ValueError('이 파일 위치는 열 수 없어요.')
+    try:_regular(path)
+    except OSError:raise ValueError('파일이 이동되었거나 저장 위치를 확인할 수 없어요.') from None
+    return path
+
+
+def reveal_folder(identifier):
+    path=folder_target(identifier)
+    # Reuse the existing Shell item-ID route; never execute the linked file.
+    import file_history
+    file_history._show_in_explorer(path)
+    return {'dispatched':True,'mode':'code','model_calls':0,
+            'message':'탐색기에 파일이 있는 폴더를 열도록 요청했어요.'}
+
+
 @contextmanager
 def open_file(identifier):
     if not isinstance(identifier,str) or not re.fullmatch('[a-f0-9]{32}',identifier):raise ValueError('대화에서 파일 링크를 다시 선택해 주세요.')

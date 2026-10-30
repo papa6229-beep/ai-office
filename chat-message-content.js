@@ -50,6 +50,42 @@
     const label=document.createElement('span');label.textContent=(video?'▶ ':'')+name+(video?' · 재생':' · 확대 보기');button.append(label);
     return button;
   }
+  let folderToken='';
+  async function revealFolder(button,reference,status){
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
+    button.disabled=true;status.textContent='';status.dataset.state='';
+    try{
+      if(!folderToken){
+        const response=await fetch('/api/work/jobs',{cache:'no-store',signal:controller.signal});
+        const session=await response.json();
+        if(!response.ok||!session.action_token)throw Error('오피스를 새로고침한 뒤 다시 눌러주세요.');
+        folderToken=session.action_token;
+      }
+      const response=await fetch('/api/work/project-panel-folder',{
+        method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,
+        body:JSON.stringify({token:folderToken,ref:reference})
+      });
+      const result=await response.json();
+      if(response.status===403)folderToken='';
+      if(!response.ok||result.error||!result.dispatched)throw Error(result.error||'폴더 열기 요청을 확인하지 못했어요.');
+      status.textContent='폴더 열기 요청됨';
+    }catch(error){
+      status.dataset.state='error';
+      status.textContent=error.name==='AbortError'?'응답이 늦어요. 탐색기 상태를 확인해 주세요.':error.name==='TypeError'?'오피스 연결을 확인한 뒤 다시 눌러주세요.':error.name==='SyntaxError'?'폴더 열기 응답을 확인하지 못했어요. 잠시 후 다시 눌러주세요.':error.message;
+    }finally{clearTimeout(timeout);button.disabled=false;}
+  }
+  function folderButton(part,href){
+    if(part.kind!=='file')return null;
+    const target=new URL(href,location.href),reference=target.searchParams.get('ref')||'';
+    if(target.origin!==location.origin||target.pathname!=='/api/work/project-panel-file'||!/^[a-f0-9]{32}$/.test(reference))return null;
+    const wrap=document.createElement('span');wrap.className='office-chat-folder-action';
+    const button=document.createElement('button');button.type='button';button.className='office-chat-folder';
+    button.textContent='폴더 열기';button.title='탐색기에서 파일이 있는 폴더 열기';
+    button.setAttribute('aria-label',(part.text||'파일')+' 저장 폴더 열기');
+    const status=document.createElement('span');status.className='office-chat-folder-status';status.setAttribute('role','status');
+    button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();revealFolder(button,reference,status);});
+    wrap.append(button,status);return wrap;
+  }
   function render(container,message){
     if(!container)return;
     const parts=Array.isArray(message.parts)?message.parts:fallback(message.content??message.text);
@@ -70,6 +106,7 @@
       }
       const download=part.kind==='file'&&url(part.download);
       if(download){const link=document.createElement('a');link.className='office-chat-download project-message-download';link.href=download;link.download='';link.textContent='↓';link.title='파일 다운로드';link.setAttribute('aria-label',(part.text||'파일')+' 다운로드');link.addEventListener('click',event=>event.stopPropagation());fragment.append(link);}
+      const folder=folderButton(part,href);if(folder)fragment.append(folder);
     }
     container.replaceChildren(fragment);
   }

@@ -690,6 +690,10 @@ class Handler(BaseHTTPRequestHandler):
                         if payload:raise ValueError('프로젝트 조사 요청을 확인해 주세요.')
                         return self.reply(project_catalog.scan(DB) if p.endswith('-scan') else project_catalog.cancel())
                     return self.reply(project_catalog.save(payload) if p.endswith('-save') else project_catalog.reveal(payload))
+                if p=='/api/work/project-panel-folder':
+                    if set(payload)!={'ref'}:raise ValueError('대화의 폴더 열기 버튼을 다시 선택해 주세요.')
+                    import project_panel_links
+                    return self.reply(project_panel_links.reveal_folder(payload['ref']))
                 if p=='/api/work/brand-status-sync':
                     if payload:raise ValueError('현황 갱신 요청을 확인해 주세요.')
                     import brand_status

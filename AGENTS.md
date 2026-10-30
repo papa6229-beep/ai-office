@@ -83,3 +83,8 @@ Proactively select and apply installed skills needed for the current task. Use t
 ## Managed chat handoff identity (2026-10-30)
 
 For actionable messages to an existing managed Office/project chat, use the existing project_panels.send or department_tasks.assign path so the target-bound request record and canonical request marker are created together. Preserve the human's actual authorization and requested scope; a stored row is not new consent. A raw send_message_to_thread prompt has no managed execution identity unless it already corresponds to a recorded supported request. Use raw messages only for authorized reference/status communication; do not use them to resume managed work or loosen the receiver's identity checks. Never reuse the sending chat's request ID as the receiving chat's request ID. After an authorized handoff, verify the receiver recognized its own current request; distinguish dispatch, execution recovery and business completion.
+
+
+## Saved-file chat navigation (2026-10-30)
+
+When reporting a saved/organized local artifact, include its actual absolute local file Markdown link. The shared main/project renderer adds a user-clicked folder-open action beside registered local file links, alongside existing download/media actions. Do not automatically launch Explorer when saving, replying or loading a chat. Only claim the button is active after the corresponding runtime/source publication is confirmed; user click/native Explorer observation is separate from syntax or path preflight.
