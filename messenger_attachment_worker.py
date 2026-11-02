@@ -283,6 +283,12 @@ def main():
         p = json.load(sys.stdin)
         if p.get('action')=='chat_snapshot':
             value=chat_snapshot(p.get('titles',[]),p.get('room_ids',[]))
+        elif p.get('action')=='brand_status_metadata':
+            import brand_status_evidence
+            value=brand_status_evidence.worker_metadata()
+        elif p.get('action')=='brand_status_verify':
+            import brand_status_evidence
+            value=brand_status_evidence.verify_attachment(p['ref'],p['size'],p['sha256'])
         elif p.get('action')=='pc_read':
             import messenger_read
             value=messenger_read.worker(p['account'],p['room'],p['through'],p['boundary'])
