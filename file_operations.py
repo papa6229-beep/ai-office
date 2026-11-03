@@ -19,6 +19,7 @@ import file_executor as old
 import file_transfer as transfer
 import file_workspace
 import task_control
+import storage_paths
 
 ROOT=Path(__file__).resolve().parent
 LOCK=threading.Lock()
@@ -31,6 +32,7 @@ def _within(path,root):return old._inside(Path(path),Path(root))
 def _protected(path,source=False):
     path=Path(path)
     protected=[ROOT,Path.home()/'.codex',Path.home()/'.ssh',Path.home()/'.aws',Path.home()/'AppData']
+    protected.extend(storage_paths.protected_roots())
     protected += [Path(os.environ[key]) for key in ('WINDIR','ProgramFiles','ProgramFiles(x86)','ProgramData') if os.environ.get(key)]
     return any(_within(path,p) or (source and _within(p,path)) for p in protected)
 

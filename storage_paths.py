@@ -8,6 +8,14 @@ from pathlib import Path
 import stat
 
 
+def protected_roots():
+    """Private migration staging and originals stay out of routine organizers."""
+    home = Path.home()
+    suffix = '.C-drive-rollback-20261103'
+    return (Path('D:/Aemeath'), home / ('AI_OFFICE_GitHub' + suffix),
+            home / ('.codex' + suffix), home / '.cache' / ('codex-runtimes' + suffix))
+
+
 def _ordinary_ancestors(path):
     for item in (path, *path.parents):
         info = item.lstat()
