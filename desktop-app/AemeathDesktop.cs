@@ -21,6 +21,8 @@ namespace AemeathDesktop
         internal static readonly string Output = AppDomain.CurrentDomain.BaseDirectory;
         internal static readonly string Root = Path.GetFullPath(Path.Combine(Output, "..", "..", ".."));
         internal const string Home = "http://127.0.0.1:8765/";
+        internal const string ExternalLinkRevision = "20261103-ego-new-window-v1";
+        static readonly object eventLock = new object();
         internal static uint ActivateMessage;
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern uint RegisterWindowMessage(string name);
         [DllImport("user32.dll")] static extern bool PostMessage(IntPtr window, uint message, IntPtr wparam, IntPtr lparam);
@@ -45,6 +47,7 @@ namespace AemeathDesktop
                 }
                 try
                 {
+                    Event("started", null);
                     SetCurrentProcessExplicitAppUserModelID("AI.Office.Aemeath." + key);
                     if (!File.Exists(Path.Combine(Root, "app.py"))) throw new InvalidOperationException("오피스 원본 폴더를 찾지 못했어요. 원래 위치에서 다시 실행해 주세요.");
                     Application.Run(new OfficeWindow());
@@ -66,8 +69,57 @@ namespace AemeathDesktop
         {
             Uri uri;
             if (!Uri.TryCreate(address, UriKind.Absolute, out uri) || (uri.Scheme != "http" && uri.Scheme != "https") || !String.IsNullOrEmpty(uri.UserInfo)) return;
-            try { Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); }
-            catch { MessageBox.Show("링크를 열지 못했어요. 기본 브라우저 설정을 확인해 주세요.", "에이메스"); }
+            try
+            {
+                string browser = null;
+                foreach (string root in new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) })
+                {
+                    if (String.IsNullOrEmpty(root)) continue;
+                    string candidate = Path.Combine(root, "Citro Labs", "ego lite", "Application", "ego.exe");
+                    if (File.Exists(candidate)) { browser = candidate; break; }
+                }
+                if (browser == null) throw new FileNotFoundException("기존 에고 브라우저를 찾지 못했어요.");
+                // Human-clicked links use the installed normal Ego profile.
+                // A new window avoids activating a browser on another desktop.
+                var start = new ProcessStartInfo(browser, "--new-window " + QuoteArgument(uri.AbsoluteUri));
+                start.UseShellExecute = false; start.CreateNoWindow = true;
+                var process = Process.Start(start);
+                if (process != null) process.Dispose();
+                Event("external_link", new { host = uri.Host, browser = "ego", mode = "new-window" });
+            }
+            catch (Exception error)
+            {
+                Event("external_link_failed", new { error = error.GetType().Name });
+                MessageBox.Show("에고에서 링크를 열지 못했어요. 에고 설치 상태를 확인해 주세요.", "에이메스");
+            }
+        }
+
+        static string QuoteArgument(string value)
+        {
+            var result = new StringBuilder("\""); int slashes = 0;
+            foreach (char c in value)
+            {
+                if (c == '\\') { slashes++; continue; }
+                if (c == '"') { result.Append('\\', slashes * 2 + 1); result.Append(c); }
+                else { result.Append('\\', slashes); result.Append(c); }
+                slashes = 0;
+            }
+            return result.Append('\\', slashes * 2).Append('"').ToString();
+        }
+
+        internal static void Event(string kind, object detail)
+        {
+            try
+            {
+                string folder = Path.Combine(Root, "local_backups", "desktop-app");
+                Directory.CreateDirectory(folder);
+                string row = new JavaScriptSerializer().Serialize(new { kind = kind, detail = detail,
+                    pid = Process.GetCurrentProcess().Id, revision = ExternalLinkRevision, at_utc = DateTime.UtcNow.ToString("o") });
+                lock (eventLock) File.AppendAllText(Path.Combine(folder, "lifecycle.jsonl"), row + Environment.NewLine, Encoding.UTF8);
+            }
+            catch { }
         }
 
         // 0 = absent; 1 = identified Office; 2 = another service uses the port.
@@ -143,7 +195,8 @@ namespace AemeathDesktop
             HandleCreated += delegate { MessengerReceipt("ready",null,null,null); };
             Shown += async delegate { await Initialize(); };
             reconnect.Interval = 2500; reconnect.Tick += async delegate { await CheckRecovery(); };
-            FormClosed += delegate { messengers.Dispose(); reconnect.Stop(); reconnect.Dispose(); };
+            FormClosing += delegate(object sender, FormClosingEventArgs e) { Program.Event("closing", new { reason = e.CloseReason.ToString(), cancelled = e.Cancel }); };
+            FormClosed += delegate { Program.Event("closed", null); messengers.Dispose(); reconnect.Stop(); reconnect.Dispose(); };
         }
 
         protected override void WndProc(ref Message message)

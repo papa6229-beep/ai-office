@@ -4,9 +4,10 @@
 
 - The user does not want GPT-6 Astra used. Do not select Astra or invoke a custom agent, including `head`, configured to use Astra. This latest preference overrides earlier generic delegation guidance for this project. Keep those judgments in the main chat without automatically substituting another expensive model.
 
-## Browser selection (2026-10-27)
+## Browser selection (2026-11-03)
 
-- Human browsing and ordinary external links use the Windows default Google Chrome.
+- Human-clicked external links in the native Office app use the installed Ego browser's normal profile with a new window, as requested on 2026-11-03. This avoids activating an existing browser window on another virtual desktop. Preserve profiles, existing windows and the user's current desktop.
+- The user prefers Ego as the Windows default too. That separate OS setting requires its normal Windows confirmation; verify the actual HTTP/HTTPS associations before claiming it changed. Do not edit protected UserChoice hashes or silently change other file associations.
 - Aemeath and every department/agent use the installed ego-browser skill and official Ego API for website automation. Keep the existing task space and registered Ego report executors. The OS default browser does not select the agent browser.
 - Preserve existing user tabs and ongoing work. Do not silently fall back to Chrome browser_* or Playwright automation, and do not set Ego as the Windows default to perform agent work. Existing code/HTTP/official CLI workflows remain available.
 
