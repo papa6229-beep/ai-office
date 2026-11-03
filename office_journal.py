@@ -13,7 +13,7 @@ import tempfile
 import threading
 import uuid
 
-ROOT = Path(__file__).absolute().parent
+ROOT = Path(__file__).resolve().parent
 DOCUMENT = ROOT / 'PROJECT_WORKLOG.jsonl'
 MAX_BYTES = 2 * 1024 * 1024
 MAX_RECORD_BYTES = 24000

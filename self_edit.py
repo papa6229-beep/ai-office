@@ -18,7 +18,7 @@ import threading
 import time
 import uuid
 
-ROOT = pathlib.Path(__file__).absolute().parent
+ROOT = pathlib.Path(__file__).resolve().parent
 BACKUPS = ROOT / 'local_backups' / 'self-edit'
 LOCK = threading.RLock()
 MAX_BYTES = 512 * 1024

@@ -20,7 +20,7 @@ import file_transfer as transfer
 import file_workspace
 import task_control
 
-ROOT=Path(__file__).absolute().parent
+ROOT=Path(__file__).resolve().parent
 LOCK=threading.Lock()
 MAX_STEPS=30000
 
