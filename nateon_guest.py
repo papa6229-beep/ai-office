@@ -18,10 +18,10 @@ NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
 
 @contextmanager
-def _startup_lock(deadline):
+def _startup_lock(deadline, name='startup.lock'):
     import msvcrt
 
-    with (ROOT / 'startup.lock').open('a+b') as lock:
+    with (ROOT / name).open('a+b') as lock:
         while True:
             task_control.checkpoint()
             lock.seek(0)

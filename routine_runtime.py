@@ -58,7 +58,7 @@ def run(request_id=None):
             if (not latest.get('current') or not latest.get('can_execute') or latest.get('stopped')
                     or latest.get('input_revision')!=current.get('input_revision')):
                 raise ValueError('현재 지시가 바뀌어 다음 실행을 중단했습니다. 성공한 단계를 반복하지 마세요.')
-            context={'request_id':request_id,'root_request_id':request_id,'client_id':client_id,
+            context={'request_id':request_id,'root_request_id':request_id,'client_id':client_id,'user_goal':current['user_message'],
                 'step_id':uuid.uuid5(uuid.NAMESPACE_URL,request_id+':registered:'+str(len(calls))+':'+name).hex}
             value=registry.execute(name,args,context);calls.append({'tool':name,'status':value.get('status')});return value
         with office_fastlane.native_control(ROOT/'office.db',request_id):
