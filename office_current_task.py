@@ -13,7 +13,7 @@ import sqlite3
 import time
 
 ROOT=Path(__file__).resolve().parent
-REVISION='2026-10-30-live-task-read-ack-v9'
+REVISION='2026-11-04-live-followup-input-v10'
 UUID=r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 ID=r'[0-9a-f]{32}'
 
@@ -196,7 +196,12 @@ def read_current(request_id=None, *, thread_id=None):
             result['input_revision']=hashlib.sha256(json.dumps([result['request_id'],turn.get('id'),item.get('id'),result['user_message'],result['followups']],ensure_ascii=False,sort_keys=True).encode()).hexdigest()
             import execution_corrections
             result['correction_reuse']=execution_corrections.references(ROOT/'office.db',['current_input'])
-        else:result=_resolve(text,source,item,turn,thread,hq)
+        else:
+            result=_resolve(text,source,item,turn,thread,hq)
+            if result.get('source')=='office_relay':
+                followup=re.match(r'\A\[AI OFFICE 요청 '+ID+r'\]\s*\[AI OFFICE 추가 지시 ('+ID+r')\]',text)
+                if followup:
+                    result['followup_input_id']=followup[1]
         # Apply the live turn boundary also to an Office DB snapshot.
         result.update(turn_id=turn.get('id'),input_id=item.get('id'),turn_status=turn.get('status'),recovery_revision=REVISION)
         if turn.get('status')!='inProgress':result['can_execute']=False

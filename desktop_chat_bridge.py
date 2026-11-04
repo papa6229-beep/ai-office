@@ -20,7 +20,7 @@ import threading
 import time
 import uuid
 
-BRIDGE_REVISION = '2026-10-28-connection-diagnostics-v6'
+BRIDGE_REVISION = '2026-11-04-registered-followup-v1'
 ROOT=Path(__file__).resolve().parent
 CONFIG=ROOT/'local_backups'/'desktop-chat'/'connection.json'
 _serial=threading.Lock()
@@ -394,6 +394,10 @@ def _followup_envelope(ident,record,update):
     text+=office_relay_context.human_input_notice(office_relay_context.human_input_provenance(
         ident,record['thread_id'],update['message'],source='office_relay'))
     text+='\n원래 목표에 이 추가 지시를 반영하세요. 이전 업무로 바꾸지 말고, 문맥 복원 시 office_relay_context.read_current("'+ident+'").'
+    import office_routines
+    route=office_routines.match(update['message'])
+    if route:
+        text+='\n이 추가 지시는 등록 업무 '+route['id']+'와 일치합니다. 등록 실행기로 바로 실행하세요. routine_runtime.py run --request-id '+ident+' --followup-id '+update['id']+'\n원래 요청을 다시 실행하지 말고 이 실행기의 실제 결과를 반영하세요.'
     text+='\n첫 진행·최종 답변 첫 줄은 '+marker(ident)+'. 별도 게시 시 revision='+str(revision)+'을 전달하세요.'
     return text
 
