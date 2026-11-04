@@ -2,9 +2,10 @@
 import re
 import datetime
 
-RUNTIME_REVISION='2026-11-04-nateon-file-send-v7'
+RUNTIME_REVISION='2026-11-05-the-hand-cs-pilot-v8'
 
 CATALOG=[
+    {'id':'cs_pilot_run','example':'/더핸드CS 시험','description':'합성 문의 6건을 정책 분류·초안·검증하고 예외만 검토 자료로 남김. 예약은 /더핸드CS 예약, 조회는 /더핸드CS 상태'},
     {'id':'nateon_file_send','example':'/네이트온전송 C:\\업무\\완료.xlsx | 김우영,오상수,이준민,전수아 (5명)','description':'원본 경로와 정확한 방 이름을 지정한 파일 한 개를 전용 기기로 보내고 새 발신 기록을 확인'},
     {'id': 'detail_materials', 'example': '네이트온 받은 파일에 자료가 있을거야 상세페이지 제작해줘', 'description': '수신 자료 후보를 즉시 안내하고 상품 선택을 질문. 선택 전 제작하지 않음'},
     {'id':'detail_demo','example':'상세페이지 시연해줘','description':'준비된 후이저우 시연을 Ego로 자료 준비·빈 상품·로그인·JSON 가져오기·이미지/썸네일 저장까지 코드 실행'},
@@ -27,6 +28,10 @@ CATALOG=[
 
 def match(message):
     text=message.strip().rstrip('.!~').strip()
+    pilot=re.fullmatch(r'/더핸드CS\s+(시험|예약|상태)',text,re.I)
+    if pilot:
+        if pilot[1]=='상태':return {'id':'cs_pilot_status','args':{}}
+        return {'id':'cs_pilot_run','args':{'delay_seconds':60 if pilot[1]=='예약' else 0}}
     send=re.fullmatch(r'/네이트온전송[ \t]+([^|\r\n]{1,600})\|([^|\r\n]{1,160})',text)
     if send:
         path,room=(part.strip() for part in send.groups())
@@ -127,6 +132,8 @@ def execute(routine,call):
     if name=='detail_demo':
         result=call('detail_demo_run',{'phase':args.get('phase','all')})
         return result.get('message','상세페이지 시연 결과를 확인하지 못했어요.')
+    if name in {'cs_pilot_run','cs_pilot_status'}:
+        return call(name,args).get('message','더핸드 CS 시험 상태를 확인하지 못했어요.')
     if name=='small_talk':return args['reply']
     if name=='reports_all':
         import task_control

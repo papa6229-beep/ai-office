@@ -993,6 +993,8 @@ if __name__=='__main__':
     work_log.start(DB)
     import design_team
     design_team.start(DB)
+    import cs_pilot
+    cs_pilot.start(DB)
     import messenger_conversations
     messenger_conversations.start(DB)
     import desktop_chat_mirror

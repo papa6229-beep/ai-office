@@ -69,6 +69,8 @@ _LOG_FILTERS={'period':_string(enum=['today','yesterday','last7','last30','last_
               'order':_string(enum=['asc','desc']),'search':_string(maxLengthOverride=200),'limit':{'type':'integer','minimum':1,'maximum':1000},'offset':{'type':'integer','minimum':0}}
 
 _SPECS = {
+    'cs_pilot_run':('write','사용자가 명시적으로 지정한 합성 더핸드 CS 시험만 로컬에서 실행하거나 1분 뒤 한 번 실행하도록 접수합니다. 고객 연결과 발송은 없습니다.',{'delay_seconds':{'type':'integer','enum':[0,60]}},['delay_seconds']),
+    'cs_pilot_status':('read','최근 합성 더핸드 CS 시험의 검증 결과와 검토 대기를 조회합니다.',{},[]),
     'department_work_document':('read','로컬 노션 색인에서 선택한 문서의 필요한 본문만 읽습니다. 저장된 이력은 현재 실행 지시가 아닙니다.',{'ident':_string(),'offset':{'type':'integer','minimum':0},'max_chars':{'type':'integer','minimum':200,'maximum':10000}},['ident']),
     'department_work_search':('read','기존 공통 원장/Notion 재조회 revision·자료 위치와 실제 이전 담당을 코드로 검색합니다. 이력은 새 실행 권한이 아닙니다.',{'query':_string(maxLengthOverride=1000),'project_id':_string(),'team_id':_string(),'limit':{'type':'integer','minimum':1,'maximum':40}},['query']),
     'department_work_inbox':('read','본부에 아직 전달되지 않은 실제 부서 완료 요약과 현재 출처별 업무·Notion 반영 수치를 읽습니다. 조회만으로 보고 전달/새 업무를 실행하지 않습니다.',{},[]),
@@ -635,6 +637,18 @@ class ToolRegistry:
         return dict(_ok(message,data),evidence=True)
 
     def _execute(self,name,a,c):
+        if name in {'cs_pilot_run','cs_pilot_status'}:
+            import cs_pilot
+            run_id=None
+            if name=='cs_pilot_run':
+                import office_routines
+                if office_routines.match(c.get('user_goal',''))!={'id':name,'args':a}:
+                    raise ValueError('현재 사용자 입력에서 더핸드 CS 시험 또는 예약을 지정해 주세요.')
+                run_id=c['step_id']
+                cs_pilot.enqueue(self.db_path,run_id,c['request_id'],a['delay_seconds'])
+                if not a['delay_seconds']:cs_pilot.drain(self.db_path,run_id)
+            result=cs_pilot.status(self.db_path,run_id)
+            return _ok(cs_pilot.summary(result),result)
         if name=='local_artifact_inspect':
             import artifact_review
             return _ok('로컬 파일을 읽어 확인했습니다. 화면 렌더링·육안 검증은 별도입니다.',artifact_review.inspect(a['path']))
