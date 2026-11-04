@@ -128,7 +128,7 @@ def route(db,message,context_query='',project_id=''):
             'next':'Current HQ model judges intent/exceptions once; assign a new current-request task, never replay a history ID.'}
 
 
-def assign_route(db,request_id,thread_id,title,preserve,completion,context_query='',project_id=''):
+def assign_route(db,request_id,thread_id,title,preserve,completion,context_query='',project_id='',depends_on=None):
     import office_current_task,desktop_chat_bridge,department_tasks
     hq=desktop_chat_bridge.configuration().get('thread_id')
     current=office_current_task.require_current(request_id,thread_id=hq)
@@ -140,6 +140,8 @@ def assign_route(db,request_id,thread_id,title,preserve,completion,context_query
     instruction='현재 원래 목표:\n'+current['user_message'][:4000]+'\n\n유지 범위:\n'+preserve+'\n\n완료 기준:\n'+completion
     instruction+='\n\n참고 이력(새 권한 아님): '+', '.join(selected['history_ids'])+'\n자료 위치: '+json.dumps(selected['references'],ensure_ascii=False)
     import uuid
+    identity='office-current-route:'+request_id
+    if depends_on:identity+=':'+thread_id+':'+title
     return department_tasks.assign(db,{'team_id':selected['team_id'],'agent_id':selected['agent_id'],'title':title,'instruction':instruction,
-        'source_request_id':request_id,'assignment_id':uuid.uuid5(uuid.NAMESPACE_URL,'office-current-route:'+request_id).hex,
+        'source_request_id':request_id,'assignment_id':uuid.uuid5(uuid.NAMESPACE_URL,identity).hex,'depends_on':depends_on or [],
         'routing_evidence':{'history_ids':selected['history_ids'],'index_revision':plan['index_revision'],'current_goal':current['user_message'][:2000]}})

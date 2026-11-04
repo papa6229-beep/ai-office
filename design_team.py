@@ -1,6 +1,6 @@
 """Read-only team reports, local snapshots, and one daily code-only refresh."""
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
+from contextlib import closing, contextmanager
 import datetime as dt
 import json
 import os
@@ -26,8 +26,8 @@ WORKER = None
 def now(): return dt.datetime.now(SEOUL)
 
 
-def reference_day():
-    day = now().date() - dt.timedelta(days=1)
+def reference_day(instant=None):
+    day = (instant or now()).date() - dt.timedelta(days=1)
     while day.weekday() >= 5:
         day -= dt.timedelta(days=1)
     return day.isoformat()
@@ -138,7 +138,7 @@ def save_schedule(db, data):
         c.execute("INSERT OR REPLACE INTO design_team_schedule VALUES('daily',?)",(json.dumps(data),))
 
 
-def refresh(db, day=None, month=None, *, force=False, scheduled=False):
+def refresh(db, day=None, month=None, *, force=False, scheduled=None):
     day, month = dates(day, month)
     if not LOCK.acquire(blocking=False): return snapshot(db,day,month)
     try:
@@ -148,7 +148,11 @@ def refresh(db, day=None, month=None, *, force=False, scheduled=False):
             for member,name in MEMBERS:
                 for kind,period in [('report',day),('monthly',month)]:
                     row = c.execute('SELECT fetched,error FROM design_team_snapshots WHERE member=? AND kind=? AND period=?',(member,kind,period)).fetchone()
-                    if not force and row and row['fetched'] and not row['error']: continue
+                    if row and not row['error'] and row['fetched']:
+                        if scheduled and row['fetched'] >= scheduled['started_at']:
+                            continue
+                        if not scheduled and not force:
+                            continue
                     token = urls[member].rsplit('/',1)[-1]
                     query = '?date='+period if kind=='report' else '?month='+period
                     tasks.append((member,name,kind,period,ORIGIN+'/api/member/'+token+'/'+kind+query))
@@ -164,18 +168,88 @@ def refresh(db, day=None, month=None, *, force=False, scheduled=False):
                 return False
         if scheduled:
             import desktop_chat_mirror
-            desktop_chat_mirror.announce(db,'태준님, 디자인팀 관리 업데이트를 시작할게요. 네 분의 보고서를 확인해서 최신화하겠습니다.','design-team-start:'+now().date().isoformat())
+            desktop_chat_mirror.announce(db,'태준님, 디자인팀 관리 업데이트를 시작할게요. 네 분의 보고서를 확인해서 최신화하겠습니다.','design-team-start:'+scheduled['run_day'])
         with ThreadPoolExecutor(max_workers=4) as pool:
             success = all(list(pool.map(retrieve,tasks)))
         if scheduled:
-            save_schedule(db,{'attempt_at':time.time(),'run_day':now().date().isoformat(),
-                              'reference_day':day,'success':success,'mode':'code','model_calls':0})
+            state = dict(scheduled, attempt_at=time.time(), success=success,
+                         state='completed' if success else 'retry')
+            save_schedule(db, state)
             if success:
-                import work_log
-                work_log.safe_event(db,'design-team:'+now().date().isoformat(),'activity','디자인팀 보고서 갱신',
-                                    data={'application':'AI OFFICE','status':'completed','source':'design_team','reference_day':day,'member_count':4,'mode':'code','model_calls':0})
+                _record_schedule_completion(db, state)
     finally: LOCK.release()
     return snapshot(db,day,month)
+
+
+def _record_schedule_completion(db, state):
+    if state.get('completion_recorded'):
+        return
+    import work_log
+    recorded = work_log.safe_event(db,'design-team:'+state['run_day'],'activity','디자인팀 보고서 갱신',
+                                   at=state['attempt_at'],
+                                   data={'application':'AI OFFICE','status':'completed','source':'design_team',
+                                         'reference_day':state['reference_day'],'member_count':len(MEMBERS),
+                                         'mode':'code','model_calls':0})
+    if recorded:
+        state['completion_recorded'] = True
+        save_schedule(db, state)
+
+
+@contextmanager
+def _schedule_lock(db):
+    # The OS releases the claim when a process is killed. SQLite keeps the
+    # completed checkpoints, so the next process can safely resume the same day.
+    db_path = Path(db).resolve()
+    lock_dir = db_path.parent / '.provider_runtime'
+    lock_dir.mkdir(exist_ok=True)
+    lock_path = lock_dir / (db_path.name + '.design-team.lock')
+    with lock_path.open('a+b') as stream:
+        if os.name == 'nt':
+            import msvcrt
+            stream.seek(0)
+            acquire = lambda: msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            acquire = lambda: fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            acquire()
+        except OSError:
+            yield False
+        else:
+            yield True
+
+
+def run_scheduled(db, instant=None, *, retry_seconds=600):
+    instant = (instant or now()).astimezone(SEOUL)
+    if instant.weekday() >= 5 or instant.time() < dt.time(9,30):
+        return None
+    run_day = instant.date().isoformat()
+    with _schedule_lock(db) as acquired:
+        if not acquired:
+            return None
+        state = schedule(db)
+        if state.get('success'):
+            _record_schedule_completion(db, state)
+            if state.get('run_day') == run_day:
+                return state
+        if state.get('state') == 'running' and state.get('run_day', run_day) < run_day:
+            run_day = state['run_day']
+        if state.get('run_day') == run_day and state.get('state') != 'running':
+            if time.time() - state.get('attempt_at', 0) < retry_seconds:
+                return None
+        if not all(attendance(db).values()):
+            return None
+        day = state['reference_day'] if state.get('run_day') == run_day else reference_day(instant)
+        started_at = state.get('started_at') if state.get('run_day') == run_day else None
+        running = {'run_day':run_day,'reference_day':day,'started_at':started_at or time.time(),
+                   'attempt_at':time.time(),'state':'running','success':False,'mode':'code','model_calls':0}
+        save_schedule(db, running)
+        try:
+            refresh(db, day, scheduled=running)
+        except (OSError, ValueError, sqlite3.Error):
+            save_schedule(db, dict(running,state='retry'))
+            raise
+        return schedule(db)
 
 
 def snapshot(db, day=None, month=None):
@@ -213,16 +287,8 @@ def start(db):
         def loop():
             while True:
                 try:
-                    instant=now();state=schedule(db)
-                    due=instant.weekday()<5 and instant.time()>=dt.time(9,30)
-                    done=state.get('run_day')==instant.date().isoformat() and state.get('success')
-                    retry=time.time()-state.get('attempt_at',0)>=600
-                    if SOURCES.is_file() and due and not done and retry:
-                        present=attendance(db)
-                        if not all(present.values()):
-                            time.sleep(30)
-                            continue
-                        refresh(db,force=True,scheduled=True)
+                    if SOURCES.is_file():
+                        run_scheduled(db)
                 except (OSError,ValueError,sqlite3.Error):
                     pass
                 time.sleep(30)

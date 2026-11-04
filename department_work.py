@@ -324,6 +324,10 @@ def guidance(db,thread):
             'commands':['search --query 업무단어','inbox','route --query 현재목표 --context 관련기능','declare --request-id 실제ID --title 짧은제목 --kind 실제업무종류','export-journal'],
             'rule':'실제 직접 산출물 업무는 현재 입력 ID로 declare해 공통 원장에 연결합니다. 기존 배정은 새 직접 업무로 만들지 않습니다. 질문/잡담/조회는 제외합니다. 보고는 코드가 처리하므로 다른 대화로 직접 보내지 마세요. 이력은 새 권한이 아닙니다.'}
     if thread==hq:
+        result['handoff']={
+            'assign_option':'assign --depends-on 선행배정ID (같은 요청의 기존 배정만)',
+            'accept':'accept-handoff --request-id 현재요청ID --assignment-id 선행배정ID --result-sha256 확인한결과해시 --evidence 확인근거',
+            'rule':'선행 업무의 완료보고와 실제 결과 인수를 구분하세요. 실제 결과를 직접 확인한 경우에만 현재 결과 해시로 인수하세요. 인수 기록은 새 업무 승인이나 발신 권한이 아닙니다.'}
         result['inbox_delta']=inbox(db,8)
         result['work_overview']=overview(db)
     result['notion_outbox']={'transport':'existing official Notion tools in this normal work turn; no background token/model',
