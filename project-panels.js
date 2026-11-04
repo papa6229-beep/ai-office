@@ -104,14 +104,37 @@
     }
     const seen=new Set();p.messages=orderDeliveredMessages(order.filter(id=>{if(seen.has(id))return false;seen.add(id);return true;}).map(id=>byId.get(id)));
   }
+  function settleConfirmedSend(p,pending){
+    if(panels.get(key(p))!==p||!pending||p.pending?.request_id!==pending.request_id)return false;
+    if(p.input.value===pending.message)p.input.value='';
+    const sentFiles=new Set(pending.attachment_ids||[]);
+    p.files=p.files.filter(file=>!sentFiles.has(file.id));
+    p.pending=null;if(!p.files.length)p.uploadGroup=uid();
+    try{sessionStorage.removeItem(draftKey(p)+':pending');}catch(_){}
+    persistFiles(p);drawFiles(p);persistDraft(p);return true;
+  }
   function reconcileReceipts(p,receipts=[]){
+    p.receipts=receipts;
     let changed=false;
     for(const row of receipts){
-      const local=p.own.find(m=>m.id==='local:'+row.request_id);if(!local)continue;
-      if(local.created_at!==row.created_at){local.created_at=row.created_at;changed=true;}
-      if(row.state==='sent'&&local.delivery!=='sent'){local.delivery='sent';changed=true;}
+      const id='local:'+row.request_id,local=p.own.find(m=>m.id===id);
+      if(local){
+        if(local.created_at!==row.created_at){local.created_at=row.created_at;changed=true;}
+        if(row.state==='sent'&&local.delivery!=='sent'){local.delivery='sent';changed=true;}
+      }
+      const source=p.messages.find(m=>m.id===id);
+      if(row.state==='sent'&&source)source.delivery='sent';
     }
     if(changed)persistOwn(p);
+    // A late HTTP acknowledgement can arrive through history polling instead.
+    // Match its original request ID; never clear a newer draft or resend here.
+    const pending=p.pending;
+    if(!p.posting&&pending&&(receipts.some(row=>row.request_id===pending.request_id&&row.state==='sent')||
+      p.messages.some(m=>m.id==='local:'+pending.request_id&&m.delivery==='sent'))&&settleConfirmedSend(p,pending)){
+      notice(p,'기존 대화에 전달된 것을 확인했어요.');
+      return true;
+    }
+    return false;
   }
   function ownMessage(p,message,state){
     const id='local:'+p.pending.request_id;
@@ -395,12 +418,12 @@
     }finally{p.historyWarming=false;}
   }
   async function refresh(p,older=false,warming=false){
-    if(p.loading||(p.historyWarming&&!warming)||p.minimized||!panels.has(key(p)))return false;
+    if(p.loading||(p.historyWarming&&!warming)||p.minimized||panels.get(key(p))!==p)return false;
     p.loading=true;p.older.disabled=true;
     let loaded=false;
     try{
       const data=await request('project-panel?id='+encodeURIComponent(p.id)+'&host='+encodeURIComponent(p.host)+(older&&p.cursor?'&cursor='+encodeURIComponent(p.cursor):''));
-      if(!panels.has(key(p)))return;
+      if(panels.get(key(p))!==p)return;
       p.kind=data.kind||p.kind||'codex';windowLabels(p);renderMessages(p,data,older);if(p.embedded&&!p.minimized&&p.log.clientHeight>0&&p.resumeScroll!==undefined){p.log.scrollTop=p.resumeScroll===null?p.log.scrollHeight:p.resumeScroll;delete p.resumeScroll;}if(older)p.historyLoaded=true;
       if(!older){p.status=data.status;p.statusNode.textContent=[data.status,data.activity].filter(Boolean).join(' · ');receiveQuestions(p,data);observeCompletion(p,data);rememberDepartmentState(p,data);}p.failures=0;p.next=Date.now()+2500;
       if(!p.ready)notice(p,'');p.ready=true;loaded=true;dockRender();requestAnimationFrame(()=>markDisplayedCompletion(p));
@@ -418,14 +441,14 @@
     p.posting=true;sendLabel(p);ownMessage(p,message,'sending');notice(p,'선택한 기존 대화에 전달하고 있어요.');
     try{
       const result=await request('project-panel-send',p.pending);
+      if(panels.get(key(p))!==p)return;
       if(result.state==='sent'){
         ownMessage(p,message,'sent');
-        if(p.input.value===message)p.input.value='';p.pending=null;p.files=[];p.uploadGroup=uid();persistFiles(p);drawFiles(p);persistDraft(p);
-        try{sessionStorage.removeItem(draftKey(p)+':pending');}catch(_){}
+        settleConfirmedSend(p,p.pending);
         notice(p,'기존 대화에 전달했어요. 진행 상황은 이 창에서 이어서 확인할 수 있어요.');refresh(p);
       }else{ownMessage(p,message,'unknown');notice(p,'전달 여부를 확정하지 못했어요. 자동으로 다시 보내지 않았어요. 원래 앱에서 확인해 주세요.',true);}
-    }catch(error){ownMessage(p,message,'unknown');notice(p,error.message+' · 같은 전송 번호로 상태만 다시 확인해요.',true);}
-    finally{p.posting=false;sendLabel(p);}
+    }catch(error){if(panels.get(key(p))!==p)return;ownMessage(p,message,'unknown');notice(p,error.message+' · 같은 전송 번호로 상태만 다시 확인해요.',true);}
+    finally{p.posting=false;if(panels.get(key(p))===p&&reconcileReceipts(p,p.receipts||[]))drawMessages(p);sendLabel(p);}
   }
   // Team identity is presentational; retain the existing native thread and send path.
   function setWindowTeam(p){
