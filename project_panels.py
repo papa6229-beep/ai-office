@@ -232,6 +232,9 @@ def history(ident,host='local',cursor=None):
         import work_activity
         work_activity.observe(bridge.ROOT/'office.db',data,target['hostId'])
     turns=data.get('turns',[]);messages=[]
+    page_turns={turn['id'] for turn in turns}
+    page_starts=[turn['startedAt'] for turn in turns if isinstance(turn.get('startedAt'),(int,float))]
+    page_start=min(page_starts) if page_starts else None
     for turn in reversed(turns):
         for position,item in enumerate(turn.get('items',[])):
             role,text=_visible_text(item)
@@ -277,7 +280,13 @@ def history(ident,host='local',cursor=None):
         # survives later polling, instead of re-appending the user after final.
         for receipt in reversed(receipts):
             boundary=boundaries.get(receipt['request_id'])
-            if cursor and (not boundary or not any(t.get('id')==boundary.get('turn_id') for t in turns)):continue
+            # A short native page must not be padded with forty older questions
+            # whose corresponding answers have not been read yet.
+            if boundary:
+                if boundary.get('turn_id') not in page_turns:continue
+            elif cursor:continue
+            elif (receipt['state']=='sent' and page_start is not None
+                  and receipt['created_at']<int(page_start)-2):continue
             if receipt['request_id'] in matched_receipts:continue
             details=delivery_data.get(receipt['request_id'],{})
             if 'message' not in details:continue
@@ -304,6 +313,8 @@ def history(ident,host='local',cursor=None):
             'cwd':thread.get('cwd',''),'status':_label(thread,turns),'activity':activity,
             'native_approval':_approval(thread,turns),
             'messages':messages,'delivery_receipts':receipts,'observed_at':time.time(),'display_order_revision':'2026-10-27-delivery-position-v2',
+            'history_revision':'2026-11-04-paired-history-v1',
+            'history_window':{'turn_ids':sorted(page_turns),'oldest_started_at':page_start},
             'questions':question_state['questions'],'question_source_available':question_state['available'],'question_revision':question_state['revision'],
             'completion':None if cursor else _completion(turns),'cursor':data.get('page',{}).get('nextCursor'),
             'has_more':bool(data.get('page',{}).get('hasMore'))}

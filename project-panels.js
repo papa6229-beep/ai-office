@@ -53,6 +53,10 @@
       if(rows.some(m=>m.id===local.id))continue;
       if(local.sourceId&&rows.some(m=>m.id===local.sourceId))continue;
       const anchor=rows.findIndex(m=>m.id===local.anchor);
+      // Keep delivery state, but show an old acknowledged echo only once its
+      // source history is loaded. Pending/uncertain sends remain visible.
+      if(local.delivery==='sent'&&((!p.ready&&!p.messages.length)||
+        (anchor<0&&Number.isFinite(p.historyStart)&&Number.isFinite(local.created_at)&&local.created_at<p.historyStart-2)))continue;
       let index=anchor+1;
       if(anchor<0){
         // An older relay can be absent from the source's short live page.
@@ -331,6 +335,8 @@
   }
   function renderMessages(p,data,older=false){
     const atBottom=p.log.scrollHeight-p.log.scrollTop-p.log.clientHeight<85,oldHeight=p.log.scrollHeight,oldTop=p.log.scrollTop;
+    const start=data.history_window?.oldest_started_at;
+    if(Number.isFinite(start))p.historyStart=Math.min(p.historyStart??start,start);
     // Live reads can omit an earlier user item while the same turn is running.
     // Update by source item ID, retaining already observed visible messages.
     mergeSource(p,data.messages||[],older);reconcileReceipts(p,data.delivery_receipts);
@@ -375,17 +381,33 @@
       if(p.embedded&&p.resumeScroll!==undefined){if(!p.minimized&&p.log.clientHeight>0){p.log.scrollTop=p.resumeScroll===null?p.log.scrollHeight:p.resumeScroll;delete p.resumeScroll;}}else if(older)p.log.scrollTop=p.log.scrollHeight-oldHeight+oldTop;else if(forceBottom||atBottom||!p.ready)p.log.scrollTop=p.log.scrollHeight;
     }
   }
-  async function refresh(p,older=false){
-    if(p.loading||p.minimized||!panels.has(key(p)))return;
+  async function warmHistory(p){
+    if(p.historyWarming||p.historyWarmed||p.minimized||!panels.has(key(p)))return;
+    p.historyWarming=true;
+    try{
+      // Preserve single-turn reads for large design conversations. Only the
+      // first visible load fills recent context; live polls stay one page.
+      for(let page=0;page<5&&p.hasMore&&p.cursor&&!p.minimized&&panels.has(key(p));page++){
+        const cursor=p.cursor;
+        if(!await refresh(p,true,true)||p.cursor===cursor)break;
+      }
+      p.historyWarmed=!p.minimized;
+    }finally{p.historyWarming=false;}
+  }
+  async function refresh(p,older=false,warming=false){
+    if(p.loading||(p.historyWarming&&!warming)||p.minimized||!panels.has(key(p)))return false;
     p.loading=true;p.older.disabled=true;
+    let loaded=false;
     try{
       const data=await request('project-panel?id='+encodeURIComponent(p.id)+'&host='+encodeURIComponent(p.host)+(older&&p.cursor?'&cursor='+encodeURIComponent(p.cursor):''));
       if(!panels.has(key(p)))return;
       p.kind=data.kind||p.kind||'codex';windowLabels(p);renderMessages(p,data,older);if(p.embedded&&!p.minimized&&p.log.clientHeight>0&&p.resumeScroll!==undefined){p.log.scrollTop=p.resumeScroll===null?p.log.scrollHeight:p.resumeScroll;delete p.resumeScroll;}if(older)p.historyLoaded=true;
       if(!older){p.status=data.status;p.statusNode.textContent=[data.status,data.activity].filter(Boolean).join(' · ');receiveQuestions(p,data);observeCompletion(p,data);rememberDepartmentState(p,data);}p.failures=0;p.next=Date.now()+2500;
-      if(!p.ready)notice(p,'');p.ready=true;dockRender();requestAnimationFrame(()=>markDisplayedCompletion(p));
+      if(!p.ready)notice(p,'');p.ready=true;loaded=true;dockRender();requestAnimationFrame(()=>markDisplayedCompletion(p));
     }catch(error){p.failures=(p.failures||0)+1;p.next=Date.now()+Math.min(20000,2500*Math.pow(2,p.failures));p.statusNode.textContent='연결 확인 필요';notice(p,error.message,true);}
     finally{p.loading=false;p.older.disabled=false;sendLabel(p);}
+    if(loaded&&!older&&!p.historyWarmed)void warmHistory(p);
+    return loaded;
   }
   async function send(p,event){
     event.preventDefault();if(p.posting||p.uploading||!p.ready||p.files.some(f=>!f.id||f.error)||(!p.input.value.trim()&&!p.files.length))return;
