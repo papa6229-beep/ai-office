@@ -91,6 +91,7 @@ _SPECS = {
     'office_task_goal': ('write','앱을 수정하기 전에 사용자가 실제로 원한 결과와 그 결과를 확인할 읽기 전용 DOM 조건을 기록합니다. 조건은 사용자의 결과를 직접 확인해야 하며 코드 저장 성공이나 관련 없는 요소 존재로 대신하지 마세요. selector는 현재 코드·화면에서 확인하거나 새로 만들 실제 요소를 사용합니다.',{'goal':_string(maxLengthOverride=1000),'checks':{'type':'array','minItems':1,'maxItems':12,'items':{'type':'object','properties':{'kind':_string(enum=['visible','absent','text','attribute','count']),'selector':_string(maxLengthOverride=300),'label':_string(maxLengthOverride=160),'expected':{},'attribute':_string(enum=sorted(office_feedback.ATTRIBUTES))},'required':['kind','selector'],'additionalProperties':False}}},['goal','checks']),
     'office_ui_check': ('read','기록한 사용자 결과 조건을 현재 실제 요청 탭에서 확인하고 실제 관찰값을 받습니다. 반영 전 화면·응답 없음·실패를 완료로 말하지 마세요. 소스 저장 뒤에는 자동 반영 후 같은 조건을 다시 확인합니다.',{},[]),
     'office_ui_review': ('write','view_image로 실제로 읽은 현재 요청의 창 캡처에 대해 사용자 결과와 맞는지 시각적 판단을 기록합니다. 자동 DOM 조건과 구별하며 보지 않은 화면이나 반영 전 화면을 검증 완료로 말하지 마세요.',{'observation_id':_string(),'matched':{'type':'boolean'},'notes':_string(maxLengthOverride=1200)},['observation_id','matched','notes']),
+    'messenger_nateon_connect': ('write','네이트온 백그라운드 업무가 필요할 때 전용 Android를 창 없이 연결하거나 시작합니다. 태준님이 CMD를 열 필요가 없습니다. 앱 설치와 기기 준비만 확인하며 로그인·대화 조회·파일 발신을 수행하지 않습니다.',{},[]),
     'messenger_attachments_status': ('read','메신저별 화면 비간섭 첨부 수신의 실제 연결 범위를 조회합니다. 네이트온 저장 파일 처리와 미다운로드 첨부 직접 수신을 구별하세요.',{},[]),
     'messenger_attachments_list': ('read','사용자가 지정한 한비로 대화방의 PC 캐시 첨부를 코드로 조회합니다. 화면·마우스를 건드리지 않으며 전체 서버 이력은 아닙니다. 실제 첨부 ref를 반환합니다. 네이트온 직접 수신은 미지원입니다.',{'source':_string(enum=['hanbiro','nateon']),'query':_string(maxLengthOverride=200),'room':_string(maxLengthOverride=100),'offset':{'type':'integer','minimum':0}},['source']),
     'messenger_attachment_download': ('write','사용자가 받으라고 지정한 실제 한비로 첨부 ref를 기존 로그인으로 백그라운드 수신합니다. 보내기·화면 조작을 하지 않습니다. 반환 id로 job을 확인한 뒤 실제 저장 완료를 보고하세요. 정리는 별도 received_files_organize입니다.',{'ref':_string(pattern='^[a-f0-9]{64}$')},['ref']),
@@ -711,6 +712,9 @@ class ToolRegistry:
         if name=='office_task_goal':return _ok('사용자 결과와 확인 조건을 기록했습니다.',office_feedback.plan(self.db_path,c,a['goal'],a['checks']))
         if name=='office_ui_check':return _ok('실제 요청 탭의 확인 상태입니다.',office_feedback.check_live(self.db_path,c))
         if name=='office_ui_review':return _ok('실제 창 이미지의 시각적 판단을 기록했습니다.',office_feedback.visual_review(self.db_path,c,a['observation_id'],a['matched'],a['notes']))
+        if name=='messenger_nateon_connect':
+            import nateon_guest
+            return _ok('네이트온 전용 Android를 연결했어요.',nateon_guest.connect())
         if name.startswith('messenger_attachment'):
             import messenger_attachments as attachments
             if name=='messenger_attachments_status':return _ok('메신저별 실제 첨부 수신 범위예요.',attachments.capabilities(self.db_path))
