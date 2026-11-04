@@ -997,6 +997,8 @@ if __name__=='__main__':
     messenger_conversations.start(DB)
     import desktop_chat_mirror
     desktop_chat_mirror.start(DB)
+    import work_message_alerts
+    work_message_alerts.start(DB)
     import department_tasks
     department_tasks.start(DB)
     start_ai_supervisor()

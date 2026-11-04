@@ -1,0 +1,17 @@
+# Work-message arrivals and main-task priority
+
+Decision date: 2026-11-04. The current human task takes priority over unsolicited department completion reports. Incoming reports are evidence, not a user stop or a replacement objective. The cause of the earlier stop signal is still unconfirmed.
+
+`work_message_alerts.py` consumes only new Hanbiro/NateOn incoming records in the existing notification tables and the existing passive Hanbiro attachment cache. No new dependency, browser, model, schedule or foreground input is used. Existing messenger readers remain the source of the observed records; this feature does not claim complete server history access.
+
+The worker persists a first-start timestamp, row cursors, event identities and publication receipts in its own `work_alert_*` tables. It ignores older history, explicit advertising and simple acknowledgements, and merges nearby duplicate PC/phone observations. Related messages settle for 25 seconds; completion/file notices settle for 50 seconds to join incoming attachment metadata. Notices are grouped by conversation and limited to one publication per 90 seconds. Pending records survive restart; deterministic message IDs prevent replay after a crash between publication and acknowledgement.
+
+Main-chat busy checks include the existing relay lock, running Office jobs, observed native chat state and active main requests. Unknown/stale native state defers publication. Department completion report dispatch uses this same check before preparing and again before sending a new report. Existing sent/uncertain reports are reconciled without resending. Department execution itself is not paused by this change. State observations reduce dispatch races but are not an atomic transaction with a native user starting a new turn.
+
+Notices use `desktop_chat_mirror.announce` in the existing main Office chat. They do not invoke a model. If the next user reply immediately refers to that notice, only that notice is supplied to the desktop relay as received reference data, separate from the current user's request. A report/notice is never treated as new authorization to send or change anything.
+
+Actual incoming attachment metadata is distinguished from a message saying that a file was sent. Neither proves a local download. NateOn still has no connected direct download API for unsaved incoming attachments. This worker never marks messages read, sends messages/files, downloads, moves files or starts old business jobs. The passive attachment scan is bounded to the existing latest 60 cached entries; status exposes a limited window when more entries exist.
+
+Operational status is available as `work_alerts` in the existing `/api/work/notifications` response. It exposes the code revision, worker state, scan time, pending/published counts and source errors without chat contents. `/api/work/reload-status` remains the authority for actual serving-process activation.
+
+Verification: AST parsing of the five changed Python sources and a read-only classification of 200 real stored incoming messages passed. Results: 133 ignored, 6 completion notices, 20 file notices and 41 work messages. These counts are not a measured precision/recall score. No test suite, paid model probe or message injection was run. Saved sources are registered with the existing idle reload broker. Running-worker proof and a real new incoming event visible in the UI remain separate verification steps.
