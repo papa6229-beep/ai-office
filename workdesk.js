@@ -1179,6 +1179,8 @@
       return `<div class="work-launcher-cell"><${tag} ${attributes} draggable="true" class="work-launcher-tile${item.card_cover ? ' has-cover' : ''}${item.available === false ? ' is-unavailable' : ''}" data-launcher-action="launch" data-launcher-id="${esc(item.id)}" title="${esc(item.title)} · ${esc(targetLabel)}" aria-label="${esc(item.title)} 열기${item.available === false ? ' · 경로 확인 필요' : ''}"><span class="work-launcher-cover${item.card_cover ? '' : ' is-icon-artwork'}">${artwork}</span><span class="work-launcher-card-content"><span class="work-launcher-kind" data-launcher-kind="${type[0]}" title="${type[1]}" aria-label="${type[1]}">${type[0]}</span><span class="work-launcher-name">${esc(item.title)}</span><span class="work-launcher-target" title="${esc(targetLabel)}">${esc(targetLabel)}</span>${item.card_description ? `<span class="work-launcher-description">${esc(item.card_description)}</span>` : ''}</span></${tag}></div>`;
     }).join('');
     const addTile = '<button type="button" class="work-launcher-tile work-launcher-add-tile" data-launcher-action="add" aria-label="바로가기 카드 추가"><span aria-hidden="true">＋</span><span>새 카드</span></button>';
+    // The old drag source may be detached before its dragend reaches the grid.
+    finishDrag();
     $('workLauncherGrid').innerHTML = tiles + addTile;
     $('workLauncherCount').textContent = `${items.length} CARDS · SCROLL TO EXPLORE`;
     observeBoardLayout();
@@ -1388,6 +1390,10 @@
     dragItem = null;
     $('workLauncherGrid').querySelectorAll('.is-dragging,.drop-before,.drop-after').forEach(tile => tile.classList.remove('is-dragging','drop-before','drop-after'));
   }
+  function finishDrag() {
+    if (dragItem) suppressLaunchUntil = Date.now() + 500;
+    clearDrag();
+  }
   function dragTarget(event) {
     const tile = event.target.closest('[data-launcher-action="launch"]');
     const item = state?.items?.find(x => x.id === tile?.dataset.launcherId);
@@ -1400,8 +1406,9 @@
     const tile=event.target.closest('[data-launcher-action="launch"]');
     const item=state?.items?.find(x=>x.id===tile?.dataset.launcherId);
     if (dragBlocked() || !tile || tile.disabled || !item || !event.dataTransfer) {event.preventDefault();return;}
-    clearDrag(); dragItem=item.id; suppressLaunchUntil=Date.now()+500;
+    clearDrag();
     event.dataTransfer.clearData(); event.dataTransfer.setData('text/plain',item.id); event.dataTransfer.effectAllowed='move';
+    dragItem=item.id; suppressLaunchUntil=Date.now()+500;
     tile.classList.add('is-dragging');
   }
   function dragOver(event) {
@@ -1437,7 +1444,13 @@
     $('workLauncherGrid').addEventListener('dragstart',dragStart);
     $('workLauncherGrid').addEventListener('dragover',dragOver);
     $('workLauncherGrid').addEventListener('drop',drop);
-    $('workLauncherGrid').addEventListener('dragend',()=>{if (dragItem) suppressLaunchUntil=Date.now()+500;clearDrag();});
+    $('workLauncherGrid').addEventListener('dragend',finishDrag);
+    $('workLauncherGrid').addEventListener('pointerdown',event=>{
+      if (event.button !== 0) return;
+      // A new press is independent of a drag interrupted by the host window.
+      if (dragItem) clearDrag();
+      suppressLaunchUntil = 0;
+    });
     $('workLauncherGrid').addEventListener('dragleave',event=>{if (!$('workLauncherGrid').contains(event.relatedTarget)) $('workLauncherGrid').querySelectorAll('.drop-before,.drop-after').forEach(tile=>tile.classList.remove('drop-before','drop-after'));});
     $('workLauncherGrid').addEventListener('contextmenu',editShortcut);
     $('workLauncherGrid').addEventListener('auxclick',event=>{
