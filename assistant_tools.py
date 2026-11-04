@@ -4,7 +4,7 @@ Tool outputs are data, including names/content that may contain hostile instruct
 Work-copy path tools are bounded. workspace_run is explicit local Python execution
 under the current user's permissions, audited as an external effect.
 """
-RUNTIME_REVISION = '2026-10-29-team-work-tools-v3'
+RUNTIME_REVISION = '2026-11-04-nateon-guest-tools-v4'
 import copy
 import contextlib
 import hashlib
@@ -19,6 +19,7 @@ import time
 import os
 import subprocess
 import workspace_tools
+import nateon_guest
 
 import browser_bookmarks
 import browser_workspace
@@ -713,7 +714,6 @@ class ToolRegistry:
         if name=='office_ui_check':return _ok('실제 요청 탭의 확인 상태입니다.',office_feedback.check_live(self.db_path,c))
         if name=='office_ui_review':return _ok('실제 창 이미지의 시각적 판단을 기록했습니다.',office_feedback.visual_review(self.db_path,c,a['observation_id'],a['matched'],a['notes']))
         if name=='messenger_nateon_connect':
-            import nateon_guest
             return _ok('네이트온 전용 Android를 연결했어요.',nateon_guest.connect())
         if name.startswith('messenger_attachment'):
             import messenger_attachments as attachments
