@@ -6,7 +6,7 @@ from pathlib import Path
 import sqlite3
 
 ROOT=Path(__file__).resolve().parent
-REVISION='2026-10-29-team-runtime-v1'
+REVISION='2026-11-04-team-handoff-v2'
 
 
 def status(db):
@@ -40,6 +40,8 @@ def main():
     search=commands.add_parser('search');search.add_argument('--query',default='');search.add_argument('--team-id',default='');search.add_argument('--project-id',default='');search.add_argument('--limit',type=int,default=5)
     route=commands.add_parser('route');route.add_argument('--query',required=True);route.add_argument('--context',default='');route.add_argument('--project-id',default='')
     assign=commands.add_parser('assign');assign.add_argument('--request-id',required=True);assign.add_argument('--thread-id',required=True);assign.add_argument('--title',required=True);assign.add_argument('--preserve',required=True);assign.add_argument('--completion',required=True);assign.add_argument('--context',default='');assign.add_argument('--project-id',default='')
+    assign.add_argument('--depends-on',action='append',default=[])
+    accept=commands.add_parser('accept-handoff');accept.add_argument('--request-id',required=True);accept.add_argument('--assignment-id',required=True);accept.add_argument('--result-sha256',required=True);accept.add_argument('--evidence',required=True)
     declare=commands.add_parser('declare');declare.add_argument('--request-id',required=True);declare.add_argument('--title',required=True);declare.add_argument('--kind',required=True)
     export=commands.add_parser('export-journal');export.add_argument('--task-id',default='');export.add_argument('--limit',type=int,default=20)
     ack=commands.add_parser('ack-journal');ack.add_argument('--receipt-file',required=True)
@@ -50,7 +52,10 @@ def main():
     elif args.command=='inbox':result=work.inbox(db)
     elif args.command=='search':result=knowledge.search(db,args.query,args.team_id,args.project_id,args.limit)
     elif args.command=='route':result=knowledge.route(db,args.query,args.context,args.project_id)
-    elif args.command=='assign':result=knowledge.assign_route(db,args.request_id,args.thread_id,args.title,args.preserve,args.completion,args.context,args.project_id)
+    elif args.command=='assign':result=knowledge.assign_route(db,args.request_id,args.thread_id,args.title,args.preserve,args.completion,args.context,args.project_id,args.depends_on)
+    elif args.command=='accept-handoff':
+        import department_tasks
+        result=department_tasks.accept_handoff(db,args.request_id,args.assignment_id,args.result_sha256,args.evidence)
     elif args.command=='declare':result=work.declare_current(db,args.request_id,args.title,args.kind)
     elif args.command=='export-journal':result=journal.pending(db,args.task_id,args.limit)
     else:result=journal.acknowledge(db,json.loads(Path(args.receipt_file).read_text(encoding='utf-8-sig')))
