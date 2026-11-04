@@ -21,8 +21,9 @@ namespace AemeathDesktop
         internal static readonly string Output = AppDomain.CurrentDomain.BaseDirectory;
         internal static readonly string Root = Path.GetFullPath(Path.Combine(Output, "..", "..", ".."));
         internal const string Home = "http://127.0.0.1:8765/";
-        internal const string ExternalLinkRevision = "20261103-ego-new-window-v1";
+        internal const string ExternalLinkRevision = "20261104-ego-foreground-v2";
         static readonly object eventLock = new object();
+        static int externalClick;
         internal static uint ActivateMessage;
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern uint RegisterWindowMessage(string name);
         [DllImport("user32.dll")] static extern bool PostMessage(IntPtr window, uint message, IntPtr wparam, IntPtr lparam);
@@ -65,10 +66,11 @@ namespace AemeathDesktop
             return Uri.TryCreate(address, UriKind.Absolute, out uri) && uri.Scheme == "http" && uri.Host == "127.0.0.1" && uri.Port == 8765 && String.IsNullOrEmpty(uri.UserInfo);
         }
 
-        internal static void External(string address)
+        internal static async void External(string address, bool userInitiated)
         {
             Uri uri;
             if (!Uri.TryCreate(address, UriKind.Absolute, out uri) || (uri.Scheme != "http" && uri.Scheme != "https") || !String.IsNullOrEmpty(uri.UserInfo)) return;
+            IntPtr origin = GetForegroundWindow();
             try
             {
                 string browser = null;
@@ -81,20 +83,136 @@ namespace AemeathDesktop
                     if (File.Exists(candidate)) { browser = candidate; break; }
                 }
                 if (browser == null) throw new FileNotFoundException("기존 에고 브라우저를 찾지 못했어요.");
-                // Human-clicked links use the installed normal Ego profile.
-                // A new window avoids activating a browser on another desktop.
-                var start = new ProcessStartInfo(browser, "--new-window " + QuoteArgument(uri.AbsoluteUri));
-                start.UseShellExecute = false; start.CreateNoWindow = true;
-                var process = Process.Start(start);
-                if (process != null) process.Dispose();
+                uint originPid;
+                GetWindowThreadProcessId(origin, out originPid);
+                bool present = userInitiated && originPid == (uint)Process.GetCurrentProcess().Id;
+                int click = present ? ++externalClick : 0;
+                string marker = present ? "AI OFFICE " + Guid.NewGuid().ToString("N") : null;
+                var priorWindows = present ? BrowserWindows() : null;
+                string destination = present ? PresentationPage(marker, uri) : uri.AbsoluteUri;
+                var start = new ProcessStartInfo(browser, "--new-window " + QuoteArgument(destination));
+                start.UseShellExecute = present;
+                start.CreateNoWindow = !present;
+                if (present)
+                {
+                    start.WorkingDirectory = Path.GetDirectoryName(browser);
+                    start.WindowStyle = ProcessWindowStyle.Normal;
+                }
+                using (var process = Process.Start(start)) { }
                 Event("external_link", new { host = uri.Host, browser = "ego", mode = "new-window" });
+                if (!present) return;
+
+                var watch = Stopwatch.StartNew();
+                while (watch.ElapsedMilliseconds < 12000)
+                {
+                    IntPtr window = FindPresentationWindow(browser, marker, priorWindows);
+                    if (window != IntPtr.Zero)
+                    {
+                        if (!OnCurrentDesktop(origin) || !OnCurrentDesktop(window)) break;
+                        if (!IsWindowVisible(window)) ShowWindowAsync(window, 8); // SW_SHOWNA
+                        if (IsIconic(window) && click == externalClick && GetForegroundWindow() == origin)
+                            ShowWindowAsync(window, 9); // SW_RESTORE
+                        for (int attempt = 0; attempt < 5 && (!IsWindowVisible(window) || IsIconic(window)); attempt++)
+                            await Task.Delay(40);
+                        if (click == externalClick && GetForegroundWindow() == origin && IsWindowVisible(window) && !IsIconic(window))
+                            SetForegroundWindow(window);
+                        await Task.Delay(80);
+                        Event("external_link_window", new { host = uri.Host, visible = IsWindowVisible(window), foreground = GetForegroundWindow() == window });
+                        return;
+                    }
+                    await Task.Delay(80);
+                }
+                if (click == externalClick && GetForegroundWindow() == origin)
+                {
+                    Event("external_link_window_unconfirmed", new { host = uri.Host });
+                    MessageBox.Show("에고 새 창을 확인하지 못했어요. 작업표시줄에서 에고를 확인해 주세요.", "에이메스");
+                }
             }
             catch (Exception error)
             {
                 Event("external_link_failed", new { error = error.GetType().Name });
-                MessageBox.Show("에고에서 링크를 열지 못했어요. 에고 설치 상태를 확인해 주세요.", "에이메스");
+                if (GetForegroundWindow() == origin)
+                    MessageBox.Show("에고에서 링크를 열지 못했어요. 에고 설치 상태를 확인해 주세요.", "에이메스");
             }
         }
+
+        // Identify this exact new window before asking Windows to present it.
+        // A local, opaque page keeps the launch marker until it becomes visible.
+        static string PresentationPage(string marker, Uri uri)
+        {
+            string address = new JavaScriptSerializer().Serialize(uri.AbsoluteUri).Replace("<", "\\u003c");
+            string html = "<!doctype html><meta charset=utf-8><meta name=referrer content=no-referrer>"
+                + "<title>" + marker + "</title><p><a id=destination>웹 링크 열기</a></p>"
+                + "<script>const url=" + address + ";document.getElementById('destination').href=url;"
+                + "const ready=performance.now()+900;let timer;function openLink(){clearTimeout(timer);"
+                + "if(document.hidden)return;const left=ready-performance.now();"
+                + "if(left>0)timer=setTimeout(openLink,left);else location.replace(url);}"
+                + "document.addEventListener('visibilitychange',openLink);openLink();</script>";
+            return "data:text/html;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(html));
+        }
+
+        static HashSet<IntPtr> BrowserWindows()
+        {
+            var windows = new HashSet<IntPtr>();
+            EnumWindows(delegate(IntPtr window, IntPtr unused) {
+                var name = new StringBuilder(64);
+                GetClassName(window, name, name.Capacity);
+                if (name.ToString() == "Chrome_WidgetWin_1") windows.Add(window);
+                return true;
+            }, IntPtr.Zero);
+            return windows;
+        }
+
+        static IntPtr FindPresentationWindow(string browser, string marker, HashSet<IntPtr> previous)
+        {
+            foreach (IntPtr window in BrowserWindows())
+            {
+                if (previous.Contains(window)) continue;
+                var title = new StringBuilder(160);
+                GetWindowText(window, title, title.Capacity);
+                if (!title.ToString().StartsWith(marker, StringComparison.Ordinal)) continue;
+                uint pid;
+                GetWindowThreadProcessId(window, out pid);
+                try
+                {
+                    using (var process = Process.GetProcessById((int)pid))
+                        if (String.Equals(process.MainModule.FileName, browser, StringComparison.OrdinalIgnoreCase)) return window;
+                }
+                catch (ArgumentException) { }
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception) { }
+            }
+            return IntPtr.Zero;
+        }
+
+        static bool OnCurrentDesktop(IntPtr window)
+        {
+            object manager = null;
+            try
+            {
+                manager = Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("aa509086-5ca9-4c25-8f95-589d3c07b48a")));
+                bool current;
+                return ((IVirtualDesktopManager)manager).IsWindowOnCurrentVirtualDesktop(window, out current) == 0 && current;
+            }
+            catch (COMException) { return false; }
+            finally { if (manager != null) Marshal.ReleaseComObject(manager); }
+        }
+
+        [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("a5cd92ff-29be-454c-8d04-d82879fb3f1b")]
+        interface IVirtualDesktopManager
+        {
+            [PreserveSig] int IsWindowOnCurrentVirtualDesktop(IntPtr window, [MarshalAs(UnmanagedType.Bool)] out bool current);
+        }
+        delegate bool EnumWindowCallback(IntPtr window, IntPtr data);
+        [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowCallback callback, IntPtr data);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int size);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr window, StringBuilder title, int size);
+        [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
+        [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] static extern bool IsIconic(IntPtr window);
+        [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr window, int command);
+        [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
 
         static string QuoteArgument(string value)
         {
@@ -415,13 +533,13 @@ namespace AemeathDesktop
             core.NavigationStarting += delegate(object sender, CoreWebView2NavigationStartingEventArgs e)
             {
                 if (e.Uri == "about:blank" || Program.IsLocal(e.Uri)) return;
-                e.Cancel = true; Program.External(e.Uri);
+                e.Cancel = true; Program.External(e.Uri, e.IsUserInitiated);
             };
             core.NewWindowRequested += async delegate(object sender, CoreWebView2NewWindowRequestedEventArgs e)
             {
                 e.Handled = true;
                 string address = e.Uri;
-                if (!Program.IsLocal(address)) { Program.External(address); return; }
+                if (!Program.IsLocal(address)) { Program.External(address, e.IsUserInitiated); return; }
                 var popup = new Form { Text = "에이메스 · 미리보기", Width = 1150, Height = 850, StartPosition = FormStartPosition.CenterParent };
                 popup.Icon = target.FindForm().Icon;
                 var preview = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(20, 20, 20) };
