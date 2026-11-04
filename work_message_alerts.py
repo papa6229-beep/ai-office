@@ -11,7 +11,7 @@ import time
 import unicodedata
 import uuid
 
-REVISION = '2026-11-04-work-arrivals-v1'
+REVISION = '2026-11-04-work-arrivals-v2'
 SETTLE_SECONDS = 25
 FILE_SETTLE_SECONDS = 50
 NOTICE_INTERVAL = 90
@@ -194,6 +194,8 @@ def collect_attachments(db):
 
 
 def main_busy(db):
+    # Request history can retain 'running' rows across crashes/restarts. Only
+    # live ownership or native activity can defer notices and reports.
     import desktop_chat_bridge, desktop_chat_mirror, work_jobs
     if desktop_chat_bridge._serial.locked():
         return True
@@ -206,14 +208,6 @@ def main_busy(db):
         activity = observed.get('activity') or {}
         if activity.get('phase') != 'idle' or time.time()-activity.get('observed_at',0)>15:
             return True
-    with closing(_connect(db)) as c:
-        if _exists(c,'assistant_requests'):
-            channels = _exists(c,'assistant_work_channels')
-            query = ("SELECT 1 FROM assistant_requests r LEFT JOIN assistant_work_channels w ON w.request_id=r.id "
-                     "WHERE r.status='running' AND coalesce(w.channel,'office')='office' LIMIT 1") if channels else (
-                     "SELECT 1 FROM assistant_requests WHERE status='running' LIMIT 1")
-            if c.execute(query).fetchone():
-                return True
     return False
 
 
