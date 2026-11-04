@@ -2,9 +2,10 @@
 import re
 import datetime
 
-RUNTIME_REVISION='2026-10-29-report-preface-v6'
+RUNTIME_REVISION='2026-11-04-nateon-file-send-v7'
 
 CATALOG=[
+    {'id':'nateon_file_send','example':'/네이트온전송 C:\\업무\\완료.xlsx | 김우영,오상수,이준민,전수아 (5명)','description':'원본 경로와 정확한 방 이름을 지정한 파일 한 개를 전용 기기로 보내고 새 발신 기록을 확인'},
     {'id': 'detail_materials', 'example': '네이트온 받은 파일에 자료가 있을거야 상세페이지 제작해줘', 'description': '수신 자료 후보를 즉시 안내하고 상품 선택을 질문. 선택 전 제작하지 않음'},
     {'id':'detail_demo','example':'상세페이지 시연해줘','description':'준비된 후이저우 시연을 Ego로 자료 준비·빈 상품·로그인·JSON 가져오기·이미지/썸네일 저장까지 코드 실행'},
     {'id':'reports_all','example':'일일보고서랑 AI보고서 작성해줘','description':'두 등록 보고서를 순서대로 코드 실행하며 모델 호출 없이 각 저장·검수를 확인'},
@@ -26,6 +27,12 @@ CATALOG=[
 
 def match(message):
     text=message.strip().rstrip('.!~').strip()
+    send=re.fullmatch(r'/네이트온전송[ \t]+([^|\r\n]{1,600})\|([^|\r\n]{1,160})',text)
+    if send:
+        path,room=(part.strip() for part in send.groups())
+        if path.startswith('"') and path.endswith('"'):path=path[1:-1]
+        if re.fullmatch(r'[A-Za-z]:[\\/][^"|\r\n]+',path) and room:
+            return {'id':'nateon_file_send','args':{'path':path,'room':room}}
     # Only the observed, non-command preface is optional. The entire remaining
     # request must still match; arbitrary leading instructions are not dropped.
     preface=re.fullmatch(r'즉발식으로\s*가능한가[?？]?\s*다시\s*테스트할거야[.!。\n]+\s*([\s\S]+)',text)
@@ -101,6 +108,7 @@ def detail_materials_reply():
 
 def execute(routine,call):
     name=routine['id'];args=routine['args']
+    if name=='nateon_file_send':return call('messenger_nateon_send_file',args)['message']
     if name=='detail_materials':return detail_materials_reply()
     if name=='material_search':
         result=call('file_history_list',dict(direction='all',query=args['query'],include_existing=True))
