@@ -1,9 +1,38 @@
-"""Read-only Hanbiro window classification; no app input or network calls."""
+"""Read-only Hanbiro window classification; no app input or external network calls."""
 import ctypes
 from ctypes import wintypes as w
+from http.client import HTTPConnection
 import json
 from pathlib import Path
 import sys
+
+
+def _main_renderer_title():
+    config_path = Path(__file__).resolve().parent / '.provider_runtime/messenger/hanbiro-cdp.json'
+    port = json.loads(config_path.read_text('utf-8-sig')).get('port')
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError('Invalid Hanbiro loopback port')
+    connection = HTTPConnection('127.0.0.1', port, timeout=1.5)
+    try:
+        connection.request('GET', '/json/list')
+        response = connection.getresponse()
+        if response.status != 200:
+            raise ValueError('Hanbiro target metadata is unavailable')
+        targets = json.loads(response.read(512 * 1024))
+    finally:
+        connection.close()
+
+    main = []
+    for target in targets:
+        if target.get('type') != 'page':
+            continue
+        url = target.get('url', '').replace(chr(92), '/')
+        if '/hanbiro-talk/resources/app.asar/dist/renderer/index.html' in url.lower() and '#/main' in url:
+            main.append(target.get('title', '').strip())
+    if len(main) != 1 or not main[0]:
+        raise ValueError('Main renderer is ambiguous')
+    return main[0]
+
 
 def inspect(pids):
     import messenger_attachment_worker as cache
@@ -51,6 +80,11 @@ def inspect(pids):
         return True
     u.EnumWindows.argtypes=[type(visit),w.LPARAM]
     u.EnumWindows(visit,0)
+    if len(candidates) > 1:
+        # An auxiliary window can survive hidden after leaving a conversation.
+        # Match Hanbiro's main renderer, since the roster itself can be hidden.
+        main_title = _main_renderer_title()
+        candidates = [row for row in candidates if row['title'].strip() == main_title]
     # Unknown/duplicate windows never become a guessed conversation or main.
     if len(candidates)!=1:raise ValueError('Main window is ambiguous')
     return dict(ok=True,**candidates[0])
