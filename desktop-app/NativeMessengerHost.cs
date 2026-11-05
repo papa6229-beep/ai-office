@@ -26,7 +26,7 @@ namespace AemeathDesktop
         readonly ToolTip hints = new ToolTip();
         readonly Button back = new Button();
         readonly SemaphoreSlim openGate = new SemaphoreSlim(1,1);
-        internal const string Revision="20261029-hanbiro-renderer-show-v5";
+        internal const string Revision="20261105-between-native-restore-v6";
         string hanbiroSelection="none";
         bool hanbiroRendererVisible;
         IntPtr hanbiroPopup;
@@ -527,7 +527,7 @@ namespace AemeathDesktop
             Win.SetWindowLongPtr(handle,-8,office.Handle);
             if(Win.GetWindowLongPtr(handle,-8)!=office.Handle){if(Restore(saved))windows.Remove(saved);throw new InvalidOperationException("원본 창을 에이메스에 연결하지 못했어요.");}
             int attachStyle=saved.Style&~0x00c40000&~0x21000000;
-            if(source=="hanbiro") {
+            if(source=="hanbiro"||source=="between") {
                 // ShowWindow(HIDE) has already cleared WS_VISIBLE. Do not put
                 // the saved visible bit back, or clear WS_MINIMIZE by hand:
                 // Fit would then skip ShowWindow and Chromium can stay blank.
