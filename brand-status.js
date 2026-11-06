@@ -1,64 +1,82 @@
 (() => {
-  const root = document.getElementById('brand-status');
-  if (!root) return;
-  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let data = null, busy = false, polling = false;
-  root.innerHTML = `<div class="brand-head"><div><h2>브랜드 작업현황</h2><p>누가 맡았고, 어디까지 진행됐는지 확인하세요.</p></div><button id="brandRefresh">최신 상태 확인</button></div><div id="brandStamp" role="status">현황을 불러오는 중이에요.</div><div id="brandSummary" class="brand-summary"></div><div class="brand-tools"><label>브랜드 검색 <input id="brandSearch" type="search" placeholder="브랜드·차수·담당자"></label><label>담당자 <select id="brandPerson"><option value="">전체</option><option>이석환</option><option>안용훈</option><option>조현진</option><option>조혜연</option><option>미배정</option><option>미확인</option></select></label><label>상태 <select id="brandState"><option value="">전체</option><option value="진행 중">진행 중</option><option value="완료">완료</option><option value="보류">보류</option><option value="대기">대기</option><option value="미확인">미확인</option></select></label></div><p class="brand-note">자료 전달 완료와 실제 작업 완료는 달라요. 보고서 기준일과 확인되지 않은 상태를 함께 표시합니다.</p><div class="brand-table-wrap"><table><thead><tr><th>브랜드·차수</th><th>담당</th><th>자료 전달</th><th>작업 상태</th><th>전체 / 남음</th><th>확인 기준</th></tr></thead><tbody id="brandRows"></tbody></table></div><details class="brand-extra"><summary>이벤트·기타 업무</summary><div id="brandEvents"></div></details><details class="brand-extra"><summary id="brandUnresolvedTitle">확인이 필요한 자료</summary><div id="brandUnresolved"></div></details>`;
-  const el = id => document.getElementById(id);
-  el('brandState').insertAdjacentHTML('beforeend','<option value="미수령">미수령</option><option value="작업 예정">작업 예정</option>');
-  root.querySelector('.brand-head p').textContent='입고 차수를 기준으로 보고서·메신저·자료 폴더를 함께 대조합니다.';
-  root.querySelector('.brand-note').textContent='입고일과 리스트 날짜는 별개예요. 연결된 보고서는 자동 갱신하고, 차수가 불분명한 자료는 확인 대상으로 남깁니다.';
-  el('brandRows').closest('table').querySelector('th').textContent='브랜드 · 입고일 / 리스트 날짜';
-  root.insertAdjacentHTML('beforeend','<details class="brand-extra"><summary id="brandCandidateTitle">새 연결 확인</summary><div id="brandCandidates"></div></details><details class="brand-extra"><summary id="brandHistoryTitle">기타 배정분 · 기존 이력</summary><div id="brandHistory"></div></details><details class="brand-extra"><summary>자동 연결 범위</summary><div id="brandCoverage"></div></details>');
-  function proof(r) {
-    const dates=[['자료 수신',r.received_at],['작업 시작',r.start_date],['완료본 수신',r.completion_received],['상품팀 전달',r.forwarded_at]];
-    return `<div class="brand-proof">${dates.filter(([,v])=>v).map(([k,v])=>`<p>${escape(k)}: ${escape(v)}</p>`).join('')}${r.forward_basis?`<p>${escape(r.forward_basis)}</p>`:''}${(r.files||[]).map(f=>`<p><span>${escape(f.role)}</span> ${escape(f.name)}<small class="brand-path">${escape(f.path)}</small></p>`).join('')}${r.unverified?`<p class="brand-caution">미확인: ${escape(r.unverified)}</p>`:''}${(r.reference_messages||[]).map(m=>`<p><small>${escape(m.posted)} · ${escape(m.room)} · ${escape(m.sender)} · 차수 참고 자료</small>${escape(m.text)}</p>`).join('')}</div>`;
+  const root=document.getElementById('brand-status');
+  if(!root)return;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const states=['미수령','작업 예정','대기','진행 중','완료','보류'];
+  const people=['미확인','미배정','이석환','안용훈','조현진','조혜연'];
+  const options=(values,current)=>values.map(v=>`<option value="${esc(v)}" ${v===current?'selected':''}>${esc(v||'미지정')}</option>`).join('');
+  let data=null,token='',polling=false,saving=false,editing=null;
+  root.innerHTML=`<div class="brand-head"><div><h2>신상품 샘플 등록 현황</h2><p>상품팀과 웹팀이 함께 관리하는 입고 차수별 기반표</p></div><div class="brand-head-actions"><a href="/brand-register" target="_blank" rel="noopener">표만 열기 ↗</a><button id="brandRefresh" type="button">표 새로고침</button></div></div>
+    <div class="brand-owners"><span><i class="product-dot"></i>상품팀: 입고 · 리스트작업일 · 전달 · 우선순위</span><span><i class="web-dot"></i>웹팀: 현상태 · 담당자</span></div>
+    <div class="brand-tools"><label>브랜드 검색<input id="brandSearch" type="search" placeholder="브랜드·입고일·담당자"></label><label>담당자<select id="brandPerson"><option value="">전체</option>${options(people,'')}</select></label><label>상태<select id="brandState"><option value="">전체</option>${options(states,'')}</select></label></div>
+    <div id="brandStamp" role="status">기반표를 불러오는 중이에요.</div><p id="brandCounts" class="brand-counts"></p>
+    <div class="brand-table-wrap"><table class="brand-register-table"><thead><tr><th>순번</th><th>브랜드</th><th>총 가짓수</th><th>종류(상세)</th><th class="product-field">물류입고일</th><th class="product-field">리스트작업일</th><th class="product-field">웹팀 전달여부</th><th class="web-field">현상태</th><th class="product-field">우선순위</th><th>단종 체크 여부</th><th class="web-field">담당자</th><th>관리</th></tr></thead><tbody id="brandRows"></tbody></table></div>
+    <p class="brand-note">입고일과 리스트 파일 날짜는 별개입니다. 현상태는 웹팀이 직접 결정하며, 미확인 값은 추정하지 않습니다.</p>
+    <details class="brand-extra"><summary>기존 대조 근거와 다른 배정분</summary><div id="brandHistory"></div></details>
+    <dialog id="brandEditDialog" class="brand-dialog" aria-labelledby="brandEditTitle"><form id="brandEditForm"><div class="brand-dialog-head"><div><h3 id="brandEditTitle"></h3><p id="brandEditSub"></p></div><button type="button" data-close="brandEditDialog" aria-label="수정 취소">×</button></div><div class="brand-edit-tabs"><button type="button" data-section="product">상품팀 항목</button><button type="button" data-section="web">웹팀 항목</button></div><div id="brandEditFields" class="brand-edit-fields"></div><p id="brandEditError" class="brand-edit-error" role="alert"></p><div class="brand-dialog-actions"><button type="button" data-close="brandEditDialog">취소</button><button id="brandSave" type="submit">변경 저장</button></div></form></dialog>
+    <dialog id="brandProofDialog" class="brand-dialog"><div class="brand-dialog-head"><h3>연결 근거</h3><button type="button" data-close="brandProofDialog" aria-label="근거 닫기">×</button></div><div id="brandProofBody" class="brand-proof"></div></dialog>`;
+  const el=id=>document.getElementById(id);
+  const display=v=>v===null||v===undefined||v===''?'미확인':esc(v);
+  function render(){
+    if(!data)return;
+    const all=data.brands||[],query=el('brandSearch').value.trim().toLowerCase(),person=el('brandPerson').value,state=el('brandState').value;
+    const rows=all.filter(r=>(!person||r.person===person)&&(!state||r.work_status===state)&&(!query||[r.brand,r.arrival_date,r.person].join(' ').toLowerCase().includes(query)));
+    el('brandCounts').textContent=`전체 ${all.length}건 · 진행 중 ${all.filter(r=>r.work_status==='진행 중').length} · 완료 ${all.filter(r=>r.work_status==='완료').length} · 작업 예정 ${all.filter(r=>r.work_status==='작업 예정').length} · 미수령 ${all.filter(r=>r.work_status==='미수령').length}`;
+    el('brandRows').innerHTML=rows.map(r=>{
+      const f=r.table_fields||{},tone=r.work_status==='완료'?'done':r.work_status==='진행 중'?'doing':'unknown';
+      return `<tr><td>${esc(r.sequence)}</td><td><strong>${esc(r.brand)}</strong></td><td>${display(f.total_count)}</td><td>${display(f.kind_count)}</td><td>${display(f.arrival_date||r.arrival_date)}</td><td>${display(f.list_work_date)}</td><td>${display(f.web_delivery)}</td><td><span class="brand-state ${tone}">${esc(r.work_status)}</span></td><td><span class="${f.priority==='최우선'?'brand-priority':''}">${display(f.priority)}</span></td><td class="${f.discontinuation==='확인 필요'?'brand-caution':''}">${display(f.discontinuation)}</td><td>${esc(r.person)}</td><td><div class="brand-row-actions"><button type="button" data-edit="${esc(r.id)}">수정</button><button type="button" data-proof="${esc(r.id)}">근거</button></div></td></tr>`;
+    }).join('')||'<tr><td colspan="12">조건에 맞는 입고 차수가 없어요.</td></tr>';
+    el('brandStamp').textContent='표 저장 기준: '+(data.table_updated_at||data.registry_confirmed_at||'미확인').replace('T',' ');
+    el('brandHistory').innerHTML=`<p>기존 파일·대화 대조 자료는 각 행의 ‘근거’에서 볼 수 있습니다. 자동화와 일일보고서 연동은 다음 단계입니다.</p><p>기타 배정분 ${(data.other_batches||[]).length}건 · 차수 연결 확인 자료 ${(data.link_candidates||[]).length}개를 보존하고 있습니다.</p>`;
   }
-  function render() {
-    if (!data) return;
-    const rows = data.brands || [], search = el('brandSearch').value.trim().toLowerCase(), person = el('brandPerson').value, state = el('brandState').value;
-    const count = status => rows.filter(r => r.work_status === status).length;
-    el('brandSummary').innerHTML = [['입고 차수',rows.length],['진행 중',count('진행 중')],['완료',count('완료')],['작업 예정',count('작업 예정')],['미수령',count('미수령')]].map(([label,n])=>`<div><span>${label}</span><strong>${n}</strong></div>`).join('');
-    const filtered = rows.filter(r=>(!person||r.person===person)&&(!state||(r.work_status||'').includes(state))&&(!search||[r.brand,r.batch,r.person,r.note,...(r.list_dates||[])].join(' ').toLowerCase().includes(search)));
-    el('brandRows').innerHTML = filtered.length ? filtered.map(r=>{
-      const tone = r.work_status==='완료'?'done':r.work_status==='진행 중'?'doing':r.work_status==='보류'?'hold':'unknown';
-      const delivered = [...new Set((r.delivery_evidence||[]).map(item=>item.name))];
-      return `<tr><td><strong>${escape(r.brand)}</strong><small>${r.arrival_date?'입고 ':''}${escape(r.arrival_date||r.batch)}</small>${r.list_dates?.length?`<small>리스트 ${escape(r.list_dates.join(' · '))}</small>`:''}<details><summary>연결 근거 · 자료 · 대화</summary><p>${escape(r.image_source)}</p>${delivered.length?`<p>발신 확인: ${escape(delivered.join(' · '))}</p>`:''}${r.note?`<p>${escape(r.note)}</p>`:''}${r.folder?`<p class="brand-path">${escape(r.folder)}</p>`:''}${proof(r)}</details></td><td>${escape(r.person)}</td><td>${escape(r.delivery)}${r.delivery_warning?`<small>${escape(r.delivery_warning)}</small>`:''}${r.material_warning?`<small class="brand-caution">${escape(r.material_warning)}</small>`:''}${r.forwarded_at?'<small>상품팀 완료본 전달 확인</small>':''}</td><td><span class="brand-state ${tone}">${escape(r.work_status)}</span>${r.completion_warning?`<small>${escape(r.completion_warning)}</small>`:''}</td><td>${r.total!=null?`${escape(r.total)} / ${escape(r.remaining)}`:'미확인'}${r.report_day?'<small>보고서 집계 기준</small>':''}</td><td>${escape(r.state_basis||'대화·파일 근거')}${r.report_day?`<small>보고서 ${escape(r.report_day)}</small>`:''}${r.confirmed_at?`<small>사용자 기준 ${escape(r.confirmed_at.slice(0,10))}</small>`:''}${r.completed?`<small>완료 ${escape(r.completed)}</small>`:''}${r.completion_basis?`<small>${escape(r.completion_basis)}</small>`:''}</td></tr>`;
-    }).join('') : '<tr><td colspan="6">조건에 맞는 브랜드가 없어요.</td></tr>';
-    const warnings = data.warnings || [];
-    const auto=data.auto_sync||{};
-    el('brandStamp').textContent = ((busy||data.busy)?'최신 기록을 대조하고 있어요. 기존 현황을 먼저 표시합니다.':'자료 대조: '+(data.as_of||'미확인').replace('T',' '))+(auto.enabled?' · 5분마다 코드 자동 대조':'')+(auto.error?' · 자동 대조 실패, 마지막 성공 현황':'')+(warnings.length?' · '+warnings.join(' / '):'');
-    el('brandEvents').innerHTML = (data.events||[]).map(e=>`<div><strong>${escape(e.name)}</strong><span>${escape(e.person)} · ${escape(e.delivery)}</span><p>${escape(e.status)}</p></div>`).join('');
-    const unknown=data.unresolved_materials||[];
-    el('brandUnresolvedTitle').textContent=`확인이 필요한 자료 ${unknown.length}묶음`;
-    el('brandUnresolved').innerHTML=unknown.map(x=>`<div><strong>${escape(x.name)}</strong><p>${escape(x.status)}</p><small class="brand-path">${escape(x.path)}</small></div>`).join('');
-    const candidates=data.link_candidates||[];
-    el('brandCandidateTitle').textContent=`차수 연결을 확인할 자료 ${candidates.length}개`;
-    el('brandCandidates').innerHTML=candidates.map(f=>`<div><strong>${escape(f.name)}</strong><p class="brand-path">${escape(f.path)}</p><small>등록한 입고 차수와 아직 연결되지 않은 자료예요. 과거 차수일 수 있어 자동 완료로 처리하지 않아요.</small></div>`).join('');
-    const history=data.other_batches||[];
-    el('brandHistoryTitle').textContent=`기타 배정분 · 기존 이력 ${history.length}건`;
-    el('brandHistory').innerHTML=history.map(r=>`<div><strong>${escape(r.brand)} · ${escape(r.batch)}</strong><span>${escape(r.person)} · ${escape(r.work_status)}</span><small>현재 입고 목록과 차수 연결이 확인되지 않은 기존 기록</small></div>`).join('');
-    const coverage=data.coverage||{}, ranges=coverage.nateon?.native_exports||[];
-    el('brandCoverage').innerHTML=`<div><p>한비로: ${escape(coverage.hanbiro||'조회 전')}</p><p>네이트온: ${escape(coverage.nateon?.scope||'조회 전')}</p>${ranges.map(r=>`<small>공식 내보내기: ${escape(r.first)} ~ ${escape(r.last)}</small>`).join('')}<p>폴더 파일 ${escape(coverage.files_scanned??0)}개 대조 · 연결 ${escape(coverage.linked_files??0)}개</p><p>본문만 같은 대화나 날짜가 다른 파일은 자동 상태 변경 근거로 쓰지 않습니다. 새로운 배정·발신·파일 이동은 수행하지 않아요.</p></div>`;
-    el('brandRefresh').disabled=busy;
+  async function load(){
+    const response=await fetch('/api/work/brand-status',{cache:'no-store'});
+    if(!response.ok)throw Error('기반표를 불러오지 못했어요. 다시 시도해 주세요.');
+    data=await response.json();token=data.action_token||token;render();
   }
-  async function refresh() {
-    if(busy)return;
-    busy=true;render();el('brandRefresh').disabled=true;
-    try{data=await api('work/brand-status-sync',{});}
-    catch(error){el('brandStamp').textContent='최신 기록을 확인하지 못했어요. 마지막 현황을 유지합니다. '+error.message;return;}
-    finally{busy=false;el('brandRefresh').disabled=false;}
-    render();
+  function editFields(section){
+    if(editing.section)editing.drafts[editing.section]=Object.fromEntries(new FormData(el('brandEditForm')));
+    editing.section=section;const f={...editing.row.table_fields,...editing.drafts[section]};
+    const input=(key,title,type='text')=>`<label>${title}<input name="${key}" type="${type}" value="${esc(f[key]??'')}" ${type==='number'?'min="0" step="1"':''} ${key==='arrival_date'||key==='brand'?'required':''}></label>`;
+    const select=(key,title,list)=>`<label>${title}<select name="${key}">${options(list,f[key]??'')}</select></label>`;
+    el('brandEditFields').innerHTML=section==='product'?
+      input('brand','브랜드')+input('total_count','총 가짓수','number')+input('kind_count','종류(상세)','number')+input('arrival_date','물류입고일','date')+input('list_work_date','리스트작업일','date')+select('web_delivery','웹팀 전달여부',['수령 확인','미수령','전달 완료','미전달','확인 필요'])+select('priority','우선순위',['','최우선','1순위','2순위','3순위','미지정'])+select('discontinuation','단종 체크 여부',['미확인','확인 필요','확인 완료']):
+      select('work_status','현상태',states)+select('person','담당자',people);
+    for(const button of root.querySelectorAll('[data-section]'))button.classList.toggle('selected',button.dataset.section===section);
+    el('brandEditError').textContent='';
   }
-  window.brandStatusLoad=async()=>{
-    try{const response=await fetch('/api/work/brand-status',{cache:'no-store'});if(!response.ok)throw Error('현황 연결을 준비 중이에요.');data=await response.json();render();}
-    catch(error){el('brandStamp').textContent=error.message;}
-  };
-  el('brandRefresh').addEventListener('click',refresh);
+  root.addEventListener('click',event=>{
+    const button=event.target.closest('button');if(!button)return;
+    if(button.dataset.close&&!saving){el(button.dataset.close).close();return;}
+    if(button.dataset.section&&editing&&!saving){editFields(button.dataset.section);return;}
+    const id=button.dataset.edit||button.dataset.proof;if(!id)return;
+    const row=(data?.brands||[]).find(r=>r.id===id);if(!row)return;
+    if(button.dataset.edit){
+      editing={row,section:null,drafts:{}};el('brandEditTitle').textContent=row.brand;el('brandEditSub').textContent='물류입고 '+row.arrival_date;editFields('web');el('brandEditDialog').showModal();
+    }else{
+      el('brandProofBody').innerHTML=`<p>상태 기준: ${esc(row.state_basis||'사용자 확인')}</p>${row.note?`<p>${esc(row.note)}</p>`:''}${(row.files||[]).map(f=>`<p><strong>${esc(f.role)}</strong> ${esc(f.name)}<small class="brand-path">${esc(f.path)}</small></p>`).join('')}${row.unverified?`<p class="brand-caution">${esc(row.unverified)}</p>`:''}${(row.reference_messages||[]).map(m=>`<p><small>${esc(m.posted)} · ${esc(m.room)} · ${esc(m.sender)} · 차수 참고 자료</small>${esc(m.text)}</p>`).join('')}`;
+      el('brandProofDialog').showModal();
+    }
+  });
+  el('brandEditDialog').addEventListener('cancel',event=>{if(saving)event.preventDefault();});
+  el('brandEditForm').addEventListener('submit',async event=>{
+    event.preventDefault();if(saving||!editing)return;
+    const fields=Object.fromEntries(new FormData(event.target));
+    for(const key of ['total_count','kind_count'])if(key in fields)fields[key]=fields[key]===''?null:Number(fields[key]);
+    const payload={id:editing.row.id,expected_revision:editing.row.row_revision,section:editing.section,fields};
+    saving=true;for(const field of el('brandEditForm').querySelectorAll('input,select,button'))field.disabled=true;el('brandEditError').textContent='';
+    try{
+      if(typeof api==='function')data=await api('work/brand-status-save',payload);
+      else{
+        const response=await fetch('/api/work/brand-status-save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,token})});
+        const value=await response.json();if(!response.ok)throw Error(value.error||'저장하지 못했어요.');data=value;
+      }
+      el('brandEditDialog').close();render();el('brandStamp').textContent=data.save_result?.unchanged?'변경된 값이 없습니다.':'변경 사항을 저장했어요.';
+    }catch(error){el('brandEditError').textContent=error.message;}
+    finally{saving=false;for(const field of el('brandEditForm').querySelectorAll('input,select,button'))field.disabled=false;}
+  });
+  window.brandStatusLoad=async()=>{try{await load();}catch(error){el('brandStamp').textContent=error.message;}};
+  el('brandRefresh').addEventListener('click',window.brandStatusLoad);
   for(const id of ['brandSearch','brandPerson','brandState'])el(id).addEventListener(id==='brandSearch'?'input':'change',render);
-  setInterval(async()=>{
-    if(busy||polling||!data||root.offsetParent===null||document.hidden)return;
-    polling=true;
-    try{await window.brandStatusLoad();}finally{polling=false;}
-  },15000);
+  setInterval(async()=>{if(polling||saving||!data||el('brandEditDialog').open||el('brandProofDialog').open||root.offsetParent===null||document.hidden)return;polling=true;try{await window.brandStatusLoad();}finally{polling=false;}},15000);
 })();

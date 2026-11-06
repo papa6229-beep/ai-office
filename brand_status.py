@@ -9,7 +9,7 @@ import brand_status_registry
 
 ROOT=Path(__file__).resolve().parent
 PRIVATE=ROOT/'local_backups'/'brand-status'
-REVISION='2026-11-06-arrival-batch-registry-v3'
+REVISION='2026-11-06-manual-shared-register-v4'
 LOCK=threading.Lock()
 TZ=dt.timezone(dt.timedelta(hours=9))
 _worker_lock=threading.Lock()
@@ -65,7 +65,12 @@ def snapshot(db):
     auto.update(worker_running=bool(_worker and _worker.is_alive()),busy=LOCK.locked())
     error=PRIVATE/'sync-error.json'
     if error.exists():auto['error']=_read(error)
-    return dict(data,configured=True,busy=LOCK.locked(),revision=REVISION,mode='code',model_calls=0,auto_sync=auto)
+    return brand_status_registry.table_snapshot(dict(data,configured=True,busy=LOCK.locked(),revision=REVISION,mode='code',model_calls=0,auto_sync=auto),PRIVATE)
+
+
+def save(db,payload):
+    saved=brand_status_registry.save_table(PRIVATE,payload)
+    return dict(snapshot(db),save_result=saved)
 
 
 def refresh(db):

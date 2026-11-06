@@ -1,6 +1,30 @@
 # Brand work overview
 
-Revision: 2026-11-06-arrival-batch-registry-v3
+Revision: 2026-11-06-manual-shared-register-v4
+
+## Current basis table
+
+The existing Office menu and the separate local `/brand-register` page use one
+private registry. The columns are sequence, brand, original total/types, logistics
+arrival, list work date, web-team delivery, current state, priority,
+discontinuation check, and assignee. Counts retain the supplied table's units;
+report work counts remain supporting evidence rather than replacements.
+
+The product-team editor owns brand/counts, arrival/list dates, delivery, priority
+and discontinuation check. The web-team editor owns current state and assignee.
+These sections express workflow ownership, not authenticated team accounts. This
+iteration stays behind the existing localhost/Origin/action-token boundary; it
+does not publish company records or enable remote team access. Shared hosting,
+individual access control and report/messenger automation are the next stage.
+
+Saves validate only the selected section, compare the row's expected revision,
+retain the previous registry in private history and atomically replace the
+registry. Conflicts preserve the unsaved form instead of retrying or overwriting.
+GET overlays the authoritative registry, so an older evidence cache or concurrent
+read-only collection cannot replace manual state, counts or assignment. Cached
+report evidence can still be inspected. Manual values supersede the earlier
+automatic status-advancement policy below. Changes do not send messages or move
+materials. The UI polls saved data while visible and pauses during editing.
 
 The existing overview reads reports, confirmed personal-room file receipts,
 download receipts, and completed file-operation steps. Refreshing it never sends,

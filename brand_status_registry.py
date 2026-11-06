@@ -12,9 +12,101 @@ from pathlib import Path
 import re
 import sqlite3
 import unicodedata
+import threading
 
 TZ = dt.timezone(dt.timedelta(hours=9))
 SUFFIXES = {'.xlsx', '.xls', '.xlsm', '.csv', '.zip', '.rar', '.7z'}
+_table_lock = threading.Lock()
+PRODUCT_FIELDS = {'brand', 'total_count', 'kind_count', 'arrival_date', 'list_work_date',
+                  'web_delivery', 'priority', 'discontinuation'}
+WEB_FIELDS = {'work_status', 'person'}
+
+
+class TableConflict(ValueError):
+    pass
+
+
+def row_revision(row):
+    return hashlib.sha256(json.dumps(row, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def table_snapshot(data, private):
+    settings = registry(private)
+    if not settings or not settings.get('table_version'):
+        return data
+    cached = {r.get('id'): r for r in data.get('brands', [])}
+    rows = []
+    for index, source in enumerate(settings['batches']):
+        row = dict(cached.get(source['id'], {}))
+        row.update(id=source['id'], brand=source['brand'], arrival_date=source['arrival_date'],
+                   batch=source['arrival_date'], person=source.get('person') or '미확인',
+                   work_status=source['baseline_status'], confirmed_at=source['confirmed_at'])
+        fields = {key: source.get(key, '') for key in PRODUCT_FIELDS}
+        fields.update(work_status=source['baseline_status'], person=source.get('person') or '미확인')
+        row.update(table_fields=fields, row_revision=row_revision(source), sequence=index + 1)
+        if row['work_status'] != '완료':row.pop('completed', None)
+        rows.append(row)
+    return dict(data, brands=rows, table_version=settings['table_version'],
+                manual_status=True, table_updated_at=settings.get('table_updated_at', settings['confirmed_at']))
+
+
+def save_table(private, payload):
+    """Same-origin Office editor. Sections identify field ownership, not login roles."""
+    if (not isinstance(payload, dict) or set(payload) != {'id', 'expected_revision', 'section', 'fields'}
+            or not isinstance(payload['section'], str) or payload['section'] not in {'product', 'web'}
+            or not isinstance(payload['fields'], dict)):
+        raise ValueError('수정할 행과 입력 항목을 확인해 주세요.')
+    allowed = PRODUCT_FIELDS if payload['section'] == 'product' else WEB_FIELDS
+    if not payload['fields'] or set(payload['fields']) - allowed:
+        raise ValueError('선택한 담당 영역의 항목만 저장할 수 있어요.')
+    with _table_lock:
+        settings = registry(private)
+        if not settings or not settings.get('table_version'):
+            raise ValueError('기반표를 먼저 불러와 주세요.')
+        matches = [r for r in settings['batches'] if r['id'] == payload['id']]
+        if len(matches) != 1:raise ValueError('입고 차수를 다시 선택해 주세요.')
+        source = matches[0]
+        if payload['expected_revision'] != row_revision(source):
+            raise TableConflict('다른 곳에서 이 행을 수정했어요. 입력 내용을 보관하고 최신 표를 다시 불러와 주세요.')
+        fields = dict(payload['fields'])
+        enums = {'web_delivery': {'수령 확인', '미수령', '전달 완료', '미전달', '확인 필요'},
+                 'priority': {'', '최우선', '1순위', '2순위', '3순위', '미지정'},
+                 'discontinuation': {'미확인', '확인 필요', '확인 완료'},
+                 'work_status': {'미수령', '작업 예정', '대기', '진행 중', '완료', '보류'},
+                 'person': {'미확인', '미배정', '이석환', '안용훈', '조현진', '조혜연'}}
+        for key, value in fields.items():
+            if key in {'total_count', 'kind_count'}:
+                if value is not None and (type(value) is not int or not 0 <= value <= 1000000):
+                    raise ValueError('가짓수와 종류는 빈칸 또는 0 이상의 정수로 입력해 주세요.')
+            elif key in {'arrival_date', 'list_work_date'}:
+                if not isinstance(value, str) or (key == 'arrival_date' and not value):
+                    raise ValueError('물류입고일을 확인해 주세요.')
+                if value:
+                    try:dt.date.fromisoformat(value)
+                    except ValueError:raise ValueError('날짜는 연-월-일로 입력해 주세요.') from None
+            elif key == 'brand':
+                if not isinstance(value, str) or not value.strip() or len(value) > 80 or '\n' in value:
+                    raise ValueError('브랜드명을 확인해 주세요.')
+                fields[key] = value.strip()
+            elif not isinstance(value, str) or value not in enums[key]:
+                raise ValueError('항목의 선택 목록에서 값을 골라 주세요.')
+        before = {key: source.get('baseline_status') if key == 'work_status' else source.get(key, '') for key in fields}
+        if before == fields:return {'unchanged': True, 'row_revision': row_revision(source)}
+        original = copy.deepcopy(settings)
+        if fields.get('brand') and fields['brand'] != source['brand']:
+            source['aliases'] = sorted(set(source.get('aliases', []) + [source['brand']]))
+        now = dt.datetime.now(TZ).isoformat(timespec='seconds')
+        for key, value in fields.items():source['baseline_status' if key == 'work_status' else key] = value
+        if payload['section'] == 'web':
+            source['confirmed_at'] = now
+            if source.get('report', {}).get('person') != source.get('person'):
+                source.pop('report', None)
+        source['last_edit'] = dict(at=now, section=payload['section'], before=before, after=fields)
+        settings.update(manual_status=True, table_updated_at=now, version=settings['version'] + 1)
+        backup = private / 'table-history' / (row_revision(original) + '.json')
+        if not backup.exists():atomic(backup, original)
+        atomic(private / 'registry.json', settings)
+        return {'unchanged': False, 'row_revision': row_revision(source), 'saved_at': now}
 
 
 def normal(value):
@@ -319,4 +411,4 @@ def project(db, data, root, private, config, reports):
         matching='입고 고유번호 + 등록한 리스트 날짜·파일·보고서 배정 연결')
     # Source facts are deduplicated by stable IDs; failed reads do not erase history.
     atomic(private / 'evidence.json', dict(version=1, events=ledger, as_of=now))
-    return data
+    return table_snapshot(data, private)

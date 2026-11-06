@@ -327,7 +327,13 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                 return self.reply({'error':'이 PC의 오피스로 연결해 주세요.'},403)
             import brand_status
-            return self.reply(brand_status.snapshot(DB))
+            return self.reply(dict(brand_status.snapshot(DB),action_token=DESK_TOKEN))
+        if path=='/brand-register':
+            if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
+                return self.reply({'error':'이 PC의 오피스에서 열어 주세요.'},403)
+            import office_ui_assets
+            raw=office_ui_assets.read('brand-register.html').decode('utf-8').replace('{{UI_GENERATION}}',office_ui_assets.generation() or '')
+            b=raw.encode('utf-8');self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b);return
         if path=='/api/work/design-team':
             if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:
                 return self.reply({'error':'이 PC의 오피스로 연결해 주세요.'},403)
@@ -698,6 +704,10 @@ class Handler(BaseHTTPRequestHandler):
                     if payload:raise ValueError('현황 갱신 요청을 확인해 주세요.')
                     import brand_status
                     return self.reply(brand_status.refresh(DB))
+                if p=='/api/work/brand-status-save':
+                    import brand_status,brand_status_registry
+                    try:return self.reply(brand_status.save(DB,payload))
+                    except brand_status_registry.TableConflict as exc:return self.reply({'error':str(exc)},409)
                 if p=='/api/work/design-team-sync':
                     import design_team
                     if set(payload)-{'day','month','force'} or type(payload.get('force',False)) is not bool:
