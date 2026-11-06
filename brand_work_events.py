@@ -74,6 +74,18 @@ def _match(name, path, cfg, create):
     norm = registry.normal(Path(name).stem)
     day = registry.file_date(name)
     named = [r for r in rows if any(a in norm for a in registry.aliases(r))]
+    # Japanese batches are identified by brand + paid/free + round, not a guessed date.
+    def round_key(value):
+        paid = re.search(r'(무상|유상)', str(value))
+        number = re.search(r'(?:(\d{2,4})\s*년\s*)?(\d+)\s*차', str(value))
+        return (paid.group(1) if paid else '', int(number.group(1)) % 100 if number.group(1) else '', int(number.group(2))) if number else None
+    key = round_key(name)
+    japanese = [r for r in named if r.get('market') == '일본' and key and round_key(r.get('batch_label', '')) == key]
+    if len(japanese) == 1:
+        r = japanese[0]
+        return r['id'], r['brand'], day or r.get('list_work_date', '')
+    if japanese or any(r.get('market') == '일본' for r in named):
+        return None
     exact = [r for r in named if day and day in set(r.get('list_dates', []) + [r.get('list_work_date', '')])]
     explicit = [r for r in named if any(str(f.get('path', '')).casefold() == str(path).casefold() for f in r.get('files', []))]
     matches = exact or explicit
