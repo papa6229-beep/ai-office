@@ -504,6 +504,12 @@
     if(conversationRenderKey===nextKey)return;
     const known=new Set(messages.map(m=>String(m.id)));
     const transient=busy?[...log.querySelectorAll('[data-work-message-id]')].filter(row=>!row.dataset.nativeMessageId&&!known.has(row.dataset.workMessageId)&&!messages.some(m=>m.role===(row.classList.contains('work-user')?'user':'assistant')&&messageText(m)===(row.querySelector('[data-work-message-text]')?.textContent||'').trim())):[];
+    // Reconcile history once; retain only this POST's provisional DOM nodes.
+    // An old persisted message must never be appended as a new live reply.
+    const live=[...log.querySelectorAll('[data-work-live-request]')].filter(row=>
+      row.dataset.workLiveRole!=='user'||!messages.some(m=>m.role==='user'&&
+        messageText(m)===(row.querySelector('[data-work-message-text]')?.textContent||'').trim()&&
+        (Date.parse(m.created)||Number(m.turn_started_at)*1000||0)>=Number(row.dataset.workLiveSince)-1000));
     rememberChatPosition();
     const choices = overview.launcher_choices || [], actions = overview.assistant_actions || [];
     log.innerHTML = messages.length ? messages.map(m=>{
@@ -514,6 +520,7 @@
     for(const message of messages){const row=[...log.querySelectorAll('[data-work-message-id]')].find(n=>n.dataset.workMessageId===String(message.id));if(row)window.officeChatContent?.render(row.querySelector('[data-work-message-text]'),message);}
     window.officeChatContent?.enhanceAttachments(log);
     for(const row of transient)log.append(row);
+    for(const row of live)log.append(row);
     for(const m of messages){if(!m.native_id)continue;const row=[...log.querySelectorAll('[data-work-message-id]')].find(n=>n.dataset.workMessageId===String(m.id));if(row){row.dataset.nativeMessageId=m.native_id;row.dataset.messageId=m.native_id;}}
     applyChatPosition();
     conversationRenderKey=nextKey;
@@ -585,23 +592,11 @@
         // A running POST must not hide direct desktop replies or detach its live draft.
         const response=await fetch('/api/work',{cache:'no-store'}), latest=await response.json();
         if(!response.ok || latest.error)return;
-        const log=$('workMessages');
-        const panelUsers=new Set(data.user_message_ids||[]);
-        for(const message of latest.messages || []){
-          if(message.role!=='assistant'&&!panelUsers.has(message.id))continue;
-          let row=[...log.querySelectorAll('[data-work-message-id]')].find(node=>node.dataset.workMessageId===message.id);
-          if(!row){
-            row=document.createElement('div');row.className='work-message'+(message.role==='user'?' work-user':'');row.dataset.workMessageId=message.id;
-            const label=document.createElement('strong');label.textContent=message.role==='user'?'태준':'Aemeath';
-            const content=document.createElement('span');content.dataset.workMessageText='';row.append(label,content);log.append(row);
-          }
-          // Preserve actions/attachments on pre-existing message cards.
-          const content=row.querySelector('[data-work-message-text]');if(content){if(window.officeChatContent)window.officeChatContent.render(content,message);else content.textContent=message.content;}
-          if(message.attachments?.length&&!row.querySelector('.work-message-attachments')){
-            const files=document.createElement('div');files.className='work-message-attachments';files.innerHTML=attachmentMarkup(message.attachments);row.append(files);
-            window.officeChatContent?.enhanceAttachments(files);
-          }
-        }
+        // Use the same persisted/native merge as every other refresh. Appending
+        // all DB assistants here briefly replayed history at the bottom before
+        // renderConversation removed those duplicate cards again.
+        overview.messages=latest.messages||[];
+        renderConversation();
         observeChatLayout();settleChatScroll();
       }
       if(nativeConversation.size)renderConversation();
@@ -664,12 +659,14 @@
     if(enabled && request.endpoint==='command' && request.body.message){
       user.className='work-message work-user';
       const label=document.createElement('strong');label.textContent='태준';
-      user.append(label,document.createTextNode(request.body.message));log.append(user);
+      const content=document.createElement('span');content.dataset.workMessageText='';content.textContent=request.body.message;
+      user.dataset.workLiveRequest=request.body.request_id;user.dataset.workLiveRole='user';user.dataset.workLiveSince=String(Date.now());
+      user.append(label,content);log.append(user);
     }
     draft.className='work-message work-live-reply';draft.hidden=true;
     const label=document.createElement('strong'), text=document.createElement('span');
     label.textContent='Aemeath · 작성 중';draft.append(label,text);
-    if(enabled)log.append(draft);
+    if(enabled){draft.dataset.workLiveRequest=request.body.request_id;log.append(draft);}
     async function poll(){
       if(stopped || !enabled)return;
       controller=new AbortController();
