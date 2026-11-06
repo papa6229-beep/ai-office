@@ -5,12 +5,38 @@ import json
 from pathlib import Path
 import threading
 from concurrent.futures import ThreadPoolExecutor
+import brand_status_registry
 
 ROOT=Path(__file__).resolve().parent
 PRIVATE=ROOT/'local_backups'/'brand-status'
-REVISION='2026-11-02-brand-status-evidence-v2'
+REVISION='2026-11-06-arrival-batch-registry-v3'
 LOCK=threading.Lock()
 TZ=dt.timezone(dt.timedelta(hours=9))
+_worker_lock=threading.Lock()
+_worker=None
+
+
+def start(db):
+    """One local read-only collector, independent of whether the panel is open."""
+    global _worker
+    with _worker_lock:
+        if _worker and _worker.is_alive():return
+        try:
+            if not _read(PRIVATE/'source.json').get('auto_sync') or not (PRIVATE/'registry.json').exists():return
+        except (OSError,ValueError):return
+        def run():
+            import time
+            time.sleep(2)
+            while True:
+                try:refresh(db)
+                except Exception:
+                    # Cache remains intact; do not silently present a failed scan as fresh.
+                    import brand_status_registry
+                    brand_status_registry.atomic(PRIVATE/'sync-error.json',{'at':dt.datetime.now(TZ).isoformat(),
+                        'message':'자동 대조 실패 · 마지막 성공 현황을 유지합니다.'})
+                time.sleep(300)
+        _worker=threading.Thread(target=run,name='brand-status-readonly',daemon=True)
+        _worker.start()
 
 
 def _read(path):
@@ -34,14 +60,21 @@ def snapshot(db):
         data=_read(PRIVATE/'current.json')if (PRIVATE/'current.json').exists()else _read(source)
     except (OSError,ValueError,KeyError):
         return {'configured':False,'brands':[],'events':[],'unresolved_materials':[],'warnings':['연결된 브랜드 현황 자료를 찾지 못했어요.'],'revision':REVISION}
-    return dict(data,configured=True,busy=LOCK.locked(),revision=REVISION,mode='code',model_calls=0)
+    start(db)
+    auto=dict(data.get('auto_sync')or{})
+    auto.update(worker_running=bool(_worker and _worker.is_alive()),busy=LOCK.locked())
+    error=PRIVATE/'sync-error.json'
+    if error.exists():auto['error']=_read(error)
+    return dict(data,configured=True,busy=LOCK.locked(),revision=REVISION,mode='code',model_calls=0,auto_sync=auto)
 
 
 def refresh(db):
     if not LOCK.acquire(blocking=False):return snapshot(db)
     try:
-        import design_team,brand_status_evidence,messenger_attachments
+        import design_team,brand_status_evidence,messenger_attachments,brand_status_registry
         folder,source=_config();data=copy.deepcopy(snapshot(db));warnings=[]
+        canonical_previous=data.get('brands',[]) if data.get('batch_registry') else []
+        if data.get('batch_registry'):data['brands']=data.get('other_batches',[])
         today=dt.datetime.now(TZ).date();previous=today-dt.timedelta(days=1)
         while previous.weekday()>=5:previous-=dt.timedelta(days=1)
         urls=design_team.sources();jobs=[]
@@ -78,11 +111,16 @@ def refresh(db):
             data=reconciled
         except (OSError,ValueError,KeyError,TypeError,ImportError):
             warnings.append('자료 발신·이동·완료파일 대조에 실패해 마지막 확인 상태를 유지했어요.')
+        data['warnings']=warnings
+        data['_canonical_previous']=canonical_previous
+        data=brand_status_registry.project(db,data,folder,PRIVATE,_read(PRIVATE/'source.json'),latest)
+        data.pop('_canonical_previous',None)
         data.setdefault('events_as_of',data.get('as_of'))
         data.update(as_of=dt.datetime.now(TZ).isoformat(timespec='seconds'),warnings=warnings,revision=REVISION,mode='code',model_calls=0,configured=True,busy=False)
         data.setdefault('coverage',{})['latest_submitted_reports']={name:day for name,(day,_)in latest.items()}
         data['coverage']['last_report_check']=data['as_of']
         PRIVATE.mkdir(parents=True,exist_ok=True)
         temporary=PRIVATE/'current.tmp';temporary.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf8');temporary.replace(PRIVATE/'current.json')
+        (PRIVATE/'sync-error.json').unlink(missing_ok=True)
         return data
     finally:LOCK.release()

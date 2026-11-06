@@ -1,6 +1,6 @@
 # Brand work overview
 
-Revision: 2026-11-02-brand-status-evidence-v2
+Revision: 2026-11-06-arrival-batch-registry-v3
 
 The existing overview reads reports, confirmed personal-room file receipts,
 download receipts, and completed file-operation steps. Refreshing it never sends,
@@ -36,9 +36,43 @@ candidate is linked only after its actual HTTPS file size/hash matches the saved
 download. The original company origin, normal TLS validation, and redirect denial
 are retained. Successful alias evidence is reused; it is not a resend/download.
 
-Opening the existing overview or choosing its latest-status action runs the same
-code reconciliation, with no model calls. Read failures preserve the last known
-status and surface warnings. No new polling service or schedule is installed.
+With a private arrival registry configured, the existing server starts one
+read-only collector every five minutes. The panel reads the saved projection every
+15 seconds while visible; opening it does not start another full investigation.
+The manual refresh action remains available. No Codex schedule, model call,
+external transmission, material move or automatic assignment is created.
+
+`brand_status_registry.py` uses the private `registry.json` to preserve an immutable
+arrival-batch ID, arrival date, aliases, separately linked list dates/files and an
+explicit person/start-date report binding. User-confirmed status has its own
+timestamp. Older reports can supply labeled counts but cannot override it; only a
+later-day submitted report with the exact binding may advance status. A same-day
+report without a submission timestamp cannot establish ordering after the user's
+confirmation. An explicit completed report also requires zero remaining and a
+valid completion date. Stale completion dates in progress rows are ignored.
+
+Files are scanned only in the configured material tree, excluding links and
+junctions. Exact registered file links or unique alias/list-date matches attach
+them to an arrival; a filename date is never copied into the arrival date. A file
+in a completion folder alone does not change work status. Existing verified sender,
+download and digest evidence remains distinct. Member-name suffixes are optional.
+Unknown image/archive names are not assumed to belong to a workbook. Unlinked
+files and other existing report assignments remain visible for reconciliation.
+
+The private evidence ledger deduplicates records by source identity and retains
+facts across refreshes/restarts. It reads registered Hanbiro personal/group cached
+text, registered official local NateOn exports and collected notifications. The
+export's registered room header is checked. Notification sender labels do not
+prove group membership; coverage and export date ranges are displayed explicitly.
+The collector does not automatically export new native NateOn history. Group
+forwarding is labeled only when that verified export contains an outgoing exact
+completion filename, separately from receipt and completion. This filename match
+does not assert that the exported attachment bytes were rechecked.
+
+The current arrival list is displayed separately from other batches and legacy
+history. New or ambiguous batches remain candidates; no same-brand historical
+completion is silently reused. Source failure leaves the last good snapshot and
+reports an error rather than publishing empty state as a successful refresh.
 
 Private seeds, snapshots, operational receipts, company filenames, and account
 state stay outside Git. Syntax checks and actual evidence/API readback are
