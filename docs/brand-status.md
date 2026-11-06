@@ -9,8 +9,9 @@ credential IDs are in private `local_backups/brand-status/cloud.json`; service
 keys live in Windows Credential Manager, bound to that exact HTTPS origin.
 Site source is a separate private Sites repository, not company operational data
 in the Office repository. Initial records are imported through a protected API,
-never SQL migrations or JavaScript bundles. Access starts owner-private; additional
-viewers use the Site's supported invitation policy, not anonymous company data.
+never SQL migrations or JavaScript bundles. At the user's explicit request on 2026-11-06, viewing is public and requires no
+ChatGPT account or invitation. Writes remain restricted to the Office sync key
+or the configured owner identity; anonymous visitors cannot change the table.
 The board remains available when Office is closed. New PC-side file events wait
 for Office/its existing executors to run; this does not make the PC always on.
 
@@ -80,3 +81,16 @@ state blank and can store the supplied note. The registered no-model command is
 `유우 작업 보류: 상세사진 확인 대기`, optionally placing the arrival date after
 the brand. Repeated identical instructions do not write again. New file receipt
 copies do not clear a held state. File upload/download remains deferred.
+
+
+## Account-free viewing (2026-11-06)
+
+Sites access is public by the user's explicit request. The shared origin and
+existing D1 rows stay the same. The Site returns `can_edit=false` to anonymous
+readers and shows brand names as text. Filtering and refresh remain available.
+All mutation endpoints enforce server-side authentication before reading input:
+Office events/import require the existing Site-scoped sync key; table edits allow
+that key or the trusted platform owner identity matched to the configured runtime
+owner email. Secrets and owner identity configuration remain outside source.
+Future publication must preserve public access and use save_site_version followed
+by deploy_site_version, not the owner-private publishing operation.
