@@ -60,3 +60,23 @@ Worker revision, database readback and visible browser behavior are distinct
 verification levels. The original local registry and evidence files are retained
 as backups; they are not reinterpreted as new commands or uploaded to the Site.
 No unit tests or paid model checks are run unless the user requests them.
+
+
+## Four-state table and hold reasons (2026-11-06)
+
+Visible states are 작업중, 완료, 작업예정 and 대기·보류. Legacy 진행 중/작업 예정
+map to the new labels; standalone 대기/보류 share one state. Delivery X always
+projects/saves an empty web work state, not 미수령. The full state cell receives
+a soft tint. The former management column is now remarks; click a brand name
+to edit the product/web fields. Remarks are bounded multiline text and preserved
+with the same row-revision conflict checks. Hold state requires an explicit reason.
+
+`brand_work_hold` is a shared assistant tool. One interpretation of the current
+human message chooses brand/date/reason; `brand_work_events.set_hold` verifies
+the actual current request, a reason present in that message and exactly one
+batch before one revision-checked cloud save/readback. Multiple same-brand
+batches require a date; unknown reasons are not invented. Delivery X keeps the
+state blank and can store the supplied note. The registered no-model command is
+`유우 작업 보류: 상세사진 확인 대기`, optionally placing the arrival date after
+the brand. Repeated identical instructions do not write again. New file receipt
+copies do not clear a held state. File upload/download remains deferred.

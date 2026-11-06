@@ -215,3 +215,40 @@ def status():
     with closing(_db()) as c:
         counts = {r[0]: r[1] for r in c.execute('SELECT state,count(*) FROM events GROUP BY state')}
     return {'configured': bool(cfg), 'origin': cfg.get('origin'), 'counts': counts, 'mode': 'code', 'model_calls': 0}
+
+
+def set_hold(request_id, brand, reason, arrival_date='', list_work_date=''):
+    """One interpreted current human instruction -> one revision-checked update."""
+    import office_current_task
+    current = office_current_task.require_current(request_id)
+    goal = current.get('user_message', '')
+    for followup in current.get('followups', []):
+        if followup.get('kind') == 'message':
+            goal += '\n' + followup.get('message', '')
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000 or '\0' in reason:
+        raise ValueError('사용자가 알려준 대기·보류 사유를 입력해 주세요.')
+    if registry.normal(reason) not in registry.normal(goal):
+        raise ValueError('현재 사용자 지시에 있는 보류 사유만 저장할 수 있어요.')
+    allowed_names = {registry.normal(brand)}
+    for row in (registry.registry(PRIVATE) or {}).get('batches', []):
+        if registry.normal(brand) in registry.aliases(row):
+            allowed_names.update(registry.aliases(row))
+    if not any(name and name in registry.normal(goal) for name in allowed_names):
+        raise ValueError('현재 사용자 지시의 브랜드를 확인해 주세요.')
+    value = cloud('/api/work/brand-status')
+    candidates = [row for row in value['brands'] if registry.normal(row['brand']) in allowed_names
+                  and (not arrival_date or row.get('arrival_date') == arrival_date)
+                  and (not list_work_date or row['table_fields'].get('list_work_date') == list_work_date)]
+    if len(candidates) != 1:
+        raise ValueError('같은 브랜드의 차수가 여러 개예요. 입고일이나 리스트작업일을 지정해 주세요.')
+    row = candidates[0]
+    state = '' if row['table_fields'].get('web_delivery') == 'X' else '대기·보류'
+    if row['work_status'] == state and row['table_fields'].get('remarks', '') == reason.strip():
+        return {'saved': True, 'unchanged': True, 'brand': row['brand'], 'work_status': state, 'remarks': reason.strip()}
+    saved = cloud('/api/work/brand-status-save', {'id': row['id'], 'expected_revision': row['row_revision'],
+                  'section': 'web', 'fields': {'work_status': state, 'remarks': reason.strip()}})
+    actual = next(r for r in saved['brands'] if r['id'] == row['id'])
+    if actual['work_status'] != state or actual['table_fields'].get('remarks') != reason.strip():
+        raise ValueError('비고 저장 결과를 확인하지 못했어요. 다시 실행하지 말고 현재 표를 확인해 주세요.')
+    registry.atomic(PRIVATE / 'cloud-snapshot.json', saved)
+    return {'saved': True, 'brand': row['brand'], 'work_status': state, 'remarks': reason.strip()}

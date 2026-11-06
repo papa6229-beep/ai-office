@@ -5,6 +5,7 @@ import datetime
 RUNTIME_REVISION='2026-11-05-the-hand-cs-pilot-v8'
 
 CATALOG=[
+    {'id':'brand_work_hold','example':'유우 작업 보류: 상세사진 확인 대기','description':'현재 지시의 브랜드·사유를 현황판 대기·보류와 비고에 저장. 여러 차수는 브랜드 뒤 입고일 YYYY-MM-DD 지정'},
     {'id':'cs_pilot_run','example':'/더핸드CS 시험','description':'합성 문의 6건을 정책 분류·초안·검증하고 예외만 검토 자료로 남김. 예약은 /더핸드CS 예약, 조회는 /더핸드CS 상태'},
     {'id':'nateon_file_send','example':'/네이트온전송 C:\\업무\\완료.xlsx | 김우영,오상수,이준민,전수아 (5명)','description':'원본 경로와 정확한 방 이름을 지정한 파일 한 개를 전용 기기로 보내고 새 발신 기록을 확인'},
     {'id': 'detail_materials', 'example': '네이트온 받은 파일에 자료가 있을거야 상세페이지 제작해줘', 'description': '수신 자료 후보를 즉시 안내하고 상품 선택을 질문. 선택 전 제작하지 않음'},
@@ -28,6 +29,9 @@ CATALOG=[
 
 def match(message):
     text=message.strip().rstrip('.!~').strip()
+    hold=re.fullmatch(r'(?:브랜드\s*(?:현황판|작업현황)\s*[:：]?\s*)?([\w가-힣 -]{1,40}?)\s+(?:(\d{4}-\d{2}-\d{2})\s+)?(?:작업\s*)?(?:대기(?:·보류)?|보류)\s*[:：]\s*([\s\S]{1,1000})',text)
+    if hold:
+        return {'id':'brand_work_hold','args':{'brand':hold[1].strip(),'arrival_date':hold[2] or '', 'reason':hold[3].strip()}}
     pilot=re.fullmatch(r'/더핸드CS\s+(시험|예약|상태)',text,re.I)
     if pilot:
         if pilot[1]=='상태':return {'id':'cs_pilot_status','args':{}}
@@ -113,6 +117,7 @@ def detail_materials_reply():
 
 def execute(routine,call):
     name=routine['id'];args=routine['args']
+    if name=='brand_work_hold':return call('brand_work_hold',args).get('message','비고 저장 결과를 확인하지 못했어요.')
     if name=='nateon_file_send':return call('messenger_nateon_send_file',args)['message']
     if name=='detail_materials':return detail_materials_reply()
     if name=='material_search':

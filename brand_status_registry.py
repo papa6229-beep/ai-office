@@ -19,11 +19,18 @@ SUFFIXES = {'.xlsx', '.xls', '.xlsm', '.csv', '.zip', '.rar', '.7z'}
 _table_lock = threading.Lock()
 PRODUCT_FIELDS = {'brand', 'total_count', 'kind_count', 'arrival_date', 'list_work_date',
                   'web_delivery', 'priority', 'discontinuation'}
-WEB_FIELDS = {'work_status', 'person'}
+WEB_FIELDS = {'work_status', 'person', 'remarks'}
 
 
 class TableConflict(ValueError):
     pass
+
+
+def work_state(value, delivery):
+    if delivery in {'X', '미수령', '미전달'}:
+        return ''
+    return {'진행 중': '작업중', '작업 예정': '작업예정', '대기': '대기·보류',
+            '보류': '대기·보류', '미수령': ''}.get(value, value or '')
 
 
 def row_revision(row):
@@ -40,9 +47,9 @@ def table_snapshot(data, private):
         row = dict(cached.get(source['id'], {}))
         row.update(id=source['id'], brand=source['brand'], arrival_date=source['arrival_date'],
                    batch=source['arrival_date'], person=source.get('person') if source.get('person') not in {'미확인', '미배정', None} else '',
-                   work_status=source['baseline_status'], confirmed_at=source['confirmed_at'])
+                   work_status=work_state(source['baseline_status'], source.get('web_delivery')), confirmed_at=source['confirmed_at'])
         fields = {key: source.get(key, '') for key in PRODUCT_FIELDS}
-        fields.update(work_status=source['baseline_status'], person=source.get('person') if source.get('person') not in {'미확인', '미배정', None} else '')
+        fields.update(work_status=row['work_status'], person=source.get('person') if source.get('person') not in {'미확인', '미배정', None} else '', remarks=source.get('remarks', ''))
         row.update(table_fields=fields, row_revision=row_revision(source), sequence=index + 1)
         if row['work_status'] != '완료':row.pop('completed', None)
         rows.append(row)
@@ -72,7 +79,7 @@ def save_table(private, payload):
         enums = {'web_delivery': {'O', 'X', '수령 확인', '미수령', '전달 완료', '미전달', '확인 필요'},
                  'priority': {'', '최우선', '1순위', '2순위', '3순위', '미지정'},
                  'discontinuation': {'미확인', '확인 필요', '확인 완료'},
-                 'work_status': {'미수령', '작업 예정', '대기', '진행 중', '완료', '보류'},
+                 'work_status': {'', '작업중', '작업예정', '대기·보류', '미수령', '작업 예정', '대기', '진행 중', '완료', '보류'},
                  'person': {'', '미확인', '미배정', '이석환', '안용훈', '조현진', '조혜연'}}
         for key, value in fields.items():
             if key in {'total_count', 'kind_count'}:
@@ -84,6 +91,10 @@ def save_table(private, payload):
                 if value:
                     try:dt.date.fromisoformat(value)
                     except ValueError:raise ValueError('날짜는 연-월-일로 입력해 주세요.') from None
+            elif key == 'remarks':
+                if not isinstance(value, str) or len(value) > 1000 or '\0' in value:
+                    raise ValueError('비고는 1000자 이내로 입력해 주세요.')
+                fields[key] = value.strip()
             elif key == 'discontinuation':
                 if not isinstance(value, str) or len(value) > 200 or any(c in value for c in ('\n', '\r', '\0')):
                     raise ValueError('단종 체크는 200자 이내의 한 줄로 입력해 주세요.')
@@ -102,6 +113,9 @@ def save_table(private, payload):
             source['aliases'] = sorted(set(source.get('aliases', []) + [source['brand']]))
         now = dt.datetime.now(TZ).isoformat(timespec='seconds')
         for key, value in fields.items():source['baseline_status' if key == 'work_status' else key] = value
+        source['baseline_status'] = work_state(source['baseline_status'], source.get('web_delivery'))
+        if source['baseline_status'] == '대기·보류' and not source.get('remarks', '').strip():
+            raise ValueError('대기·보류 사유를 비고에 입력해 주세요.')
         if payload['section'] == 'web':
             source['confirmed_at'] = now
             if source.get('report', {}).get('person') != source.get('person'):
@@ -144,7 +158,7 @@ def registry(private):
         if row.get('arrival_date'):dt.date.fromisoformat(row['arrival_date'])
         dt.datetime.fromisoformat(row['confirmed_at'])
         if not row.get('brand') or row['baseline_status'] not in {
-                '진행 중', '완료', '작업 예정', '미수령', '보류'}:
+                '', '작업중', '작업예정', '대기·보류', '진행 중', '완료', '작업 예정', '미수령', '보류', '대기'}:
             raise ValueError('확정 현황의 브랜드와 상태를 확인해 주세요.')
     return value
 

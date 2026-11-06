@@ -48,3 +48,14 @@
 
 #brand-status .brand-register-table th,#brand-status .brand-register-table td{border-right:1px solid #3b4738}#brand-status .brand-register-table th:last-child,#brand-status .brand-register-table td:last-child{border-right:0}
 #brand-status .brand-state.scheduled{background:#352d17;border-color:#887641;color:#f1d887}#brand-status .brand-state{font-weight:650;min-width:65px}
+
+#brand-status .brand-register-table td.brand-status-cell{font-weight:650;min-width:95px}
+#brand-status .brand-register-table td.brand-status-cell.doing{background:#20333e;color:#acd6fa}
+#brand-status .brand-register-table td.brand-status-cell.done{background:#233b2e;color:#b7e2c9}
+#brand-status .brand-register-table td.brand-status-cell.scheduled{background:#3a321d;color:#ebd6a0}
+#brand-status .brand-register-table td.brand-status-cell.hold{background:#3b2a30;color:#e7b9c5}
+#brand-status .brand-register-table .brand-edit-name{background:none;border:0;padding:0;font:inherit;font-weight:700;color:inherit;text-align:left}
+#brand-status .brand-register-table .brand-edit-name:hover{text-decoration:underline}
+#brand-status .brand-register-table td.brand-remarks{min-width:160px;max-width:280px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}
+#brand-status .brand-remarks-input{grid-column:1/-1}
+#brand-status textarea{width:100%;box-sizing:border-box;resize:vertical;border:1px solid #56634c;border-radius:8px;padding:10px;background:#111811;color:inherit;font:inherit}
