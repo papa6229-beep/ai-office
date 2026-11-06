@@ -101,3 +101,5 @@ reports an error rather than publishing empty state as a successful refresh.
 Private seeds, snapshots, operational receipts, company filenames, and account
 state stay outside Git. Syntax checks and actual evidence/API readback are
 different from visual confirmation in the user's running desktop app.
+
+The discontinuation-check field starts blank and accepts manual single-line text (up to 200 characters). It is not an automatically assigned status or an enum. The initial generated labels were cleared once at the current user request; later reads and collectors do not recreate them. Material delivery is displayed/selected as O or X, with backward-compatible reads of prior receipt labels.

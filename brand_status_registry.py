@@ -84,6 +84,10 @@ def save_table(private, payload):
                 if value:
                     try:dt.date.fromisoformat(value)
                     except ValueError:raise ValueError('날짜는 연-월-일로 입력해 주세요.') from None
+            elif key == 'discontinuation':
+                if not isinstance(value, str) or len(value) > 200 or any(c in value for c in ('\n', '\r', '\0')):
+                    raise ValueError('단종 체크는 200자 이내의 한 줄로 입력해 주세요.')
+                fields[key] = value.strip()
             elif key == 'brand':
                 if not isinstance(value, str) or not value.strip() or len(value) > 80 or '\n' in value:
                     raise ValueError('브랜드명을 확인해 주세요.')
