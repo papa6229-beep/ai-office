@@ -1,105 +1,62 @@
-# Brand work overview
+# Brand work register
 
-Revision: 2026-11-06-manual-shared-register-v4
+Revision: 2026-11-06-cloud-register-events-v5
 
-## Current basis table
+## Independent shared board
 
-The existing Office menu and the separate local `/brand-register` page use one
-private registry. The columns are sequence, brand, original total/types, logistics
-arrival, list work date, web-team delivery, current state, priority,
-discontinuation check, and assignee. Counts retain the supplied table's units;
-report work counts remain supporting evidence rather than replacements.
+The separately deployed Sites Worker owns the durable D1 table. Its URL and
+credential IDs are in private `local_backups/brand-status/cloud.json`; service
+keys live in Windows Credential Manager, bound to that exact HTTPS origin.
+Site source is a separate private Sites repository, not company operational data
+in the Office repository. Initial records are imported through a protected API,
+never SQL migrations or JavaScript bundles. Access starts owner-private; additional
+viewers use the Site's supported invitation policy, not anonymous company data.
+The board remains available when Office is closed. New PC-side file events wait
+for Office/its existing executors to run; this does not make the PC always on.
 
-The product-team editor owns brand/counts, arrival/list dates, delivery, priority
-and discontinuation check. The web-team editor owns current state and assignee.
-These sections express workflow ownership, not authenticated team accounts. This
-iteration stays behind the existing localhost/Origin/action-token boundary; it
-does not publish company records or enable remote team access. Shared hosting,
-individual access control and report/messenger automation are the next stage.
+Columns: sequence, brand, total, kind, logistics arrival, list work date, delivery,
+priority, work state, assignee, discontinuation, edit controls. Vertical borders,
+distinct state badges and combined brand/person/state filters support scanning.
+Unassigned people and unknown discontinuation are blank. Delivery is O/X.
+Product and web editor sections express field ownership, not separate login roles.
+Updates use per-row optimistic revisions; concurrent changes retain unsaved input.
 
-Saves validate only the selected section, compare the row's expected revision,
-retain the previous registry in private history and atomically replace the
-registry. Conflicts preserve the unsaved form instead of retrying or overwriting.
-GET overlays the authoritative registry, so an older evidence cache or concurrent
-read-only collection cannot replace manual state, counts or assignment. Cached
-report evidence can still be inspected. Manual values supersede the earlier
-automatic status-advancement policy below. Changes do not send messages or move
-materials. The UI polls saved data while visible and pauses during editing.
+## Confirmed execution events
 
-The existing overview reads reports, confirmed personal-room file receipts,
-download receipts, and completed file-operation steps. Refreshing it never sends,
-moves, restarts, or assigns anything. The original private seed stays unchanged.
+`brand_work_events.py` receives the existing `work_log.event` file receipts and
+confirmed NateOn outgoing receipts. It performs no chat/report inference and no
+model calls. Its private SQLite outbox survives restarts and deduplicates each
+source key. The receiver deduplicates the same event ID atomically in D1.
+Network retries update the board only; they never send messages or move files.
 
-`brand_status.py` keeps report retrieval and cache publication. The helper
-`brand_status_evidence.py` follows successful move/rename/transfer history,
-including folder moves with conflict suffixes. The existing isolated messenger
-worker returns file metadata for registered team members; it does not return
-credentials or conversation text. The server does not import the reader's binary
-dependencies into its own interpreter.
+- Newly downloaded NateOn Excel, or successful organization into the registered
+  materials tree: known brand/list filename date, delivery O, work scheduled.
+- Confirmed Hanbiro delivery to one of the four registered team members:
+  that assignee and in-progress state.
+- Confirmed completed Excel sent to the registered NateOn product group: complete.
+  Attempted/unknown sends, ordinary outgoing Excel and other rooms do not qualify.
 
-Delivery matching accepts workbooks and archives. A confirmed durable receipt
-requires its current file size and SHA256 to match. Native cached records without
-a durable receipt require a unique local name/size match. Multiple recipients or
-a conflicting existing owner produce a warning instead of reassignment.
+Source receipt time is compared with the initial import cutoff. Old logs cannot
+reopen completed historical work. Arrival date, counts and priority are never
+invented from filenames. A filename's list date never becomes logistics arrival.
+Matching uses existing batch IDs plus exact list date/alias or registered file.
+New dated price lists get stable identities and preserve a private binding for
+later steps. Ambiguous batches are held in `needs_batch`, never matched to the
+latest same-brand row. Known progress/completion is not reset by receipt of
+another copy. Post-confirmation assignee changes remain explicit assignment events.
 
-New delivered batches are discovered from confirmed receipts since the original
-seed's date, not the most recent refresh time. Pending material folders remain
-discoverable. Campaigns/events remain in the existing separate events section.
-Existing report assignments with different owners/start dates are preserved.
+## Native integration and recovery
 
-Completion is distinct from delivery. A received workbook must have a successful
-download receipt, verified original sender, current location in that sender's
-completed-files folder, matching content digest, and exactly one matching brand,
-batch date, and owner. Conflicting same-day/newer reports remain visible for
-review. Counts are never invented from a file receipt. The UI labels the basis as
-`담당자 완료파일 수신·정리 확인` and keeps historical notes separate from current
-delivery evidence.
+`brand_status.start` starts the outbox and disables the older five-minute report
+collector while cloud configuration exists. The Office menu reads a short-lived
+cached copy of the same cloud rows and edits the cloud with its revision. The
+existing `/brand-register` is retained for compatibility; the independent link is
+shown in Office. The outbox refreshes the cloud snapshot every ten seconds, and
+the UI refreshes saved rows while visible, pausing during an edit.
 
-If the messenger changes a cached attachment ref, a unique original incoming
-candidate is linked only after its actual HTTPS file size/hash matches the saved
-download. The original company origin, normal TLS validation, and redirect denial
-are retained. Successful alias evidence is reused; it is not a resend/download.
-
-With a private arrival registry configured, the existing server starts one
-read-only collector every five minutes. The panel reads the saved projection every
-15 seconds while visible; opening it does not start another full investigation.
-The manual refresh action remains available. No Codex schedule, model call,
-external transmission, material move or automatic assignment is created.
-
-`brand_status_registry.py` uses the private `registry.json` to preserve an immutable
-arrival-batch ID, arrival date, aliases, separately linked list dates/files and an
-explicit person/start-date report binding. User-confirmed status has its own
-timestamp. Older reports can supply labeled counts but cannot override it; only a
-later-day submitted report with the exact binding may advance status. A same-day
-report without a submission timestamp cannot establish ordering after the user's
-confirmation. An explicit completed report also requires zero remaining and a
-valid completion date. Stale completion dates in progress rows are ignored.
-
-Files are scanned only in the configured material tree, excluding links and
-junctions. Exact registered file links or unique alias/list-date matches attach
-them to an arrival; a filename date is never copied into the arrival date. A file
-in a completion folder alone does not change work status. Existing verified sender,
-download and digest evidence remains distinct. Member-name suffixes are optional.
-Unknown image/archive names are not assumed to belong to a workbook. Unlinked
-files and other existing report assignments remain visible for reconciliation.
-
-The private evidence ledger deduplicates records by source identity and retains
-facts across refreshes/restarts. It reads registered Hanbiro personal/group cached
-text, registered official local NateOn exports and collected notifications. The
-export's registered room header is checked. Notification sender labels do not
-prove group membership; coverage and export date ranges are displayed explicitly.
-The collector does not automatically export new native NateOn history. Group
-forwarding is labeled only when that verified export contains an outgoing exact
-completion filename, separately from receipt and completion. This filename match
-does not assert that the exported attachment bytes were rechecked.
-
-The current arrival list is displayed separately from other batches and legacy
-history. New or ambiguous batches remain candidates; no same-brand historical
-completion is silently reused. Source failure leaves the last good snapshot and
-reports an error rather than publishing empty state as a successful refresh.
-
-Private seeds, snapshots, operational receipts, company filenames, and account
-state stay outside Git. Syntax checks and actual evidence/API readback are
-different from visual confirmation in the user's running desktop app.
-
-The discontinuation-check field starts blank and accepts manual single-line text (up to 200 characters). It is not an automatically assigned status or an enum. The initial generated labels were cleared once at the current user request; later reads and collectors do not recreate them. Material delivery is displayed/selected as O or X, with backward-compatible reads of prior receipt labels.
+If cloud access fails, the last saved snapshot is retained. Pending receipt IDs
+are retried with bounded backoff. Native source registration/reload, deployed
+Worker revision, database readback and visible browser behavior are distinct
+verification levels. The original local registry and evidence files are retained
+as backups; they are not reinterpreted as new commands or uploaded to the Site.
+No unit tests or paid model checks are run unless the user requests them.

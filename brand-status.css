@@ -45,3 +45,6 @@
 #brand-status .brand-edit-error{font-size:13px;color:#efb096;white-space:pre-wrap;margin:16px 0 0}
 #brand-status .brand-dialog .brand-proof{max-height:62vh;font-size:13px;line-height:1.6}
 @media(max-width:600px){#brand-status .brand-edit-fields{grid-template-columns:1fr}#brand-status .brand-head-actions{width:100%;justify-content:space-between}}
+
+#brand-status .brand-register-table th,#brand-status .brand-register-table td{border-right:1px solid #3b4738}#brand-status .brand-register-table th:last-child,#brand-status .brand-register-table td:last-child{border-right:0}
+#brand-status .brand-state.scheduled{background:#352d17;border-color:#887641;color:#f1d887}#brand-status .brand-state{font-weight:650;min-width:65px}

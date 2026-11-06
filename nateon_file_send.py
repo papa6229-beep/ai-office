@@ -311,8 +311,10 @@ def send_file(request_id, room, path, *, verify_only=False):
         _open_chat(guest, room)
         guest.wait(lambda t: t if _outgoing(t, path.name) > before else None,
                    '새 첨부 발신 기록을 아직 확인하지 못했어요. 다시 보내지 않았어요.')
-        result.update(state='sent', sent=True, elapsed_ms=round((time.monotonic() - started_at) * 1000))
+        result.update(state='sent', sent=True, confirmed=time.time(), path=str(path), elapsed_ms=round((time.monotonic() - started_at) * 1000))
         temporary = receipt.with_suffix('.tmp')
         temporary.write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
         temporary.replace(receipt)
+        import brand_work_events
+        brand_work_events.safe_capture('nateon-sent:'+request_id,'sent',result['confirmed'],data=dict(source='nateon',name=path.name,current_path=str(path),status='confirmed',room=room))
         return result

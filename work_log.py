@@ -56,6 +56,9 @@ def event(db,key,kind,title,at=None,person='',data=None):
         c.execute('INSERT OR IGNORE INTO work_log_events VALUES(?,?,?,?,?,?,?,?,?)',
                   (ident,key,at,dt.datetime.fromtimestamp(at,KST).date().isoformat(),kind,title,person,payload,time.time()))
         c.commit()
+    if kind in {'received','sent','move'}:
+        import brand_work_events
+        brand_work_events.safe_capture(key,kind,at,person,data)
     return ident
 
 

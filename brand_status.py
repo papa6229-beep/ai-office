@@ -9,7 +9,7 @@ import brand_status_registry
 
 ROOT=Path(__file__).resolve().parent
 PRIVATE=ROOT/'local_backups'/'brand-status'
-REVISION='2026-11-06-manual-shared-register-v4'
+REVISION='2026-11-06-cloud-register-events-v5'
 LOCK=threading.Lock()
 TZ=dt.timezone(dt.timedelta(hours=9))
 _worker_lock=threading.Lock()
@@ -19,6 +19,9 @@ _worker=None
 def start(db):
     """One local read-only collector, independent of whether the panel is open."""
     global _worker
+    import brand_work_events
+    brand_work_events.start()
+    if brand_work_events.config():return
     with _worker_lock:
         if _worker and _worker.is_alive():return
         try:
@@ -55,6 +58,12 @@ def _config():
 
 
 def snapshot(db):
+    import brand_work_events
+    if brand_work_events.config():
+        brand_work_events.start()
+        path=PRIVATE/'cloud-snapshot.json'
+        if path.exists():
+            return dict(_read(path),configured=True,origin=brand_work_events.config()['origin'],revision=REVISION,mode='code',model_calls=0)
     try:
         folder,source=_config()
         data=_read(PRIVATE/'current.json')if (PRIVATE/'current.json').exists()else _read(source)
@@ -69,11 +78,21 @@ def snapshot(db):
 
 
 def save(db,payload):
+    import brand_work_events
+    if brand_work_events.config():
+        result=brand_work_events.cloud('/api/work/brand-status-save',payload)
+        brand_status_registry.atomic(PRIVATE/'cloud-snapshot.json',result)
+        return result
     saved=brand_status_registry.save_table(PRIVATE,payload)
     return dict(snapshot(db),save_result=saved)
 
 
 def refresh(db):
+    import brand_work_events
+    if brand_work_events.config():
+        value=brand_work_events.cloud('/api/work/brand-status')
+        brand_status_registry.atomic(PRIVATE/'cloud-snapshot.json',value)
+        return snapshot(db)
     if not LOCK.acquire(blocking=False):return snapshot(db)
     try:
         import design_team,brand_status_evidence,messenger_attachments,brand_status_registry

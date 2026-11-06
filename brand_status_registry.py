@@ -39,10 +39,10 @@ def table_snapshot(data, private):
     for index, source in enumerate(settings['batches']):
         row = dict(cached.get(source['id'], {}))
         row.update(id=source['id'], brand=source['brand'], arrival_date=source['arrival_date'],
-                   batch=source['arrival_date'], person=source.get('person') or '미확인',
+                   batch=source['arrival_date'], person=source.get('person') if source.get('person') not in {'미확인', '미배정', None} else '',
                    work_status=source['baseline_status'], confirmed_at=source['confirmed_at'])
         fields = {key: source.get(key, '') for key in PRODUCT_FIELDS}
-        fields.update(work_status=source['baseline_status'], person=source.get('person') or '미확인')
+        fields.update(work_status=source['baseline_status'], person=source.get('person') if source.get('person') not in {'미확인', '미배정', None} else '')
         row.update(table_fields=fields, row_revision=row_revision(source), sequence=index + 1)
         if row['work_status'] != '완료':row.pop('completed', None)
         rows.append(row)
@@ -73,13 +73,13 @@ def save_table(private, payload):
                  'priority': {'', '최우선', '1순위', '2순위', '3순위', '미지정'},
                  'discontinuation': {'미확인', '확인 필요', '확인 완료'},
                  'work_status': {'미수령', '작업 예정', '대기', '진행 중', '완료', '보류'},
-                 'person': {'미확인', '미배정', '이석환', '안용훈', '조현진', '조혜연'}}
+                 'person': {'', '미확인', '미배정', '이석환', '안용훈', '조현진', '조혜연'}}
         for key, value in fields.items():
             if key in {'total_count', 'kind_count'}:
                 if value is not None and (type(value) is not int or not 0 <= value <= 1000000):
                     raise ValueError('가짓수와 종류는 빈칸 또는 0 이상의 정수로 입력해 주세요.')
             elif key in {'arrival_date', 'list_work_date'}:
-                if not isinstance(value, str) or (key == 'arrival_date' and not value):
+                if not isinstance(value, str):
                     raise ValueError('물류입고일을 확인해 주세요.')
                 if value:
                     try:dt.date.fromisoformat(value)
@@ -94,6 +94,7 @@ def save_table(private, payload):
                 fields[key] = value.strip()
             elif not isinstance(value, str) or value not in enums[key]:
                 raise ValueError('항목의 선택 목록에서 값을 골라 주세요.')
+        if fields.get('person') in {'미확인', '미배정'}:fields['person'] = ''
         before = {key: source.get('baseline_status') if key == 'work_status' else source.get(key, '') for key in fields}
         if before == fields:return {'unchanged': True, 'row_revision': row_revision(source)}
         original = copy.deepcopy(settings)
@@ -140,7 +141,7 @@ def registry(private):
             or len({r['id'] for r in rows}) != len(rows)):
         raise ValueError('입고 차수의 고유 번호를 확인해 주세요.')
     for row in rows:
-        dt.date.fromisoformat(row['arrival_date'])
+        if row.get('arrival_date'):dt.date.fromisoformat(row['arrival_date'])
         dt.datetime.fromisoformat(row['confirmed_at'])
         if not row.get('brand') or row['baseline_status'] not in {
                 '진행 중', '완료', '작업 예정', '미수령', '보류'}:
