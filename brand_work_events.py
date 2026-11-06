@@ -166,6 +166,8 @@ def flush():
             result = cloud('/api/office/event', json.loads(row['payload']))
             if not result.get('accepted'):
                 raise ValueError('현황판 수락을 확인하지 못했습니다.')
+            import brand_admin_sync
+            brand_admin_sync.enqueue(json.loads(row['payload']))
             state, error, after = 'synced', '', 0
         except Exception as exc:
             state, error = 'pending', type(exc).__name__
@@ -201,7 +203,11 @@ def start():
                 try:
                     reconcile_nateon()
                     flush()
-                    registry.atomic(PRIVATE / 'cloud-snapshot.json', cloud('/api/work/brand-status'))
+                    snapshot = cloud('/api/work/brand-status')
+                    registry.atomic(PRIVATE / 'cloud-snapshot.json', snapshot)
+                    import brand_admin_sync
+                    brand_admin_sync.observe(snapshot)
+                    brand_admin_sync.flush(snapshot)
                 except Exception:
                     pass
                 WAKE.wait(10)
@@ -214,7 +220,8 @@ def status():
     cfg = config()
     with closing(_db()) as c:
         counts = {r[0]: r[1] for r in c.execute('SELECT state,count(*) FROM events GROUP BY state')}
-    return {'configured': bool(cfg), 'origin': cfg.get('origin'), 'counts': counts, 'mode': 'code', 'model_calls': 0}
+    import brand_admin_sync
+    return {'configured': bool(cfg), 'origin': cfg.get('origin'), 'counts': counts, 'sample_admin':brand_admin_sync.status(), 'mode': 'code', 'model_calls': 0}
 
 
 def set_hold(request_id, brand, reason, arrival_date='', list_work_date=''):
