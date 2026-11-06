@@ -24,7 +24,7 @@ import execution_receipts
 ROOT=Path(__file__).resolve().parent
 REPORT_ENGINE='ego'
 ADAPTER_VERSION=1
-RUNTIME_REVISION='2026-10-28-confirmed-save-v5'
+RUNTIME_REVISION='2026-11-06-close-completed-space-v6'
 
 
 class EgoCommandError(RuntimeError):
@@ -181,9 +181,8 @@ class Session:
     def new_page(self):
         if self.blank_available:self.blank_available=False;return self.pages[0]
         page=Page(self,self.call('new_page')['label']);self.pages.append(page);return page
-    def finish(self):
-        keep=[p.label for p in self.pages if not p.closed and p.url.startswith(('https://webdesign-daily-report.vercel.app/','https://banana.bizhost.kr/adminx/goods.php'))]
-        self.call('finish',keep=keep);self.finished=True
+    def finish(self, *, keep=None):
+        self.call('finish',keep=[] if keep is None else keep);self.finished=True
     def __exit__(self,*unused):
         self.monitor_stop.set()
         if self.proc and self.proc.poll() is None:
