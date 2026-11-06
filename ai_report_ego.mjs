@@ -59,6 +59,6 @@ try{
  }
  result.sections=record.done.length;result.capabilities=record.capabilities.length;
  result.rendered=await page.evaluate(()=>({day:document.querySelector('#dateSel').value,sections:document.querySelectorAll('#done .row').length,capabilities:document.querySelectorAll('.capability-card').length,save:document.querySelector('#saveState').textContent}),null);
- await task.finish({keep:['p1']});result.finished=true;
+ await task.finish({keep:[]});result.finished=true;
 }catch(error){result.state=result.verified?'done':'uncertain';result.post_verification_error=!!result.verified;result.error_type=error.name;result.error=String(error.message).slice(0,200);result.automatic_retry=false;}
 console.log('AI_REPORT_RESULT:'+JSON.stringify(result));

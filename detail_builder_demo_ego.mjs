@@ -68,7 +68,7 @@ try{
   result.state='outputs_saved';await save();
  }
  if(cfg.action==='finish'){
-  const tabs=await task.tabs();await task.finish({keep:tabs.filter(t=>t.label).map(t=>t.label)});
+  await task.finish({keep:[page.label]});
   result.finished=true;await save();
  }
  console.log('DETAIL_DEMO_RESULT:'+JSON.stringify({state:result.state,space_id:result.space_id,steps:Object.keys(result.steps),finished:result.finished}));
