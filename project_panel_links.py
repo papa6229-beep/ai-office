@@ -16,6 +16,7 @@ import secrets
 import stat
 import threading
 from urllib.parse import quote, unquote, urlsplit
+import storage_paths
 
 _KEY=secrets.token_bytes(32)
 _FILES=OrderedDict()
@@ -56,7 +57,7 @@ def _local(destination):
     if any(p.lower() in _PRIVATE_DIRS for p in parts):return None
     name=parts[-1].lower()
     if name in _PRIVATE_FILES or name.startswith('.env') or Path(name).suffix in {'.pem','.key','.pfx','.p12'}:return None
-    return Path(raw)
+    return storage_paths.canonical(Path(raw))
 
 
 def _file_ref(destination,thread_id,host,message_id):

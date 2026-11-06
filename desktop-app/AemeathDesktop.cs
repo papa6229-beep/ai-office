@@ -48,6 +48,7 @@ namespace AemeathDesktop
                 }
                 try
                 {
+                    Event("started", null);
                     SetCurrentProcessExplicitAppUserModelID("AI.Office.Aemeath." + key);
                     if (!File.Exists(Path.Combine(Root, "app.py"))) throw new InvalidOperationException("오피스 원본 폴더를 찾지 못했어요. 원래 위치에서 다시 실행해 주세요.");
                     Application.Run(new OfficeWindow());
@@ -312,7 +313,8 @@ namespace AemeathDesktop
             HandleCreated += delegate { MessengerReceipt("ready",null,null,null); };
             Shown += async delegate { await Initialize(); };
             reconnect.Interval = 2500; reconnect.Tick += async delegate { await CheckRecovery(); };
-            FormClosed += delegate { messengers.Dispose(); reconnect.Stop(); reconnect.Dispose(); };
+            FormClosing += delegate(object sender, FormClosingEventArgs e) { Program.Event("closing", new { reason = e.CloseReason.ToString(), cancelled = e.Cancel }); };
+            FormClosed += delegate { Program.Event("closed", null); messengers.Dispose(); reconnect.Stop(); reconnect.Dispose(); };
         }
 
         protected override void WndProc(ref Message message)

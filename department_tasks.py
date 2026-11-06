@@ -388,7 +388,8 @@ def _report_locked(db,row):
         elif response and row['report_state']!='awaiting':_change(db,row['id'],report_state='awaiting',error='')
         elif row['report_state']=='sending':_change(db,row['id'],report_state='uncertain',error='실장 보고 전달 여부를 확인 중입니다. 자동 재전송하지 않습니다.')
         return
-    if _busy(data):return
+    import work_message_alerts
+    if _busy(data) or work_message_alerts.main_busy(db):return
     import department_work
     event_ids=[r['id'] for r in department_work.inbox(db,40)['items'] if r['task_id']==row['id']]
     with closing(_db(db)) as c:
@@ -404,6 +405,9 @@ def _report_locked(db,row):
             +'부서가 보고한 사실과 직접 확인한 사실을 구분하고, 이 전달만으로 새 업무나 외부 발신을 시작하지 마세요. '
             +'최종 답변 첫 줄에 '+bridge.marker(row['report_id'])+'를 붙이세요. 최종 답변은 코드가 오피스에 표시합니다.')
     prompt+=journal.PROTOCOL
+    # The human's current relay/turn wins over a background completion report.
+    # Keep the report pending; never steer or stop the active main task.
+    if work_message_alerts.main_busy(db):return
     _change(db,row['id'],report_state='sending',error='')
     bridge._save(db,row['report_id'],{'state':'sending','thread_id':row['hq_thread'],'created':time.time(),'origin':'department_report'})
     try:project_panels._call('send_message_to_thread',{'threadId':row['hq_thread'],'hostId':'local','prompt':prompt})

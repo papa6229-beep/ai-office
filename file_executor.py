@@ -16,6 +16,7 @@ import threading
 import uuid
 import fnmatch
 import time
+import storage_paths
 
 LOCK = threading.Lock()
 MAX_FILES = 100
@@ -46,7 +47,7 @@ def _path(value):
 
 
 def _inside(path, parent):
-    paths = [os.path.normcase(os.path.abspath(str(p))) for p in (path, parent)]
+    paths = [os.path.normcase(os.path.abspath(str(storage_paths.canonical(p)))) for p in (path, parent)]
     try:
         return os.path.commonpath(paths) == paths[1]
     except ValueError:
@@ -54,7 +55,7 @@ def _inside(path, parent):
 
 
 def _safe_path(path, missing=False):
-    path = _path(path)
+    path = storage_paths.canonical(_path(path))
     for part in (path, *path.parents):
         try:
             info = part.lstat()

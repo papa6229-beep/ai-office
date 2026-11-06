@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>신상품 샘플 등록 현황</title>
+  <link rel="stylesheet" href="/brand-status.css?office_ui={{UI_GENERATION}}">
+  <style>
+    @font-face{font-family:Pretendard;src:url('/assets/fonts/PretendardVariable.woff2') format('woff2');font-weight:100 900;font-display:swap}
+    *{box-sizing:border-box}body{margin:0;padding:30px 24px;background:#f5f7fa;color:#243044;font-family:Pretendard,'Malgun Gothic',sans-serif;color-scheme:light}
+    button,input,select{font:inherit}button{cursor:pointer}a{color:#2458a5}
+    #brand-status{color:#243044}
+    #brand-status .brand-head p,#brand-status .brand-owners,#brand-status .brand-note,#brand-status #brandStamp{color:#667286}
+    #brand-status .brand-head-actions a{color:#2458a5}
+    #brand-status .brand-head-actions>a{display:none}
+    #brand-status .product-dot{background:#4d887e}#brand-status .web-dot{background:#966879}
+    #brand-status .brand-tools label,#brand-status .brand-edit-fields label{color:#526176}
+    #brand-status input,#brand-status select{background:#fff;border-color:#cbd3df;color:#243044}
+    #brand-status button{background:#fff;border-color:#cbd3df;color:#34445c}
+    #brand-status button:hover{background:#edf3fc;border-color:#809bc3}
+    #brand-status #brandRefresh,#brand-status #brandSave{background:#2e61a8;border-color:#2e61a8;color:#fff}
+    #brand-status #brandRefresh:hover,#brand-status #brandSave:hover{background:#244e88}
+    #brand-status .brand-counts{color:#405675}
+    #brand-status .brand-table-wrap{background:#fff;border-color:#d7dee8}
+    #brand-status th{background:#edf0f5;color:#46546b}
+    #brand-status .brand-register-table th.product-field{background:#e9f2f0;color:#355d56}
+    #brand-status .brand-register-table th.web-field{background:#f0edf5;color:#655575}
+    #brand-status td{border-color:#e2e7ee;color:#243044}
+    #brand-status .brand-register-table td:first-child{color:#798597}
+    #brand-status tr:hover td{background:#f7f9fc}
+    #brand-status .brand-state.done{background:#e8f4ec;border-color:#b6d9c2;color:#276b43}
+    #brand-status .brand-state.doing{background:#eaf1fc;border-color:#bad0ef;color:#285c9f}
+    #brand-status .brand-state.unknown{background:#f1f3f6;border-color:#d5dce6;color:#5f6e83}
+    #brand-status .brand-priority{color:#24754a}
+    #brand-status .brand-caution{color:#916214}
+    #brand-status .brand-extra{border-color:#dce2eb}
+    #brand-status .brand-extra>summary{color:#455872}
+    #brand-status .brand-extra p,#brand-status .brand-extra span,#brand-status .brand-path,#brand-status td small{color:#66758a}
+    #brand-status .brand-dialog{background:#fff;color:#243044;border-color:#cbd5e3;box-shadow:0 20px 80px #34445b30}
+    #brand-status .brand-dialog::backdrop{background:#23334d40;backdrop-filter:blur(2px)}
+    #brand-status .brand-dialog-head p{color:#748096}
+    #brand-status .brand-edit-tabs .selected{background:#eaf1fc;border-color:#91add4;color:#285c9f}
+    #brand-status .brand-edit-error{color:#aa4335}
+    #brand-status .brand-proof,#brand-status .brand-proof p{border-color:#e0e6ee}
+    #brand-status :focus-visible{outline-color:#477bc2}
+    @media(max-width:700px){body{padding:20px 12px}}
+  </style>
+</head>
+<body>
+  <main id="brand-status"></main>
+  <script src="/brand-status.js?office_ui={{UI_GENERATION}}"></script>
+  <script>window.brandStatusLoad();</script>
+</body>
+</html>

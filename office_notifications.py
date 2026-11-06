@@ -208,7 +208,9 @@ def snapshot(db):
     unread=sum(row['needs_confirmation'] and not notification_conversations.messenger(row['source']) for row in rows)+sum(row['needs_confirmation'] for row in conversations)
     service=_service
     status=service.status() if service else {'state':'stopped','message':'알림 수신기를 준비하고 있어요.'}
+    import work_message_alerts
     return {'items':[dict(row) for row in rows],'conversations':conversations,'reply_support':support,'message_preview_version':1,
+            'work_alerts':work_message_alerts.status(db),
             'unread':unread,'unread_messages':unread_messages,'unread_basis':'office_unconfirmed_cards','through':through,'receiver':status,
             'scope':'숫자는 오피스에서 아직 확인하지 않은 대화·알림 수예요. 확인 완료는 오피스에 즉시 기록하고 휴대폰 알림 정리·지원되는 PC 읽음 동기화도 요청해요. 기기의 실제 동기화 대기·실패는 별도 표시해요.'}
 

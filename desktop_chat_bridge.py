@@ -406,6 +406,8 @@ def _envelope(context,attachments,instructions):
     tag=marker(context['request_id'])
     guidance,receipt=instructions
     text=tag+'\n[현재 사용자 요청 시작]\n'+context['user_goal']+'\n[현재 사용자 요청 끝]'
+    import work_message_alerts
+    text+=work_message_alerts.reference_for_reply(ROOT/'office.db',context['user_goal'])
     import office_relay_context
     text+=office_relay_context.human_input_notice(office_relay_context.human_input_provenance(
         context['request_id'],receipt['target'].rsplit('|',1)[-1],context['user_goal'],source='office_relay'))
