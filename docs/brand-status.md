@@ -94,3 +94,16 @@ that key or the trusted platform owner identity matched to the configured runtim
 owner email. Secrets and owner identity configuration remain outside source.
 Future publication must preserve public access and use save_site_version followed
 by deploy_site_version, not the owner-private publishing operation.
+
+## Existing company sample administrator (2026-11-06)
+
+The user also authorized projecting the same workflow into the existing company
+sample administrator. `brand_admin_sync.py` and `brand_admin_ego.mjs` reuse the
+official Ego login and its observed same-origin sample endpoints. They update
+only registration state, web worker, memo, start date and end date; supplier,
+logistics, counts and other employees' memo content remain intact. Waiting,
+assignment and completion follow confirmed file effects, with no model calls.
+Current confirmed bindings cover 15 Office batches and 16 administrator rows.
+Unknown identities and concurrent edits require reconciliation, never latest-brand
+guessing. See [sample administrator synchronization](brand-sample-admin-sync.md)
+for queue recovery, dates, scope and activation/verification boundaries.
