@@ -70,3 +70,35 @@
 #brand-status .brand-register-table tr.done>.brand-status-cell{color:#b7e2c9}
 #brand-status .brand-register-table tr.scheduled>.brand-status-cell{color:#ebd6a0}
 #brand-status .brand-register-table tr.hold>.brand-status-cell{color:#e7b9c5}
+
+/* Readable register: larger type, deliberate columns, less empty row height. */
+#brand-status{max-width:1680px}
+#brand-status .brand-head{margin-bottom:14px}
+#brand-status .brand-owners{margin-bottom:14px;font-size:13px}
+#brand-status .brand-tools{gap:14px;align-items:end}
+#brand-status .brand-tools label{font-size:13px}
+#brand-status .brand-tools label:first-child{max-width:560px}
+#brand-status .brand-tools input,#brand-status .brand-tools select{font-size:15px}
+#brand-status #brandStamp{font-size:13px;margin-top:12px;margin-bottom:5px}
+#brand-status .brand-counts{font-size:14px;margin-bottom:14px}
+#brand-status .brand-register-table{min-width:1440px;table-layout:fixed;font-size:15px}
+#brand-status .brand-register-table th{padding:11px 8px;font-size:14px;font-weight:700;line-height:1.4;vertical-align:middle;white-space:normal;word-break:keep-all}
+#brand-status .brand-register-table td{padding:9px 10px;line-height:1.45;vertical-align:middle;font-weight:500}
+#brand-status .brand-register-table th:nth-child(1){width:3.5%}
+#brand-status .brand-register-table th:nth-child(2){width:15%}
+#brand-status .brand-register-table th:nth-child(3){width:5.5%}
+#brand-status .brand-register-table th:nth-child(4){width:6%}
+#brand-status .brand-register-table th:nth-child(5),#brand-status .brand-register-table th:nth-child(6){width:8%}
+#brand-status .brand-register-table th:nth-child(7){width:7%}
+#brand-status .brand-register-table th:nth-child(8){width:6%}
+#brand-status .brand-register-table th:nth-child(9){width:7.5%}
+#brand-status .brand-register-table th:nth-child(10){width:6%}
+#brand-status .brand-register-table th:nth-child(11){width:9%}
+#brand-status .brand-register-table th:nth-child(12){width:18.5%}
+#brand-status .brand-register-table td:first-child{width:auto;font-weight:600}
+#brand-status .brand-register-table td:nth-child(2){min-width:0;font-size:16px;white-space:normal;overflow-wrap:anywhere}
+#brand-status .brand-register-table td:nth-child(11){white-space:normal;overflow-wrap:anywhere}
+#brand-status .brand-register-table td.brand-remarks{min-width:0;max-width:none;font-size:14px;line-height:1.5}
+#brand-status .brand-register-table td.brand-status-cell{min-width:0;font-weight:750}
+#brand-status .brand-note{font-size:13px;line-height:1.5}
+@media(max-width:700px){#brand-status .brand-tools label:first-child{max-width:none;flex-basis:100%}}
