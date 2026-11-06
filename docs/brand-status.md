@@ -66,8 +66,8 @@ No unit tests or paid model checks are run unless the user requests them.
 
 Visible states are 작업중, 완료, 작업예정 and 대기·보류. Legacy 진행 중/작업 예정
 map to the new labels; standalone 대기/보류 share one state. Delivery X always
-projects/saves an empty web work state, not 미수령. The full state cell receives
-a soft tint. The former management column is now remarks; click a brand name
+projects/saves an empty web work state, not 미수령. Every cell in a brand row receives the same soft tint for its work state;
+the tint is not limited to the current-state column. The former management column is now remarks; click a brand name
 to edit the product/web fields. Remarks are bounded multiline text and preserved
 with the same row-revision conflict checks. Hold state requires an explicit reason.
 

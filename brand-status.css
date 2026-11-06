@@ -59,3 +59,8 @@
 #brand-status .brand-register-table td.brand-remarks{min-width:160px;max-width:280px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}
 #brand-status .brand-remarks-input{grid-column:1/-1}
 #brand-status textarea{width:100%;box-sizing:border-box;resize:vertical;border:1px solid #56634c;border-radius:8px;padding:10px;background:#111811;color:inherit;font:inherit}
+
+#brand-status .brand-register-table tr.brand-row.doing>td{background:#20333e}
+#brand-status .brand-register-table tr.brand-row.done>td{background:#233b2e}
+#brand-status .brand-register-table tr.brand-row.scheduled>td{background:#3a321d}
+#brand-status .brand-register-table tr.brand-row.hold>td{background:#3b2a30}
