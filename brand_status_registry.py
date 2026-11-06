@@ -69,7 +69,7 @@ def save_table(private, payload):
         if payload['expected_revision'] != row_revision(source):
             raise TableConflict('다른 곳에서 이 행을 수정했어요. 입력 내용을 보관하고 최신 표를 다시 불러와 주세요.')
         fields = dict(payload['fields'])
-        enums = {'web_delivery': {'수령 확인', '미수령', '전달 완료', '미전달', '확인 필요'},
+        enums = {'web_delivery': {'O', 'X', '수령 확인', '미수령', '전달 완료', '미전달', '확인 필요'},
                  'priority': {'', '최우선', '1순위', '2순위', '3순위', '미지정'},
                  'discontinuation': {'미확인', '확인 필요', '확인 완료'},
                  'work_status': {'미수령', '작업 예정', '대기', '진행 중', '완료', '보류'},

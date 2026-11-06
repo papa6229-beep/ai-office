@@ -17,6 +17,7 @@
     <dialog id="brandProofDialog" class="brand-dialog"><div class="brand-dialog-head"><h3>연결 근거</h3><button type="button" data-close="brandProofDialog" aria-label="근거 닫기">×</button></div><div id="brandProofBody" class="brand-proof"></div></dialog>`;
   const el=id=>document.getElementById(id);
   const display=v=>v===null||v===undefined||v===''?'미확인':esc(v);
+  const deliveryMark=v=>({'수령 확인':'O','전달 완료':'O','미수령':'X','미전달':'X','O':'O','X':'X'})[v]||'';
   function render(){
     if(!data)return;
     const all=data.brands||[],query=el('brandSearch').value.trim().toLowerCase(),person=el('brandPerson').value,state=el('brandState').value;
@@ -24,7 +25,7 @@
     el('brandCounts').textContent=`전체 ${all.length}건 · 진행 중 ${all.filter(r=>r.work_status==='진행 중').length} · 완료 ${all.filter(r=>r.work_status==='완료').length} · 작업 예정 ${all.filter(r=>r.work_status==='작업 예정').length} · 미수령 ${all.filter(r=>r.work_status==='미수령').length}`;
     el('brandRows').innerHTML=rows.map(r=>{
       const f=r.table_fields||{},tone=r.work_status==='완료'?'done':r.work_status==='진행 중'?'doing':'unknown';
-      return `<tr><td>${esc(r.sequence)}</td><td><strong>${esc(r.brand)}</strong></td><td>${display(f.total_count)}</td><td>${display(f.kind_count)}</td><td>${display(f.arrival_date||r.arrival_date)}</td><td>${display(f.list_work_date)}</td><td>${display(f.web_delivery)}</td><td><span class="brand-state ${tone}">${esc(r.work_status)}</span></td><td><span class="${f.priority==='최우선'?'brand-priority':''}">${display(f.priority)}</span></td><td class="${f.discontinuation==='확인 필요'?'brand-caution':''}">${display(f.discontinuation)}</td><td>${esc(r.person)}</td><td><div class="brand-row-actions"><button type="button" data-edit="${esc(r.id)}">수정</button><button type="button" data-proof="${esc(r.id)}">근거</button></div></td></tr>`;
+      return `<tr><td>${esc(r.sequence)}</td><td><strong>${esc(r.brand)}</strong></td><td>${display(f.total_count)}</td><td>${display(f.kind_count)}</td><td>${display(f.arrival_date||r.arrival_date)}</td><td>${display(f.list_work_date)}</td><td>${esc(deliveryMark(f.web_delivery)||'—')}</td><td><span class="brand-state ${tone}">${esc(r.work_status)}</span></td><td><span class="${f.priority==='최우선'?'brand-priority':''}">${display(f.priority)}</span></td><td class="${f.discontinuation==='확인 필요'?'brand-caution':''}">${display(f.discontinuation)}</td><td>${esc(r.person)}</td><td><div class="brand-row-actions"><button type="button" data-edit="${esc(r.id)}">수정</button><button type="button" data-proof="${esc(r.id)}">근거</button></div></td></tr>`;
     }).join('')||'<tr><td colspan="12">조건에 맞는 입고 차수가 없어요.</td></tr>';
     el('brandStamp').textContent='표 저장 기준: '+(data.table_updated_at||data.registry_confirmed_at||'미확인').replace('T',' ');
     el('brandHistory').innerHTML=`<p>기존 파일·대화 대조 자료는 각 행의 ‘근거’에서 볼 수 있습니다. 자동화와 일일보고서 연동은 다음 단계입니다.</p><p>기타 배정분 ${(data.other_batches||[]).length}건 · 차수 연결 확인 자료 ${(data.link_candidates||[]).length}개를 보존하고 있습니다.</p>`;
@@ -37,10 +38,11 @@
   function editFields(section){
     if(editing.section)editing.drafts[editing.section]=Object.fromEntries(new FormData(el('brandEditForm')));
     editing.section=section;const f={...editing.row.table_fields,...editing.drafts[section]};
+    f.web_delivery=deliveryMark(f.web_delivery);
     const input=(key,title,type='text')=>`<label>${title}<input name="${key}" type="${type}" value="${esc(f[key]??'')}" ${type==='number'?'min="0" step="1"':''} ${key==='arrival_date'||key==='brand'?'required':''}></label>`;
     const select=(key,title,list)=>`<label>${title}<select name="${key}">${options(list,f[key]??'')}</select></label>`;
     el('brandEditFields').innerHTML=section==='product'?
-      input('brand','브랜드')+input('total_count','총 가짓수','number')+input('kind_count','종류(상세)','number')+input('arrival_date','물류입고일','date')+input('list_work_date','리스트작업일','date')+select('web_delivery','웹팀 전달여부',['수령 확인','미수령','전달 완료','미전달','확인 필요'])+select('priority','우선순위',['','최우선','1순위','2순위','3순위','미지정'])+select('discontinuation','단종 체크 여부',['미확인','확인 필요','확인 완료']):
+      input('brand','브랜드')+input('total_count','총 가짓수','number')+input('kind_count','종류(상세)','number')+input('arrival_date','물류입고일','date')+input('list_work_date','리스트작업일','date')+select('web_delivery','웹팀 전달여부',f.web_delivery?['O','X']:['','O','X'])+select('priority','우선순위',['','최우선','1순위','2순위','3순위','미지정'])+select('discontinuation','단종 체크 여부',['미확인','확인 필요','확인 완료']):
       select('work_status','현상태',states)+select('person','담당자',people);
     for(const button of root.querySelectorAll('[data-section]'))button.classList.toggle('selected',button.dataset.section===section);
     el('brandEditError').textContent='';
