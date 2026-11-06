@@ -23,19 +23,21 @@ try{
       if(!response.ok)throw Error('admin_http_'+response.status);
       return response.status===204?null:response.json();
     };
-    const load=async()=>{const value=await request('/api/samples?tab='+cfg.tab);return value.data??value;};
-    const identity=(row,expected)=>row&&['supplier_name','warehouse_arrival_date','sample_group'].every(k=>equal(row[k],expected[k]));
+    const load=async(tab)=>{const value=await request('/api/samples?tab='+tab);return value.data??value;};
+    const identity=(row,expected)=>row&&['supplier_name','warehouse_arrival_date','sample_group'].every(k=>equal(row[k],expected[k]))&&(!expected.memo_label||String(row.memo||'').split('\n').some(line=>line.trim()===expected.memo_label));
     const results=[];
     for(const plan of cfg.plans){
       for(const target of plan.targets){
         const item={event_id:plan.event_id,batch_id:plan.batch_id,sample_id:target.id};
         try{
-          const current=(await load()).find(r=>r.id===target.id);
+          const tab=target.tab||cfg.tab;
+          const current=(await load(tab)).find(r=>r.id===target.id);
           if(!identity(current,target.identity)){results.push({...item,state:'needs_binding'});continue;}
           const desired={registration_status:plan.status,worker:plan.worker||null};
           if(plan.remarks!==undefined){
             const lines=String(current.memo||'').split('\n').filter(line=>!line.startsWith('[웹팀] '));
-            if(plan.remarks)lines.push('[웹팀] '+plan.remarks);
+            const note=String(plan.remarks||'').split('\n').filter(line=>line.trim()!==target.identity.memo_label).join('\n').trim();
+            if(note)lines.push('[웹팀] '+note);
             const memo=lines.filter(Boolean).join('\n');
             // Empty Office remarks never erase someone else's existing memo.
             if(memo!==String(current.memo||''))desired.memo=memo||null;
@@ -54,7 +56,7 @@ try{
           const before=current;
           let failure=null;
           try{await request('/api/samples/'+target.id,'PUT',patch);}catch(error){failure=error.message;}
-          const after=(await load()).find(r=>r.id===target.id);
+          const after=(await load(tab)).find(r=>r.id===target.id);
           const verified=after&&Object.entries(patch).every(([k,v])=>equal(after[k],v));
           const preserved=after&&Object.keys(before).filter(k=>!fields.includes(k)).every(k=>equal(before[k],after[k]));
           results.push({...item,state:verified&&preserved?'verified':failure?'uncertain':'verification_failed',fields:Object.keys(patch),...(verified&&preserved?{values:Object.fromEntries(fields.map(k=>[k,after[k]??null]))}:{}),...(failure?{reason:failure}:{})});

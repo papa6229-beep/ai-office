@@ -1,6 +1,6 @@
 # Brand work register
 
-Revision: 2026-11-06-cloud-register-events-v5
+Revision: 2026-11-06-japan-daily-report-v6
 
 ## Independent shared board
 
@@ -107,3 +107,26 @@ Current confirmed bindings cover 15 Office batches and 16 administrator rows.
 Unknown identities and concurrent edits require reconciliation, never latest-brand
 guessing. See [sample administrator synchronization](brand-sample-admin-sync.md)
 for queue recovery, dates, scope and activation/verification boundaries.
+
+## Japanese rounds and daily report (2026-11-06)
+
+The same register now includes market (`일본` / `중국 외`) and an explicit
+`batch_label`. Existing Chinese records default to `중국 외`. Japanese rows are
+linked by brand plus paid/free round and, when supplied, round year. A missing or
+ambiguous round stays unresolved; do not choose the latest same-brand record.
+The exact round memo on company samples remains intact. Targets carry their own
+`jp_in_progress` tab and exact supplier/logistics/group/round identity. Current
+Japanese sample identities were read without changing company sample data.
+
+The daily report's existing server reads the public register directly, without
+the PC, an AI call or a browser session. A separate date-keyed snapshot stores
+only report-facing brand fields. Today's Seoul date refreshes while viewed;
+past snapshots retain the saved state. Reports predating the integration keep
+their existing brand source. Team-lead and public views use the same projection;
+other report inputs remain independent, and canonical rows cannot be saved as
+new manual rows. Network failure retains the last good snapshot. Unknown counts,
+progress and dates are not invented. The existing report sources remain stored.
+
+Source publication, actual public/admin API readback, native broker activation,
+and a later real messenger event are separate verification levels. No old file
+send or completed job is replayed to check the new integration.

@@ -10,7 +10,7 @@ reason is included in the memo. Existing product-team memo text is retained.
 
 The destination is the existing sample screen reached from xadmin's order-system
 link, not the shopping administrator or another new board. The current supported
-tab is `cn_in_progress`; changing registration status does not press the separate
+tabs are `cn_in_progress` and `jp_in_progress`, selected per bound target; changing registration status does not press the separate
 archive/work-complete button or move the sample between tabs.
 
 `brand_work_events.py` keeps its verified file-receipt pipeline and cloud outbox.
@@ -33,6 +33,9 @@ supplier, logistics date and sample group. One Office batch may map to several
 explicitly confirmed split rows. Bindings and business records remain private in
 `local_backups/brand-status/sample-admin.json` and `sample-admin-outbox.sqlite3`.
 Unknown batches enter `needs_binding`, not a guessed latest same-brand row.
+Japanese targets also bind the exact original round memo; the shared web note
+does not duplicate or remove that label. Three currently observed Japanese
+sample rounds were added as separate batches without changing company records.
 No sample creation, supplier, quantity, logistics date, priority or file operation
 is part of the projection. Current setup covers the 15 confirmed batches/16 rows;
 new unbound batches need identity reconciliation rather than another code patch.
