@@ -70,7 +70,7 @@ def match(message):
     join=r'\s*(?:랑|와|과|하고|및|그리고|[·,/+])\s*'
     action=r'(?:작성(?:해줘|해|하자|하기)|써줘|(?:작업\s*)?(?:진행|실행|처리)(?:해줘|하자))'
     combined=r'(?:'+daily+join+ai+'|'+ai+join+daily+r'|일일\s*[·/+]\s*'+ai+')'
-    if re.fullmatch(r'(?:일단\s*)?(?:오늘(?:의|자)?\s*)?'+combined+r'\s*(?:검수까지\s*)?'+action,text,re.I):
+    if re.fullmatch(r'(?:일단\s*)?(?:오늘(?:의|자)?\s*)?'+combined+r'(?:을|를)?\s*(?:검수까지\s*)?'+action,text,re.I):
         return {'id':'reports_all','args':{}}
     if re.fullmatch(r'(?:일단\s*)?(?:오늘(?:의|자)?\s*)?(?:AI|에이아이|a\.i)\s*보고서(?:부터)?\s*(?:작성(?:해줘|해|하자|하기)|써줘)',text,re.I):return {'id':'ai_report','args':{}}
     if re.fullmatch(r'(?:일단\s*)?(?:오늘(?:의|자)?\s*)?(?:일일\s*업무\s*보고서|일일\s*보고서|업무\s*보고서|보고서)(?:부터)?\s*(?:작성(?:해줘|해|하자|하기)|써줘)',text):return {'id':'daily_report','args':{}}

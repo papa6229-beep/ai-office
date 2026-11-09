@@ -1,4 +1,4 @@
-"""Existing Codex chats inside Office. Reads never start an agent turn."""
+"""Existing project chats and explicit department routing inside Office."""
 import atexit
 from contextlib import closing
 import hashlib
@@ -99,6 +99,56 @@ def catalog():
                           'updated':row.get('updatedAt')})
         _catalog={'items':items,'message':'기존 대화를 선택하세요. 창을 열어도 새 작업은 시작하지 않아요.'}
         _catalog_at=time.monotonic();return _catalog
+
+
+def gpt_catalog(cursor=None):
+    args={'mode':'history','source':'chatgpt','limit':50}
+    if cursor:
+        if len(cursor)>4096:raise ValueError('이전 GPT 대화 목록 위치를 확인해 주세요.')
+        args['cursor']=cursor
+    data=_call('list_threads',args)
+    items=[{'id':row['id'],'title':row.get('title') or '이름 없는 대화'}
+           for row in data.get('threads',[]) if row.get('kind')=='chatgpt']
+    return {'items':items,'cursor':data.get('nextCursor')}
+
+
+def _gpt_target(ident):
+    target=_target(ident,'local')
+    data=_call('read_thread',{**target,'turnLimit':1,'includeOutputs':False,'maxOutputCharsPerItem':100})
+    thread=data.get('thread',{})
+    if thread.get('id')!=ident or thread.get('kind')!='chatgpt':
+        raise ValueError('접근할 수 있는 기존 GPT 대화를 선택해 주세요.')
+    return target,thread
+
+
+def gpt_identity(ident):
+    _,thread=_gpt_target(ident)
+    return {'id':ident,'title':thread.get('title') or '이름 없는 대화'}
+
+
+def _department_route(text, has_files):
+    import office_routines
+    value=text.strip()
+    routine=office_routines.match(value) if not has_files else None
+    if routine and routine['id']!='small_talk':return 'routine'
+    if re.search(r'라고\s*(?:하면|말하면)|라는\s*요청',value):return 'choose'
+    action=r'(?:해\s*(?:줘|주세요)?|하자|부탁|하세요)'
+    development=(
+        r'^/개발\b|^(?:implement|refactor|deploy|commit|fix)\b',
+        r'(?:코드|소스|UI|메뉴|버튼|프로그램|저장소|앱|쇼핑몰|기능).{0,50}'
+        r'(?:(?:수정|변경|구현|추가|삭제|연동|리팩터|검토)\s*'+action+r'|(?:고쳐|바꿔|만들어|넣어|붙여)\s*(?:줘|주세요|$))',
+        r'(?:코딩|배포|빌드|커밋|테스트|디버깅|재시작)\s*'+action,
+        r'(?:파일|폴더).{0,40}(?:(?:이동|정리|삭제|저장)\s*'+action+r'|(?:보내|만들어)\s*(?:줘|주세요))',
+    )
+    if any(re.search(pattern,value,re.I) for pattern in development):
+        return 'codex'
+    # A question about how to make a change can stay in Chat. Requests for
+    # consequential effects or context-only continuations need an explicit route.
+    if has_files or re.search(r'(?:적용|배포|저장|수정|구현|전송|삭제|업로드|결제|등록|실행)\s*(?:해|하자|부탁)|이어서|그대로|방금|아까|이거|그거|작업\s*(?:상태|진행)',value):
+        return 'choose'
+    if routine or re.search(r'조사|비교|설명|추천|요약|초안|무슨|어떤|어떻게|뭐야|알려|[?？]$|^(?:안녕|고마워|감사)',value):
+        return 'gpt'
+    return 'choose'
 
 
 def _visible_text(item):
@@ -348,19 +398,52 @@ def _attachments(db,payload):
 
 
 def send(db,payload):
-    if set(payload)-{'id','host','request_id','message','attachment_ids','attachment_request_id'} or not {'id','host','request_id','message'}<=set(payload):raise ValueError('보낼 프로젝트와 내용을 확인해 주세요.')
+    if set(payload)-{'id','host','request_id','message','attachment_ids','attachment_request_id','route_mode','gpt_id'} or not {'id','host','request_id','message'}<=set(payload):raise ValueError('보낼 프로젝트와 내용을 확인해 주세요.')
     ident,host=payload['id'],payload['host'];target=_target(ident,host)
     request=payload['request_id'];text=payload['message']
     if not isinstance(request,str) or not re.fullmatch('[0-9a-f]{32}',request):raise ValueError('전송 번호를 확인해 주세요.')
     if not isinstance(text,str) or (not text.strip() and not payload.get('attachment_ids')) or len(text)>12000:raise ValueError('메시지나 첨부를 입력해 주세요. 글은12000자까지 가능해요.')
     ids=payload.get('attachment_ids',[])
-    signature=hashlib.sha256(json.dumps([target,text,ids,payload.get('attachment_request_id')] if ids else [target,text],ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+    mode=payload.get('route_mode')
+    gpt_id=payload.get('gpt_id')
+    if ((mode is not None and mode not in ('auto','gpt','codex'))
+            or (gpt_id is not None and mode not in ('auto','gpt'))):
+        raise ValueError('이번 메시지의 처리 경로를 확인해 주세요.')
+    signed=[target,text,ids,payload.get('attachment_request_id')] if ids else [target,text]
+    if mode is not None:signed.append({'route_mode':mode,'gpt_id':gpt_id})
+    signature=hashlib.sha256(json.dumps(signed,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
     with _lock:
         with closing(_db(db)) as c,c:
             old=c.execute('SELECT * FROM project_panel_sends WHERE id=?',(request,)).fetchone()
             if old:
                 if old['signature']!=signature:raise ValueError('동일 전송 번호의 대상이나 내용이 달라요.')
-                return {'state':old['state'],'request_id':request}
+                saved=json.loads(old['data'])
+                return {'state':old['state'],'request_id':request,**saved.get('route_receipt',{})}
+        if mode is not None:
+            import department_work
+            if target['hostId']!='local' or ident not in department_work.registered(db):
+                raise ValueError('등록된 로컬 부서 채팅에서 처리 경로를 고를 수 있어요.')
+        route=_department_route(text,bool(ids)) if mode=='auto' else mode or 'codex'
+        if route=='routine':return {'state':'route_required','route':'routine','request_id':request}
+        if route=='choose':return {'state':'route_required','route':'choose','request_id':request}
+        if route=='gpt':
+            if ids:return {'state':'route_required','route':'gpt_attachments','request_id':request}
+            if not gpt_id:return {'state':'route_required','route':'gpt_binding','request_id':request}
+            try:gpt,thread=_gpt_target(gpt_id)
+            except ValueError:return {'state':'route_required','route':'gpt_binding','request_id':request}
+            if _label(thread)=='진행 중':return {'state':'route_required','route':'gpt_busy','request_id':request}
+            receipt={'route':'gpt','destination':gpt_id,'destination_title':thread.get('title') or '기존 GPT 대화'}
+            with closing(_db(db)) as c,c:
+                c.execute('INSERT INTO project_panel_sends (id,signature,thread_id,host,state,created,data) VALUES (?,?,?,?,?,?,?)',
+                          (request,signature,gpt_id,'local','sending',time.time(),json.dumps({'route_receipt':receipt})))
+            try:
+                _call('send_message_to_thread',{**gpt,'prompt':text})
+                state='sent'
+            except Exception:
+                state='unknown'
+            with closing(_db(db)) as c,c:
+                c.execute('UPDATE project_panel_sends SET state=? WHERE id=?',(state,request))
+            return {'state':state,'request_id':request,**receipt}
         # Read the actual accessible target before a first explicit human send.
         data=_call('read_thread',{**target,'turnLimit':1,'includeOutputs':False,'maxOutputCharsPerItem':300})
         if data.get('thread',{}).get('id')!=ident or data.get('thread',{}).get('kind','codex')!='codex':raise ValueError('현재 작업창은 Codex 대화만 지원해요.')
@@ -427,7 +510,12 @@ def send(db,payload):
         return {'state':state,'request_id':request}
 
 
-def open_native(ident,host='local'):
+def open_native(ident,host='local',kind='codex'):
+    if kind=='chatgpt' and host=='local':
+        _gpt_target(ident)
+        _call('navigate_to_codex_page',{'threadId':ident})
+        return {'opened':True}
+    if kind!='codex':raise ValueError('열 대화를 확인해 주세요.')
     target=_target(ident,host)
     data=_call('read_thread',{**target,'turnLimit':1,'includeOutputs':False,'maxOutputCharsPerItem':100})
     if data.get('thread',{}).get('id')!=ident or data.get('thread',{}).get('kind','codex')!='codex':raise ValueError('현재 작업창은 Codex 대화만 지원해요.')
