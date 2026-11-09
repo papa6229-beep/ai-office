@@ -502,8 +502,8 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/work/departments':
             if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
             import department_manager
-            return self.reply(department_manager.snapshot(DB))
-        if path in {'/api/work/project-panels','/api/work/project-panel','/api/work/project-panel-state','/api/work/project-panel-questions'}:
+            return self.reply({**department_manager.snapshot(DB),'department_chat_routes':1})
+        if path in {'/api/work/project-panels','/api/work/project-panel','/api/work/project-panel-state','/api/work/project-panel-questions','/api/work/project-panel-gpt'}:
             if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
             import project_panels
             from urllib.parse import parse_qs
@@ -513,6 +513,9 @@ class Handler(BaseHTTPRequestHandler):
                     import project_questions
                     return self.reply(project_questions.batch())
                 if path.endswith('project-panels'):return self.reply(project_panels.catalog())
+                if path.endswith('project-panel-gpt'):
+                    ident=query.get('id',[''])[0]
+                    return self.reply(project_panels.gpt_identity(ident) if ident else project_panels.gpt_catalog(query.get('cursor',[None])[0]))
                 if path.endswith('project-panel-state'):return self.reply(project_panels.state(query.get('id',[''])[0],query.get('host',['local'])[0]))
                 return self.reply(project_panels.history(query.get('id',[''])[0],query.get('host',['local'])[0],query.get('cursor',[None])[0]))
             except (ValueError,OSError) as error:return self.reply({'error':str(error)[:250]},400)
@@ -764,8 +767,8 @@ class Handler(BaseHTTPRequestHandler):
                         import project_questions
                         return self.reply(project_questions.answer(DB,payload))
                     if p.endswith('-send'):return self.reply(project_panels.send(DB,payload))
-                    if set(payload)!={'id','host'}:raise ValueError('열 프로젝트를 확인해 주세요.')
-                    return self.reply(project_panels.open_native(payload['id'],payload['host']))
+                    if not {'id','host'}<=set(payload)<={'id','host','kind'}:raise ValueError('열 프로젝트를 확인해 주세요.')
+                    return self.reply(project_panels.open_native(payload['id'],payload['host'],payload.get('kind','codex')))
                 if p=='/api/work/notifications-thread-confirm':
                     if set(payload)!={'id'}:raise ValueError('대화방을 다시 선택해 주세요.')
                     import notification_conversations
