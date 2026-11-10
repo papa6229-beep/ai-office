@@ -305,7 +305,7 @@
   }
   function locks() {
     const current=controlledRequest();
-    const blocked = busy || !!uncertain || !!mainRouting?.posting() || !overview?.action_token;
+    const blocked = busy || !!uncertain || !overview?.action_token;
     $('work').querySelectorAll('button,input,textarea,select').forEach(el => {
       if(el.closest('[data-independent-work]'))return;
       if(el.closest('#workOtherRequests')){el.disabled=false;return;}
@@ -314,7 +314,7 @@
       if(el.closest('.work-tasks,#workTaskDialog')){el.disabled=recordBusy || !!recordUncertain || !overview?.action_token;return;}
       if(el.id==='workStop'){el.hidden=!current;el.disabled=!current || stopRequested || !!controlSubmitting.stop;return;}
       if(current && el.id==='workCommand'){el.disabled=false;return;}
-      if(current && el.id==='workSend'){el.disabled=stopRequested || !!controlSubmitting.message || !!mainRouting?.pending();return;}
+      if(current && el.id==='workSend'){el.disabled=stopRequested || !!controlSubmitting.message;return;}
       if (el.closest('#workNotifications,#workNotificationDialog,#workLauncher,#workLauncherDialog,#workCalendar,#workFileDialog,#workStage,#workStageDialog') || ['workNotificationAcknowledge','workCompanionAlert'].includes(el.id) || el.matches('[data-work-preview]') || el.matches('[data-work-action="close-detail"],[data-files-action]')) return;
       if (el.matches('[data-work-action="desk"],[data-work-action="tasks"]')) return;
       if (el.matches('[data-work-action="reload"]')) { el.disabled = loading || recordBusy || !!recordUncertain; return; }
@@ -328,9 +328,8 @@
     $('workRetry').hidden = !uncertain;
     $('workRecordRetry').hidden = !recordUncertain;
     if(uploading || attachments.some(item=>!item.id)) $('workSend').disabled=true;
-    if($('workAttach')) $('workAttach').disabled=blocked || uploading || attachments.length>=6 || !!mainRouting?.pending();
-    if($('workAttachmentInput')) $('workAttachmentInput').disabled=blocked || uploading || !!mainRouting?.pending();
-    mainRouting?.lock(blocked||uploading,!!current);
+    if($('workAttach')) $('workAttach').disabled=blocked || uploading || attachments.length>=6;
+    if($('workAttachmentInput')) $('workAttachmentInput').disabled=blocked || uploading;
     renderAttachments();
     $('workSend').textContent = current ? controlSubmitting.message ? '보내는 중…' : '추가 메시지 보내기' : busy ? '처리 중…' : uploading ? '첨부 중…' : '요청 보내기';
     if($('workStop'))$('workStop').textContent=stopRequested ? '중지 요청됨' : controlSubmitting.stop ? '중지 요청 중…' : '작업 중지';
@@ -338,9 +337,8 @@
     settleChatScroll();
     window.officeUpdates?.refresh?.();
   }
-  let attachmentDraft='', attachments=[], uploading=false, mainRouting=null;
+  let attachmentDraft='', attachments=[], uploading=false;
   window.officeWorkSession={
-    mountRouting(row){mainRouting=window.officeProjectThreadViews.mountMainRouting(row,$('workCommand'),locks);locks();},
     state:()=>({ready:!!overview,busy,uncertain:!!uncertain,recordBusy:recordBusy||!!recordUncertain,uploading,attachments:attachments.length}),
     snapshot:()=>({selectedDay,selected,attachments:attachments.filter(a=>a.id&&!a.uploading&&!a.error),attachmentDraft}),
     restore(value){
@@ -375,7 +373,7 @@
     settleChatScroll();
   }
   async function addAttachments(files) {
-    if(busy || uncertain || uploading || mainRouting?.posting() || mainRouting?.pending() || !overview?.action_token)return;
+    if(busy || uncertain || uploading || !overview?.action_token)return;
     const list=Array.from(files || []);if(!list.length)return;
     if(attachments.length+list.length>6){notice('파일은 한 번에 6개까지 첨부할 수 있어요.',true);return;}
     for(const file of list){
@@ -862,7 +860,7 @@
       if(message.length>4000)throw Error('추가 지시는 4000자 이내로 전달해 주세요.');
       return sendControl('message',message);
     }
-    if(busy||uncertain||mainRouting?.posting()||mainRouting?.pending())throw Error('현재 요청의 처리 상태를 확인하고 있어요. 잠시 뒤 다시 눌러 주세요.');
+    if(busy||uncertain)throw Error('현재 요청의 처리 상태를 확인하고 있어요. 잠시 뒤 다시 눌러 주세요.');
     if(attachments.length||$('workCommand')?.value.trim())throw Error('작성 중인 채팅을 먼저 보내거나 비워 주세요.');
     return write('command',{message,request_id:requestID()},()=>{});
   };
@@ -870,16 +868,13 @@
     const form = event.target;
     if (!['workCommandForm','workTaskForm','workNoteForm','workResourceForm'].includes(form.id)) return;
     event.preventDefault();
-    if (form.id==='workCommandForm' && controlledRequest()){if(!mainRouting?.pending())sendControl('message');return;}
-    if (form.id==='workCommandForm' && (busy || uncertain || mainRouting?.posting())) return;
+    if (form.id==='workCommandForm' && controlledRequest()){sendControl('message');return;}
+    if (form.id==='workCommandForm' && (busy || uncertain)) return;
     if (form.id === 'workCommandForm') {
       const message = $('workCommand').value.trim(); if (!message) return;
       if(uploading || attachments.some(item=>!item.id))return;
-      const run=codex=>{
-        write('command',{message,request_id:attachmentDraft || requestID(),attachment_ids:attachments.map(item=>item.id),...(selected ? {task_id:selected} : {}),...(codex?{route_mode:'codex'}:{})},()=>{});
-        $('workCommand').value='';attachments=[];attachmentDraft='';renderAttachments();
-      };
-      if(mainRouting)mainRouting.submit(message,!!attachments.length,run);else run(false);
+      write('command',{message,request_id:attachmentDraft || requestID(),attachment_ids:attachments.map(item=>item.id),...(selected ? {task_id:selected} : {})},()=>{});
+      $('workCommand').value='';attachments=[];attachmentDraft='';renderAttachments();
     } else if (form.id === 'workTaskForm') {
       const title = $('workTaskTitle').value.trim(); if (!title) return;
       const taskID=form.dataset.taskId;
@@ -978,7 +973,7 @@
     });
     const composer=$('workCommandForm');
     const draggingFiles=event=>Array.from(event.dataTransfer?.types || []).includes('Files');
-    composer.addEventListener('dragover',event=>{if(draggingFiles(event)){event.preventDefault();event.dataTransfer.dropEffect=$('workAttach').disabled ? 'none' : 'copy';composer.classList.add('is-file-drag');}});
+    composer.addEventListener('dragover',event=>{if(draggingFiles(event)){event.preventDefault();event.dataTransfer.dropEffect=busy || uncertain || uploading ? 'none' : 'copy';composer.classList.add('is-file-drag');}});
     composer.addEventListener('dragleave',event=>{if(!composer.contains(event.relatedTarget))composer.classList.remove('is-file-drag');});
     composer.addEventListener('drop',event=>{if(draggingFiles(event)){event.preventDefault();composer.classList.remove('is-file-drag');addAttachments(event.dataTransfer.files);}});
     command.addEventListener('paste',event=>{if(event.clipboardData?.files?.length){event.preventDefault();addAttachments(event.clipboardData.files);}});
