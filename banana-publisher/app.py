@@ -241,7 +241,10 @@ def replacement_bases(paths, name):
 
 
 def prepare(config, name, mode, assets, results):
-    paths = replacement_bases(config['paths'], name) if mode == 'replace' else config['paths']
+    if mode == 'replace':
+        paths = replacement_bases(config['paths'], name)
+    else:
+        paths = dict.fromkeys(SKINS, config['paths']['web'])
     with paramiko.SSHClient() as ssh:
         if config['fingerprint']:
             ssh.set_missing_host_key_policy(PinnedHostKey(config['fingerprint']))
