@@ -28,10 +28,12 @@ SKINS = {'web': ('웹', 20), 'mobile': ('모바일', 21)}
 ADMIN = 'https://banana.bizhost.kr/adminx/newdesign.php'
 PUBLIC_HOSTS = {'www.bananamall.co.kr', 'bananamall.co.kr', 'm.bananamall.co.kr'}
 CDN_HOST = 'cdn-banana.bizhost.kr'
+TEMPLATE_URL = 'https://www.bananamall.co.kr/etc/evt_womanizer_202608.php'
 PAGE = re.compile(r'/etc/([A-Za-z0-9][A-Za-z0-9_-]{0,99})\.php')
-NAME = re.compile(r'[\w][\w .-]{0,100}\.(?:jpe?g|png|gif|webp)', re.IGNORECASE)
+NAME = re.compile(r'[\w][\w .-]{0,100}\.(?:jpe?g|png|gif|webp|mp4)', re.IGNORECASE)
 FORMATS = {'.jpg': 'JPEG', '.jpeg': 'JPEG', '.png': 'PNG', '.gif': 'GIF', '.webp': 'WEBP'}
 MAX_FILE = 20 * 1024 * 1024
+MAX_VIDEO = 80 * 1024 * 1024
 MAX_FILES = 16
 CHUNK = 128 * 1024
 
@@ -56,6 +58,7 @@ class EventImages(HTMLParser):
         self.prefixes = prefixes
         self.bases = set()
         self.images = {}
+        self.media = []
 
     def handle_starttag(self, tag, attributes):
         if tag not in {'img', 'source'}:
@@ -77,6 +80,9 @@ class EventImages(HTMLParser):
                         if tag == 'img' and key == 'src' and posixpath.basename(url.path):
                             preview = url._replace(scheme='https', fragment='').geturl()
                             self.images.setdefault(url.path, preview)
+                            self.media.append(('image', url.path))
+                        elif tag == 'source' and key == 'src' and ('type', 'video/mp4') in attributes:
+                            self.media.append(('video', url.path))
 
 
 class EventRedirects(HTTPRedirectHandler):
@@ -126,28 +132,42 @@ def digest(stream, limit):
     return size, checksum.hexdigest()
 
 
-def read_assets(files):
+def read_assets(files, *, videos=False):
     if not 1 <= len(files) <= MAX_FILES:
-        raise PreparationError(f'이미지를 1장부터 {MAX_FILES}장까지 첨부하세요.')
+        raise PreparationError(f'파일을 1개부터 {MAX_FILES}개까지 첨부하세요.')
     assets = []
     seen = set()
     for file in files:
         name = file.filename or ''
-        if not NAME.fullmatch(name) or len(name.encode('utf-8')) > 220 or name.casefold() in seen:
-            raise PreparationError('중복되지 않는 JPG, PNG, GIF 또는 WebP 파일명을 사용하세요.')
-        size, sha256 = digest(file.stream, MAX_FILE)
+        suffix = posixpath.splitext(name)[1].lower()
+        video = suffix == '.mp4'
+        if (not NAME.fullmatch(name) or len(name.encode('utf-8')) > 220 or name.casefold() in seen
+                or (suffix not in FORMATS and not (video and videos))):
+            raise PreparationError('파일 형식과 중복된 이름을 확인하세요. MP4는 신규 등록에 사용할 수 있습니다.')
+        size, sha256 = digest(file.stream, MAX_VIDEO if video else MAX_FILE)
         file.stream.seek(0)
-        try:
-            with Image.open(file.stream) as image:
-                if image.format != FORMATS[posixpath.splitext(name)[1].lower()] or image.width * image.height > 60_000_000:
-                    raise PreparationError(f'{name}의 이미지 형식 또는 픽셀 크기를 확인하세요.')
-                image.verify()
-        except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError):
-            raise PreparationError(f'{name}을 올바른 이미지 파일로 읽을 수 없습니다.') from None
+        if video:
+            if len(header := file.stream.read(16)) != 16 or header[4:8] != b'ftyp':
+                raise PreparationError(f'{name}의 MP4 파일 형식을 확인하세요.')
+        else:
+            try:
+                with Image.open(file.stream) as image:
+                    if image.format != FORMATS[suffix] or image.width * image.height > 60_000_000:
+                        raise PreparationError(f'{name}의 이미지 형식 또는 픽셀 크기를 확인하세요.')
+                    image.verify()
+            except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError):
+                raise PreparationError(f'{name}을 올바른 이미지 파일로 읽을 수 없습니다.') from None
         file.stream.seek(0)
         assets.append(Asset(name, file.stream, size, sha256))
         seen.add(name.casefold())
     return assets
+
+
+def event_text(field, limit):
+    value = request.form.get(field, '').strip()
+    if not value or len(value) > limit or re.search(r'[\x00-\x1f<>\\{}]', value):
+        raise PreparationError('행사명과 검색 설명은 각각 80자, 180자 이내의 일반 텍스트로 입력하세요.')
+    return value
 
 
 def remote_stat(sftp, path):
@@ -220,7 +240,7 @@ def settings():
             'password': password, 'key': key, 'port': port, 'fingerprint': fingerprint}
 
 
-def replacement_sources(paths, name, *, allow_empty=False):
+def public_event_sources(paths, name):
     prefixes = {f'/{posixpath.basename(posixpath.dirname(base))}/etc/{name}/': base for base in paths.values()}
     if len(prefixes) != len(paths):
         raise PreparationError('웹·모바일 스킨의 SFTP 설정을 구분해 주세요.')
@@ -229,7 +249,6 @@ def replacement_sources(paths, name, *, allow_empty=False):
         'web': ('www.bananamall.co.kr', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36'),
         'mobile': ('m.bananamall.co.kr', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 Mobile/15E148 Safari/604.1'),
     }
-    verified, candidates = {}, {}
     for skin, (host, agent) in sources.items():
         label = SKINS[skin][0]
         page = Request(f'https://{host}/etc/{name}.php', headers={
@@ -247,6 +266,13 @@ def replacement_sources(paths, name, *, allow_empty=False):
             parser.feed(html.decode(encoding, errors='replace'))
         except (LookupError, ValueError):
             raise PreparationError(f'{label} 공개 이벤트의 이미지 주소를 읽을 수 없습니다.') from None
+        yield skin, parser
+
+
+def replacement_sources(paths, name, *, allow_empty=False):
+    verified, candidates = {}, {}
+    for skin, parser in public_event_sources(paths, name):
+        label = SKINS[skin][0]
         if allow_empty and not parser.bases:
             continue
         if len(parser.bases) != 1:
@@ -260,6 +286,17 @@ def replacement_sources(paths, name, *, allow_empty=False):
     if len(candidates) > 100:
         raise PreparationError('이벤트 이미지가 100장을 넘어 교체 대상을 준비할 수 없습니다.')
     return verified, list(candidates.values())
+
+
+def cdn_ready(item):
+    video = item['kind'] == 'video'
+    headers = {'Range': 'bytes=0-15'} if video else {}
+    with build_opener(EventRedirects()).open(Request(item['url'], headers=headers), timeout=12) as response:
+        if video:
+            return (response.status == 206 and response.headers.get_content_type() == 'video/mp4'
+                    and response.headers.get('Content-Range') == f"bytes 0-15/{item['size']}"
+                    and response.read(16)[4:8] == b'ftyp')
+        return digest(response, MAX_FILE) == (item['size'], item['sha256'])
 
 
 def prepare(config, name, mode, assets, results, paths):
@@ -348,7 +385,7 @@ def create_app():
     def response_headers(response):
         response.headers.update({'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
                                  'Referrer-Policy': 'no-referrer',
-                                 'Content-Security-Policy': f"default-src 'self'; img-src 'self' https://{CDN_HOST}; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
+                                 'Content-Security-Policy': f"default-src 'self'; img-src 'self' https://{CDN_HOST}; media-src https://{CDN_HOST}; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
         return response
 
     @app.get('/')
@@ -380,30 +417,38 @@ def create_app():
 
     @app.post('/api/replacements/<job_id>/publish')
     def publish_replacement(job_id):
+        body = request.get_json(silent=True)
+        return publish_job(job_id, body.get('candidate') if isinstance(body, dict) else None, registering=False)
+
+    @app.post('/api/registrations/<job_id>/publish')
+    def publish_registration(job_id):
+        return publish_job(job_id, 0, registering=True)
+
+    def publish_job(job_id, choice, *, registering):
         if not publish_enabled:
             return jsonify(error='이 서버에 비즈호스트 자동 게시 연결이 설정되지 않았습니다.'), 503
         if not lock.acquire(blocking=False):
             return jsonify(error='다른 이벤트 작업이 진행 중입니다. 완료 후 진행하세요.'), 409
         try:
-            return process_publication(job_id)
+            return process_publication(job_id, choice, registering=registering)
         except sqlite3.Error:
             return jsonify(error='게시 기록을 확인할 수 없습니다. 현재 공개 페이지를 확인해 주세요.'), 500
         finally:
             lock.release()
 
-    def process_publication(job_id):
-        body = request.get_json(silent=True)
-        choice = body.get('candidate') if isinstance(body, dict) else None
+    def process_publication(job_id, choice, *, registering):
         if type(choice) is not int or choice < 0 or not re.fullmatch(r'[0-9a-f]{32}', job_id):
             return jsonify(error='교체할 이미지를 선택하세요.'), 400
         with closing(selection_db()) as db, db:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute('SELECT plan, chosen, outcome, created FROM replacements WHERE id = ?', (job_id,)).fetchone()
             if row is None or (row[1] is None and row[3] < int(time.time()) - 86400):
-                return jsonify(error='교체 준비 기록이 만료되었습니다. 수정 준비부터 다시 진행하세요.'), 404
+                return jsonify(error='게시 준비 기록이 만료되었습니다. 준비부터 다시 진행하세요.'), 404
             raw_plan, previous, recorded, _ = row
             job = json.loads(raw_plan)
-            if choice >= len(job['candidates']):
+            if registering != ('registration' in job):
+                return jsonify(error='요청한 게시 방식과 준비 기록이 일치하지 않습니다.'), 400
+            if not registering and choice >= len(job['candidates']):
                 return jsonify(error='준비된 이미지 중에서 선택하세요.'), 400
             if previous is not None:
                 if previous != choice:
@@ -413,15 +458,23 @@ def create_app():
                     return jsonify(outcome), 200 if outcome['state'] == 'published' else 409
                 return jsonify(error='이미 시작된 게시입니다. 현재 공개 페이지를 먼저 확인해 주세요.'), 409
             db.execute('UPDATE replacements SET chosen = ? WHERE id = ?', (choice, job_id))
-        target = job['candidates'][choice]
-        outcome = run_publication(job_id, job, target)
+        outcome = run_publication(job_id, job, None if registering else job['candidates'][choice])
         with closing(selection_db()) as db, db:
             db.execute('UPDATE replacements SET outcome = ? WHERE id = ?',
                        (json.dumps(outcome, ensure_ascii=False), job_id))
         return jsonify(outcome), 200 if outcome['state'] == 'published' else 409
 
     def run_publication(job_id, job, target):
-        if target.get('replacement'):
+        registration = job.get('registration')
+        if registration:
+            for item in registration['media']:
+                try:
+                    available = cdn_ready(item)
+                except (OSError, PreparationError):
+                    available = False
+                if not available:
+                    return dict(state='blocked', error=f"{item['name']}의 공개 CDN 응답을 확인하지 못해 저장을 시작하지 않았습니다.")
+        elif target.get('replacement'):
             try:
                 with build_opener(EventRedirects()).open(target['replacement'], timeout=12) as image:
                     _, sha256 = digest(image, MAX_FILE)
@@ -429,11 +482,14 @@ def create_app():
                     raise PreparationError('CDN에서 읽은 새 이미지가 첨부 원본과 다릅니다.')
             except (OSError, PreparationError):
                 return dict(state='blocked', error='새 이미지를 공개 CDN에서 확인하지 못해 게시를 시작하지 않았습니다.')
-        payload = dict(id=job_id, event=job['event'], editors=job['editors'], target=target)
+        payload = dict(id=job_id, event=job['event'], editors=job['editors'], target=target, registration=registration)
         try:
             worker = Path(__file__).with_name('publish_edit.py').resolve()
+            worker_env = {key: value for key, value in os.environ.items()
+                          if not key.startswith(('BANANA_SFTP_', 'BANANA_PUBLISH_WEB_'))}
             response = subprocess.run([str(office_python), '-X', 'utf8', str(worker)],
                                       input=json.dumps(payload), encoding='utf-8', capture_output=True, timeout=430,
+                                      env=worker_env,
                                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), check=True)
             outcome = json.loads(response.stdout)
         except (OSError, ValueError, subprocess.SubprocessError):
@@ -444,6 +500,12 @@ def create_app():
             if attempt:
                 time.sleep(2)
             try:
+                if registration:
+                    expected = [(item['kind'], urlsplit(item['url']).path) for item in registration['media']]
+                    pages = list(public_event_sources(settings()['paths'], job['event']))
+                    if all(parser.media == expected for _, parser in pages):
+                        return dict(state='published', skins=list(SKINS))
+                    continue
                 _, current = replacement_sources(settings()['paths'], job['event'], allow_empty=True)
             except PreparationError:
                 continue
@@ -463,34 +525,48 @@ def create_app():
             mode = request.form.get('mode')
             if mode not in {'new', 'replace', 'delete'}:
                 raise PreparationError('신규등록, 이미지 교체 또는 삭제를 선택하세요.')
-            if mode != 'new' and not publish_enabled:
+            if not publish_enabled:
                 return jsonify(error='이 서버에 비즈호스트 자동 게시 연결이 설정되지 않았습니다.'), 503
             config = settings()
             if not config['ready']:
                 return jsonify(error='서버에 SFTP 로그인, 서버 키, 웹·모바일 etc 폴더 설정이 필요합니다.', editors=editors), 503
-            assets = read_assets(request.files.getlist('images')) if mode != 'delete' else []
+            assets = read_assets(request.files.getlist('images'), videos=mode == 'new') if mode != 'delete' else []
             if mode in {'replace', 'delete'}:
                 if mode == 'replace' and len(assets) != 1:
                     raise PreparationError('한 장을 교체할 때는 새 이미지 한 장을 첨부하세요.')
                 paths, candidates = replacement_sources(config['paths'], name)
             else:
+                template_event, template_editors = plan(TEMPLATE_URL)
+                if name.casefold() == template_event.casefold():
+                    raise PreparationError('등록 대상은 기준 템플릿과 다른 이벤트 페이지여야 합니다.')
+                title, description = event_text('event_title', 80), event_text('event_description', 180)
                 paths = dict.fromkeys(SKINS, config['paths']['web'])
             if assets:
                 prepare(config, name, mode, assets, results, paths)
             payload = dict(state='ready', event=name, editors=editors, skins=results, mode=mode)
-            if mode in {'replace', 'delete'}:
+            if mode == 'new':
+                root = posixpath.basename(posixpath.dirname(paths['web']))
+                media = [dict(name=asset.name, size=asset.size, sha256=asset.sha256,
+                              kind='video' if asset.name.lower().endswith('.mp4') else 'image',
+                              url=f'https://{CDN_HOST}/{root}/etc/{name}/{quote(asset.remote_name(mode))}') for asset in assets]
+                job = dict(event=name, editors=editors, registration=dict(
+                    template_event=template_event, template_editors=template_editors, title=title,
+                    description=description, media=media))
+                payload.update(media=media, title=title, description=description)
+            else:
                 if assets:
                     for item in candidates:
                         image_url = urlsplit(item['preview'])
                         root = image_url.path.split(f'/etc/{name}/', 1)[0]
                         item['replacement'] = f'https://{CDN_HOST}{root}/etc/{name}/{quote(assets[0].remote_name(mode))}'
-                job_id, created = uuid.uuid4().hex, int(time.time())
                 job = dict(event=name, candidates=candidates, editors=editors, sha256=assets[0].sha256 if assets else None)
-                with closing(selection_db()) as db, db:
-                    db.execute('DELETE FROM replacements WHERE chosen IS NULL AND created < ?', (created - 86400,))
-                    db.execute('INSERT INTO replacements (id, created, plan) VALUES (?, ?, ?)',
-                               (job_id, created, json.dumps(job, ensure_ascii=False)))
-                payload.update(replacement_id=job_id, candidates=candidates)
+                payload.update(candidates=candidates)
+            job_id, created = uuid.uuid4().hex, int(time.time())
+            with closing(selection_db()) as db, db:
+                db.execute('DELETE FROM replacements WHERE chosen IS NULL AND created < ?', (created - 86400,))
+                db.execute('INSERT INTO replacements (id, created, plan) VALUES (?, ?, ?)',
+                           (job_id, created, json.dumps(job, ensure_ascii=False)))
+            payload.update(replacement_id=job_id)
             return jsonify(payload)
         except PreparationError as error:
             message, status = str(error), 400
@@ -499,7 +575,7 @@ def create_app():
         except paramiko.AuthenticationException:
             message, status = 'SFTP 자동 로그인에 실패했습니다. 서버의 보관 계정을 확인하세요.', 502
         except sqlite3.Error:
-            message, status = '이미지 선택 기록을 준비하지 못했습니다. 다시 실행하면 올린 파일을 먼저 대조합니다.', 500
+            message, status = '게시 준비 기록을 저장하지 못했습니다. 다시 실행하면 올린 파일을 먼저 대조합니다.', 500
         except (OSError, paramiko.SSHException):
             message, status = 'SFTP 연결 또는 파일 확인에 실패했습니다. 이미 확인된 파일은 아래에 표시됩니다.', 502
         for state in results.values():

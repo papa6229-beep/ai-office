@@ -1,10 +1,10 @@
-"""Publish a selected event image through the existing Ego/BizHost editor."""
+"""Publish event changes through the existing Ego/BizHost editor."""
 
 import json
 import re
 import sys
 import tempfile
-from html import unescape
+from html import escape, unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -18,6 +18,8 @@ from report_automation import _login_biz
 
 
 SKINS = {'web': '20', 'mobile': '21'}
+BODY_START = '<!-- 메인 본문 이벤트 내용 start -->'
+BODY_END = '<!-- 메인 본문 이벤트 내용 end-->'
 IMAGE_ROOTS = ('{global.imgdomain}', 'https://cdn-banana.bizhost.kr',
                'http://cdn-banana.bizhost.kr', '//cdn-banana.bizhost.kr')
 ATTRIBUTE = re.compile(r'''([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?''')
@@ -100,6 +102,77 @@ def editor_source(page, job, skin):
     return value['values']
 
 
+def replace_field(source, pattern, value):
+    updated, matches = re.subn(pattern, lambda match: match[1] + value + (match[2] or ''), source, flags=re.MULTILINE)
+    if matches != 1:
+        raise UnsafeEdit('기준 템플릿에서 행사 제목 또는 검색 설명 위치를 확인하지 못했습니다.')
+    return updated
+
+
+def registration_html(source, registration, skin):
+    if source.count(BODY_START) != 1 or source.count(BODY_END) != 1:
+        raise UnsafeEdit('기준 템플릿의 행사 본문 경계를 확인하지 못했습니다.')
+    header, _, body = source.partition(BODY_START)
+    body, marker, footer = body.partition(BODY_END)
+    root = '<div class="contents">' if skin == 'web' else '<div id="contents">'
+    container = re.fullmatch(r'(\s*' + re.escape(root) + r'[^\S\n]*\n).*?(\n([ \t]*)</div>\s*)', body, re.DOTALL)
+    if not marker or not container:
+        raise UnsafeEdit('기준 템플릿에서 행사 본문 div를 확인하지 못했습니다.')
+
+    title = escape(registration['title'])
+    description = escape(registration['description'])
+    for key, value in (('global.site_title', title + ' | 성인용품 바나나몰'), ('in_description', description)):
+        field = r"^([ \t]*\{" + re.escape(key) + r"\}[ \t]*=[ \t]*')(?:\\.|[^'\\\r\n])*('[ \t]*;)"
+        header = replace_field(header, field, value)
+    if skin == 'mobile':
+        header = replace_field(header, r'(^[ \t]*<h1 class="title">)[^<\r\n]*(</h1>)?$', title)
+
+    indent = container[3] + '\t'
+    lines = []
+    image_group = 0
+    group_open = False
+    for item in registration['media']:
+        path = escape(urlsplit(item['url']).path, quote=True)
+        url = '{global.imgdomain}' + path
+        if item['kind'] == 'image':
+            if not group_open:
+                image_group += 1
+                lines.append(f'{indent}<div class="con_box con{image_group:02d}">')
+                group_open = True
+            lines.append(f'{indent}\t<img src="{url}" alt="{title}">')
+        else:
+            if group_open:
+                lines.append(f'{indent}</div>')
+                group_open = False
+            lines.extend([
+                f'{indent}<div class="video_box">',
+                f'{indent}\t<video controls playsinline preload="metadata">',
+                f'{indent}\t\t<source src="{url}" type="video/mp4">',
+                f'{indent}\t</video>',
+                f'{indent}</div>',
+            ])
+    if group_open:
+        lines.append(f'{indent}</div>')
+    return header + BODY_START + container[1] + '\n'.join(lines) + container[2] + BODY_END + footer
+
+
+def registration_plan(page, job):
+    registration = job['registration']
+    template = {'event': registration['template_event'], 'editors': registration['template_editors']}
+    plan = {}
+    for skin in SKINS:
+        source, script, css = editor_source(page, template, skin)
+        before = editor_source(page, job, skin)
+        html = registration_html(source, registration, skin)
+        plan[skin] = (before, [html, script, css])
+    backup = ROOT / 'local_backups' / 'banana-publisher' / 'restore'
+    backup.mkdir(parents=True, exist_ok=True)
+    with (backup / (job['id'] + '.json')).open('x', encoding='utf-8') as stream:
+        json.dump({'event': job['event'], 'skins': {skin: before for skin, (before, _) in plan.items()}},
+                  stream, ensure_ascii=False)
+    return plan
+
+
 def publish(job):
     db = str(ROOT / 'office.db')
     saved = []
@@ -108,19 +181,22 @@ def publish(job):
         with tempfile.TemporaryDirectory(prefix='banana-event-') as folder, Session(db, job['id'], folder) as session:
             try:
                 page = _login_biz(session, db, lambda _: None)
-                plan = {}
-                for skin in job['target']['skins']:
-                    before = editor_source(page, job, skin)
-                    changed = ImageEdit(before[0], job['target']).update(before[0])
-                    plan[skin] = (before, [changed, *before[1:]])
+                if job.get('registration'):
+                    plan = registration_plan(page, job)
+                else:
+                    plan = {}
+                    for skin in job['target']['skins']:
+                        before = editor_source(page, job, skin)
+                        changed = ImageEdit(before[0], job['target']).update(before[0])
+                        plan[skin] = (before, [changed, *before[1:]])
                 for skin, (before, expected) in plan.items():
                     if editor_source(page, job, skin) != before:
                         raise UnsafeEdit('게시 준비 중 편집기 내용이 바뀌었습니다.')
-                    applied = page.evaluate('''html => {
-                        const ace = document.querySelector('#editor_htm').env.editor;
-                        ace.setValue(html, -1);
-                        return ace.getValue() === html;
-                    }''', expected[0])
+                    applied = page.evaluate('''values => ['htm', 'js', 'css'].map((key, index) => {
+                        const ace = document.querySelector('#editor_' + key).env.editor;
+                        if (ace.getValue() !== values[index]) ace.setValue(values[index], -1);
+                        return ace.getValue() === values[index];
+                    }).every(Boolean)''', expected)
                     if not applied:
                         raise UnsafeEdit('편집기에 적용한 HTML을 대조하지 못했습니다.')
                     writing = True

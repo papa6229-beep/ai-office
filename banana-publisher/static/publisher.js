@@ -16,21 +16,47 @@ const publishStatus = document.querySelector('#publish-status');
 const previewDialog = document.querySelector('#preview-dialog');
 const previewImage = document.querySelector('#preview-image');
 const previewTitle = document.querySelector('#preview-title');
+const pickerTitle = document.querySelector('#picker-title');
+const pickerHint = document.querySelector('#picker-hint');
+const pickerInstructions = document.querySelector('#picker-instructions');
 const skinNames = {web: '웹', mobile: '모바일'};
-let images = [];
+let attachments = [];
 let prepared;
 let publishing = false;
 
-function choose(files) {
-  images = [...files];
-  fileList.replaceChildren(...images.map(file => {
+function renderAttachments() {
+  fileList.replaceChildren(...attachments.map((file, index) => {
     const row = document.createElement('li');
     row.textContent = file.name;
+    for (const [label, offset] of [['위로', -1], ['아래로', 1], ['빼기', 0]]) {
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.textContent = label;
+      action.setAttribute('aria-label', `${file.name} ${label}`);
+      const next = index + offset;
+      action.disabled = next < 0 || next >= attachments.length;
+      action.addEventListener('click', () => {
+        attachments.splice(index, 1);
+        if (offset) attachments.splice(next, 0, file);
+        renderAttachments();
+        if (offset) fileList.children[next]?.querySelector(`button[aria-label="${CSS.escape(file.name + ' ' + label)}"]:enabled`)?.focus();
+      });
+      row.append(action);
+    }
     return row;
   }));
 }
 
-input.addEventListener('change', () => choose(input.files));
+function addAttachments(files) {
+  if (form.dataset.running) return;
+  attachments.push(...files);
+  renderAttachments();
+}
+
+input.addEventListener('change', () => {
+  addAttachments(input.files);
+  input.value = '';
+});
 zone.addEventListener('dragover', event => {
   event.preventDefault();
   zone.dataset.drag = '';
@@ -39,8 +65,7 @@ zone.addEventListener('dragleave', () => delete zone.dataset.drag);
 zone.addEventListener('drop', event => {
   event.preventDefault();
   delete zone.dataset.drag;
-  input.value = '';
-  choose(event.dataTransfer.files);
+  addAttachments(event.dataTransfer.files);
 });
 
 function editorLinks(url) {
@@ -57,7 +82,7 @@ function editorLinks(url) {
 }
 
 function displayStatus(skins = {}) {
-  const names = {waiting: '업로드 대기', running: '진행 중', ready: '이미지 확인 완료', failed: '확인 필요'};
+  const names = {waiting: '업로드 대기', running: '진행 중', ready: '파일 확인 완료', failed: '확인 필요'};
   for (const panel of panels) {
     const status = skins[panel.dataset.skin];
     panel.querySelector('.state').textContent = status ? [names[status.status], status.shared && '웹·모바일 공용 폴더', status.folder].filter(Boolean).join(' · ') : '업로드 확인 필요';
@@ -72,13 +97,15 @@ function displayStatus(skins = {}) {
 function pickImage(data) {
   prepared = data;
   const deleting = data.mode === 'delete';
-  document.querySelector('#picker-title').textContent = deleting ? '삭제할 이미지 선택' : '교체할 이미지 선택';
-  document.querySelector('#picker-hint').textContent = deleting
+  pickerTitle.textContent = deleting ? '삭제할 이미지 선택' : '교체할 이미지 선택';
+  pickerHint.textContent = deleting
     ? `${data.event} · 선택한 이미지를 페이지에서 삭제합니다.`
     : `${data.event} · 업로드한 새 이미지로 바꿀 기존 이미지를 선택하세요.`;
   publishButton.textContent = deleting ? '삭제 후 게시' : '교체 후 게시';
   publishButton.disabled = true;
   publishStatus.textContent = '';
+  pickerInstructions.hidden = false;
+  choices.classList.remove('registration-preview');
   choices.replaceChildren(...data.candidates.map((item, index) => {
     const card = document.createElement('article');
     card.className = 'choice';
@@ -113,6 +140,35 @@ function pickImage(data) {
   picker.showModal();
 }
 
+function previewRegistration(data) {
+  prepared = data;
+  pickerTitle.textContent = '신규 등록 순서 미리보기';
+  pickerHint.textContent = `${data.event} · ${data.title} · ${data.description}`;
+  pickerInstructions.hidden = true;
+  publishButton.textContent = '등록하기';
+  publishButton.disabled = false;
+  publishStatus.textContent = '';
+  choices.classList.add('registration-preview');
+  choices.replaceChildren(...data.media.map((item, index) => {
+    const figure = document.createElement('figure');
+    const caption = document.createElement('figcaption');
+    caption.textContent = `${index + 1}. ${item.name}`;
+    const media = document.createElement(item.kind === 'video' ? 'video' : 'img');
+    media.src = item.url;
+    if (item.kind === 'video') {
+      media.controls = true;
+      media.playsInline = true;
+      media.preload = 'metadata';
+    } else {
+      media.alt = item.name;
+      media.loading = 'lazy';
+    }
+    figure.append(media, caption);
+    return figure;
+  }));
+  picker.showModal();
+}
+
 choices.addEventListener('change', () => {
   publishButton.disabled = !prepared || !choices.querySelector('input:checked');
 });
@@ -122,22 +178,31 @@ previewDialog.addEventListener('close', () => previewImage.removeAttribute('src'
 picker.addEventListener('cancel', event => {
   if (publishing) event.preventDefault();
 });
+picker.addEventListener('close', () => {
+  for (const video of choices.querySelectorAll('video')) video.pause();
+});
 
 publishButton.addEventListener('click', async () => {
   const selected = choices.querySelector('input:checked');
-  if (!prepared || !selected || publishing) return;
+  if (!prepared || publishing || (prepared.mode !== 'new' && !selected)) return;
+  const registration = prepared.mode === 'new';
   publishing = true;
   closePicker.disabled = publishButton.disabled = true;
   for (const radio of choices.querySelectorAll('input')) radio.disabled = true;
   publishStatus.textContent = '비즈호스트에 저장하고 공개 페이지를 확인하고 있습니다.';
   try {
-    const response = await fetch(`/api/replacements/${prepared.replacement_id}/publish`, {
+    const endpoint = registration ? 'registrations' : 'replacements';
+    const response = await fetch(`/api/${endpoint}/${prepared.replacement_id}/publish`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({candidate: Number(selected.value)}),
+      body: JSON.stringify(registration ? {} : {candidate: Number(selected.value)}),
     });
     const data = await response.json();
     if (response.ok && data.state === 'published') {
       message.textContent = `${data.skins.map(skin => skinNames[skin]).join('·')} 공개 페이지에 반영했습니다.`;
+      if (prepared.mode !== 'delete') {
+        attachments = [];
+        renderAttachments();
+      }
       picker.close();
     } else {
       publishStatus.textContent = data.error || '게시 결과를 확인할 수 없습니다. 공개 페이지를 먼저 확인하세요.';
@@ -159,15 +224,19 @@ form.addEventListener('submit', async event => {
   if (!mode || form.dataset.running) return;
   results.hidden = false;
   let url;
+  const title = document.querySelector('#event-title').value.trim();
+  const description = document.querySelector('#event-description').value.trim();
   try {
-    if (mode === 'replace' && images.length !== 1)
+    if (mode === 'replace' && attachments.length !== 1)
       throw new Error('교체할 새 이미지 한 장을 첨부하세요.');
-    if (mode === 'new' && (images.length < 1 || images.length > 16))
-      throw new Error('이미지를 1장부터 16장까지 첨부하세요.');
-    if (mode !== 'delete' && images.some(file => file.size > 20 * 1024 * 1024))
-      throw new Error('20MB 이하 이미지를 1장부터 16장까지 첨부하세요.');
-    if (mode !== 'delete' && images.reduce((size, file) => size + file.size, 0) >= 100 * 1024 * 1024)
-      throw new Error('첨부 이미지의 전체 크기를 100MB 미만으로 맞춰 주세요.');
+    if (mode === 'replace' && /\.mp4$/i.test(attachments[0].name))
+      throw new Error('이미지 교체에는 이미지 파일을 첨부하세요.');
+    if (mode === 'new' && (!title || !description || attachments.length < 1 || attachments.length > 16))
+      throw new Error('행사명과 검색 설명을 입력하고 파일을 1개부터 16개까지 첨부하세요.');
+    if (mode !== 'delete' && attachments.some(file => file.size > (/\.mp4$/i.test(file.name) ? 80 : 20) * 1024 * 1024))
+      throw new Error('이미지는 20MB, MP4는 80MB 이하로 첨부하세요.');
+    if (mode !== 'delete' && attachments.reduce((size, file) => size + file.size, 0) >= 100 * 1024 * 1024)
+      throw new Error('첨부 파일의 전체 크기를 100MB 미만으로 맞춰 주세요.');
     url = new URL(document.querySelector('#event-url').value.trim());
     editorLinks(url);
   } catch (error) {
@@ -179,13 +248,15 @@ form.addEventListener('submit', async event => {
   const payload = new FormData();
   payload.set('url', url.origin + url.pathname);
   payload.set('mode', mode);
-  if (mode !== 'delete') for (const image of images) payload.append('images', image);
-  // Open from the submit gesture so browsers can allow the editor tabs.
-  if (mode === 'new') for (const panel of panels) window.open(panel.querySelector('.editor').href, '_blank', 'noopener,noreferrer');
+  if (mode === 'new') {
+    payload.set('event_title', title);
+    payload.set('event_description', description);
+  }
+  if (mode !== 'delete') for (const file of attachments) payload.append('images', file);
   form.dataset.running = 'true';
   const buttons = [...form.querySelectorAll('button:enabled')];
   for (const button of buttons) button.disabled = true;
-  message.textContent = mode === 'delete' ? '기존 이벤트의 이미지를 확인하고 있습니다.' : 'SFTP에 연결해 웹·모바일 이미지를 준비 중입니다.';
+  message.textContent = mode === 'delete' ? '기존 이벤트의 이미지를 확인하고 있습니다.' : 'SFTP에 연결해 웹·모바일 공용 파일을 준비 중입니다.';
   try {
     const response = await fetch('/api/prepare', {method: 'POST', body: payload});
     const data = await response.json();
@@ -193,7 +264,8 @@ form.addEventListener('submit', async event => {
     if (!response.ok) {
       message.textContent = data.error || '준비 결과를 확인하세요.';
     } else if (mode === 'new') {
-      message.textContent = '웹·모바일 이미지 업로드를 확인했습니다. 편집 화면에서 이어서 작업하세요.';
+      message.textContent = '공용 폴더에 파일을 올렸습니다. 순서를 확인한 뒤 등록하세요.';
+      previewRegistration(data);
     } else {
       message.textContent = mode === 'delete' ? '기존 이미지를 확인했습니다.' : '새 이미지 업로드를 확인했습니다.';
       pickImage(data);

@@ -9,9 +9,11 @@
     main{max-width:920px;margin:auto;padding:clamp(20px,5vw,56px)} h1{font-size:clamp(28px,5vw,42px);line-height:1.2;margin:.25em 0}
     h2,h3,p{margin-top:0} small,.hint{color:#4f584c} .eyebrow{font-weight:750;color:#4a5d16;letter-spacing:.06em}
     form,.results{background:#fff;border:1px solid #dadfd4;border-radius:16px;padding:clamp(16px,4vw,28px);margin:20px 0}
-    label{display:block;font-weight:700;margin-bottom:6px} input[type=url]{display:block;width:100%;padding:12px;border:1px solid #818a7d;border-radius:8px;font:inherit}
+    label{display:block;font-weight:700;margin-bottom:6px} input[type=url],input[type=text]{display:block;width:100%;padding:12px;border:1px solid #818a7d;border-radius:8px;font:inherit}
+    fieldset{margin:14px 0 0;border:1px solid #dadfd4;border-radius:8px} fieldset input+label{margin-top:10px}
     .drop{border:2px dashed #b3bdac;border-radius:10px;padding:18px;margin:18px 0 8px;background:#f8f9f5}
     .drop[data-drag]{border-color:#5a730e;background:#f2f6db} .drop input{max-width:100%} .files{padding-left:1.5rem;overflow-wrap:anywhere}
+    .files li{padding:4px 0} .files button{padding:2px 7px;margin-left:6px;font-size:.85em}
     .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px} button,.editor{font:inherit;font-weight:700;border-radius:8px;padding:10px 16px;cursor:pointer}
     button{border:1px solid #768063;background:#fff;color:#25301d} button.primary{background:#d9ed7c;border-color:#a9bd4c;color:#222a13}
     button:disabled{cursor:wait;opacity:.65} .editor{display:inline-block;color:#25301d;background:#eef1e7;text-decoration:none;margin-bottom:10px}
@@ -27,6 +29,10 @@
     .choice-preview{display:block;width:100%;padding:4px;background:#f4f5f0;cursor:zoom-in}
     .choice-preview img{display:block;width:100%;height:130px;object-fit:contain}
     .choices small{display:block;font-weight:400}
+    .choices.registration-preview{display:block}
+    .registration-preview figure{margin:0 auto 12px;max-width:440px;background:#f4f5f0}
+    .registration-preview img,.registration-preview video{display:block;width:100%;max-height:300px;object-fit:contain}
+    .registration-preview figcaption{padding:6px;overflow-wrap:anywhere}
     #preview-dialog{width:min(1024px,calc(100% - 24px));max-height:calc(100dvh - 24px);overflow:hidden}
     #preview-dialog[open]{display:flex;flex-direction:column}
     .preview-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
@@ -42,21 +48,28 @@
   <header>
     <div class="eyebrow">바나나몰 · 디자인 운영</div>
     <h1>이벤트 게시 준비</h1>
-    <p class="hint">기존 이벤트에서 교체하거나 삭제할 이미지 한 장을 선택하면 해당 스킨에 게시합니다.</p>
+    <p class="hint">신규 페이지에 이미지와 영상을 순서대로 등록하거나 기존 이벤트의 이미지 한 장을 교체·삭제할 수 있습니다.</p>
   </header>
   {% if not sftp_ready %}<p class="warning">SFTP 연결 설정이 필요합니다. 편집 화면은 열 수 있고, 업로드는 서버 설정 후 사용할 수 있습니다.</p>{% endif %}
-  {% if not publish_enabled %}<p class="warning">이 서버에 비즈호스트 자동 게시 연결을 설정해야 교체·삭제를 진행할 수 있습니다.</p>{% endif %}
+  {% if not publish_enabled %}<p class="warning">이 서버에 비즈호스트 자동 게시 연결을 설정해야 등록·교체·삭제를 진행할 수 있습니다.</p>{% endif %}
   <form id="prepare">
     <label for="event-url">바나나몰 페이지 주소</label>
     <input id="event-url" name="url" type="url" required placeholder="https://www.bananamall.co.kr/etc/evt_example.php">
+    <fieldset>
+      <legend>신규 등록용 행사 정보</legend>
+      <label for="event-title">행사명</label>
+      <input id="event-title" name="event_title" type="text" maxlength="80">
+      <label for="event-description">검색 설명</label>
+      <input id="event-description" name="event_description" type="text" maxlength="180">
+    </fieldset>
     <div class="drop" id="drop-zone">
-      <label for="images">웹·모바일에 올릴 이미지</label>
-      <input id="images" name="images" type="file" accept=".jpg,.jpeg,.png,.webp,.gif" multiple>
-      <small>파일을 선택하거나 여기에 여러 장을 드래그하세요. 최대 16장, 한 장당 20MB, 합계 100MB입니다.</small>
+      <label for="images">웹·모바일에 올릴 파일</label>
+      <input id="images" name="images" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.mp4" multiple>
+      <small>아래 목록 순서대로 등록됩니다. 최대 16개, 이미지당 20MB, MP4당 80MB, 합계 100MB 미만입니다.</small>
     </div>
-    <ol id="files" class="files" aria-label="첨부 이미지 순서"></ol>
+    <ol id="files" class="files" aria-label="첨부 파일 순서"></ol>
     <div class="actions">
-      <button type="submit" value="new" class="primary">신규등록 준비</button>
+      <button type="submit" value="new" class="primary"{% if not publish_enabled %} disabled{% endif %}>신규 등록 준비</button>
       <button type="submit" value="replace"{% if not publish_enabled %} disabled{% endif %}>이미지 교체</button>
       <button type="submit" value="delete"{% if not publish_enabled %} disabled{% endif %}>이미지 삭제</button>
     </div>
@@ -78,7 +91,7 @@
   <dialog id="image-picker" aria-labelledby="picker-title">
     <h2 id="picker-title">이벤트 이미지 선택</h2>
     <p class="hint" id="picker-hint"></p>
-    <p class="hint">사진을 누르면 크게 볼 수 있습니다. 파일명 옆 동그라미로 게시할 대상을 선택하세요.</p>
+    <p class="hint" id="picker-instructions">사진을 누르면 크게 볼 수 있습니다. 파일명 옆 동그라미로 게시할 대상을 선택하세요.</p>
     <div id="choices" class="choices"></div>
     <p id="publish-status" class="message" role="status"></p>
     <div class="actions">
