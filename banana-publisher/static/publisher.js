@@ -13,6 +13,9 @@ const choices = document.querySelector('#choices');
 const publishButton = document.querySelector('#publish');
 const closePicker = document.querySelector('#close-picker');
 const publishStatus = document.querySelector('#publish-status');
+const previewDialog = document.querySelector('#preview-dialog');
+const previewImage = document.querySelector('#preview-image');
+const previewTitle = document.querySelector('#preview-title');
 const skinNames = {web: '웹', mobile: '모바일'};
 let images = [];
 let prepared;
@@ -77,6 +80,8 @@ function pickImage(data) {
   publishButton.disabled = true;
   publishStatus.textContent = '';
   choices.replaceChildren(...data.candidates.map((item, index) => {
+    const card = document.createElement('article');
+    card.className = 'choice';
     const label = document.createElement('label');
     const radio = document.createElement('input');
     radio.type = 'radio';
@@ -86,10 +91,24 @@ function pickImage(data) {
     preview.src = item.preview;
     preview.alt = '';
     preview.loading = 'lazy';
+    const zoom = document.createElement('button');
+    zoom.type = 'button';
+    zoom.className = 'choice-preview';
+    zoom.setAttribute('aria-label', `${item.label} 크게 보기`);
+    zoom.title = '크게 보기';
+    zoom.append(preview);
+    zoom.addEventListener('click', () => {
+      previewTitle.textContent = item.label;
+      previewImage.alt = item.label;
+      previewImage.src = item.preview;
+      previewDialog.showModal();
+      previewImage.parentElement.scrollTop = 0;
+    });
     const caption = document.createElement('small');
     caption.textContent = item.skins.map(skin => skinNames[skin]).join('·');
-    label.append(radio, preview, item.label, caption);
-    return label;
+    label.append(radio, item.label, caption);
+    card.append(zoom, label);
+    return card;
   }));
   picker.showModal();
 }
@@ -98,6 +117,8 @@ choices.addEventListener('change', () => {
   publishButton.disabled = !prepared || !choices.querySelector('input:checked');
 });
 closePicker.addEventListener('click', () => picker.close());
+document.querySelector('#close-preview').addEventListener('click', () => previewDialog.close());
+previewDialog.addEventListener('close', () => previewImage.removeAttribute('src'));
 picker.addEventListener('cancel', event => {
   if (publishing) event.preventDefault();
 });
