@@ -482,7 +482,7 @@
     p.input.oninput=()=>persistDraft(p);p.input.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing&&event.keyCode!==229){event.preventDefault();if(!p.send.disabled)form.requestSubmit();}});
     const actions=node('div','project-window-actions');p.native=node('button','project-native');p.native.type='button';p.native.onclick=async()=>{try{await request('project-panel-native',{id:p.id,host:p.host});}catch(error){notice(p,error.message,true);}};
     p.attach=node('button','project-native','＋ 첨부');p.attach.type='button';p.attach.onclick=()=>p.fileInput.click();
-    p.fileInput=node('input');p.fileInput.type='file';p.fileInput.multiple=true;p.fileInput.hidden=true;p.fileInput.accept='.gif,.png,.jpg,.jpeg,.webp,.ico,.pdf,.docx,.txt,.md,.csv,.tsv,.json,.py,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.sql,.log,.rst,.toml,.zip';
+    p.fileInput=node('input');p.fileInput.type='file';p.fileInput.multiple=true;p.fileInput.hidden=true;p.fileInput.accept='.gif,.png,.jpg,.jpeg,.webp,.ico,.pdf,.docx,.xlsx,.txt,.md,.csv,.tsv,.json,.py,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.sql,.log,.rst,.toml,.zip';
     p.fileInput.onchange=()=>{addFiles(p,p.fileInput.files);p.fileInput.value='';};p.filesNode=node('div','project-draft-files');p.filesNode.hidden=true;
     p.input.addEventListener('paste',event=>{const files=Array.from(event.clipboardData?.items||[]).filter(item=>item.kind==='file').map(item=>item.getAsFile()).filter(Boolean);if(files.length){event.preventDefault();addFiles(p,files);}});
     form.addEventListener('dragover',event=>{if(Array.from(event.dataTransfer?.types||[]).includes('Files'))event.preventDefault();});

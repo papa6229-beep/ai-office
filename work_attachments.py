@@ -14,12 +14,15 @@ import urllib.parse
 import uuid
 import zipfile
 
+import xlsx_reader
+
 MAX_BYTES = 10 * 1024 * 1024
 MAX_FILES = 6
 MAX_TOTAL = 30 * 1024 * 1024
 IMAGE_TYPES = {'.gif':'image/gif','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon'}
 TEXT_TYPES = {'.txt','.md','.csv','.tsv','.json','.py','.js','.ts','.jsx','.tsx','.html','.css','.xml','.yaml','.yml','.sql','.log','.rst','.toml'}
-OTHER_TYPES = {'.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.zip':'application/zip'}
+OTHER_TYPES = {'.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+               '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','.zip':'application/zip'}
 
 
 def initialize(c):
@@ -89,6 +92,8 @@ def _inspect(data,extension):
         return IMAGE_TYPES[extension],'image',{'width':width,'height':height,'frames':count,'animated':count>1}
     if extension=='.pdf':
         if not data.startswith(b'%PDF-'): raise ValueError('PDF 형식이 아닙니다.')
+    elif extension=='.xlsx':
+        return OTHER_TYPES[extension],'document',xlsx_reader.inspect(data)
     elif extension in {'.docx','.zip'}:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             infos=archive.infolist()

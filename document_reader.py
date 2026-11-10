@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 import content_analysis
 import desktop_workspace
 import scanner
+import xlsx_reader
 
 MAX_FILES = 500
 MAX_DIRS = 100
@@ -22,7 +23,7 @@ MAX_BYTES = 8 * 1024 * 1024
 MAX_TEXT = 120000
 MAX_EXCERPT = 12000
 MAX_PAGES = 60
-SUPPORTED_EXTENSIONS = content_analysis.SUPPORTED_EXTENSIONS | {'.hwpx'}
+SUPPORTED_EXTENSIONS = content_analysis.SUPPORTED_EXTENSIONS | {'.hwpx', '.xlsx'}
 _PROTECTED = re.compile(r'(?i)(?:^|[._\- ])(?:settings|config|configuration|credentials?|passwords?|secrets?|tokens?|keys?|auth|api[_-]?keys?|private[_-]?keys?)(?:[._\- ]|$)')
 _PRIVATE_KEY = re.compile(r'-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)', re.S)
 
@@ -147,7 +148,7 @@ def read(path, query='', offset=0):
         path, info = _safe(path)
         extension = path.suffix.lower()
         if not stat.S_ISREG(info.st_mode) or extension not in SUPPORTED_EXTENSIONS:
-            raise DocumentError('지원하는 텍스트·코드·DOCX·PDF·HWPX 파일이 아닙니다.')
+            raise DocumentError('지원하는 텍스트·코드·DOCX·PDF·HWPX·XLSX 파일이 아닙니다.')
         with path.open('rb') as stream:
             opened = os.fstat(stream.fileno())
             if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino) or opened.st_nlink != 1:
@@ -160,6 +161,8 @@ def read(path, query='', offset=0):
         extraction_truncated = False
         if extension in {'.docx', '.hwpx'}:
             text = _archive_text(data, extension == '.hwpx')
+        elif extension == '.xlsx':
+            text, extraction_truncated = xlsx_reader.read_text(data, MAX_TEXT)
         elif extension == '.pdf':
             if not data.startswith(b'%PDF-'):
                 raise DocumentError('PDF 형식을 확인할 수 없습니다.')
@@ -230,6 +233,8 @@ def read(path, query='', offset=0):
         note += ' 분석 한도로 읽지 않은 내용이 있습니다.'
     if empty_pdf:
         note += ' 추출된 본문이 없습니다. 스캔 이미지 또는 빈 PDF일 수 있으며 OCR은 수행하지 않았습니다.'
+    if extension == '.xlsx':
+        note += ' 시트·셀 값과 셀 링크를 읽었습니다. 수식은 실행하지 않고 원문으로 표시합니다.'
     return {'name': path.name, 'extension': extension, 'text': excerpt, 'total_characters': len(safe),
             'query': query, 'matches': matches, 'match_count': match_count, 'matches_truncated': match_count > len(matches),
             'offset': offset, 'next_offset': next_offset, 'truncated': extraction_truncated or next_offset is not None,

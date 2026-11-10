@@ -352,7 +352,7 @@
       }
     }
   };
-  const acceptedExtensions=new Set('gif png jpg jpeg webp ico pdf docx txt md csv tsv json py js ts jsx tsx html css xml yaml yml sql log rst toml zip'.split(' '));
+  const acceptedExtensions=new Set('gif png jpg jpeg webp ico pdf docx xlsx txt md csv tsv json py js ts jsx tsx html css xml yaml yml sql log rst toml zip'.split(' '));
   function attachmentURL(value,download=false) {
     try {const url=new URL(value,location.origin);return url.origin===location.origin && url.pathname==='/api/work/attachment' && /^[a-f0-9-]{32,36}$/i.test(url.searchParams.get('id') || '') && (!download || url.searchParams.get('download')==='1') ? url.href : '';}
     catch{return '';}
