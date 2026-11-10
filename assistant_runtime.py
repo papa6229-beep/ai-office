@@ -319,7 +319,7 @@ class AssistantRuntime:
                 c.execute("UPDATE assistant_steps SET status='error',result=COALESCE(result,?) WHERE request_id=? AND status='running'",(result,request_id))
 
     def _perform(self, action, payload,registry=None,execution=None):
-        fields = {'command': {'request_id', 'message', 'task_id', 'attachment_ids','client','new_task','provider','conversation_id','route_mode'},
+        fields = {'command': {'request_id', 'message', 'task_id', 'attachment_ids','client','new_task','provider','conversation_id'},
                   'assistant-action': {'request_id', 'pending_id', 'option_id','client'},
                   'verify-followup': {'request_id','parent_request_id'}}
         if action not in fields or not isinstance(payload, dict) or set(payload) - fields[action]:
