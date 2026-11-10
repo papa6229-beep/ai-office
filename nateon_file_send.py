@@ -240,7 +240,7 @@ def _outgoing(tree, filename):
                and node.get('text') == filename)
 
 
-def send_file(request_id, room, path, *, verify_only=False):
+def send_file(request_id, room, path, *, verify_only=False, expected_sha256='', authorize=None):
     if not re.fullmatch('[a-f0-9]{32}', request_id):
         raise ValueError('현재 전송 요청 ID를 확인해 주세요.')
     path = file_operations._guard(Path(path), source=True)
@@ -252,6 +252,8 @@ def send_file(request_id, room, path, *, verify_only=False):
             hasher.update(block)
             task_control.checkpoint()
     digest = hasher.hexdigest()
+    if expected_sha256 and digest != expected_sha256:
+        raise ValueError('파일 내용이 수신 또는 파일 이력의 확인값과 달라요.')
     receipts = nateon_guest.ROOT / 'outgoing'
     receipt = receipts / (request_id + '.json')
     started_at = time.monotonic()
@@ -299,6 +301,8 @@ def send_file(request_id, room, path, *, verify_only=False):
         if yes is None or yes.get('text') != '예':
             raise ValueError('네이트온에서 최종 발신 버튼을 확인하지 못했어요.')
         task_control.checkpoint()
+        if authorize is not None:
+            authorize()
         receipts.mkdir(exist_ok=True)
         result = {'state': 'attempted', 'room': room, 'filename': path.name, 'sha256': digest}
         with receipt.open('x', encoding='utf-8') as stream:

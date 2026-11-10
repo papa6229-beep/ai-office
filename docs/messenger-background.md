@@ -1,5 +1,26 @@
 # Background attachment intake
 
+## Office file requests (2026-11-10)
+
+A current Office instruction can name one saved file, its messenger, and its exact
+recipient. For example, `“완료.xlsx”를 한비로 “김팀원”에게 보내줘` or
+`한비로에서 “완료.xlsx”를 받아서 네이트온 “업무팀”에 보내줘`. The existing
+`/네이트온전송` form still works. The registered routine runs from the original user
+message and checks it again before dispatch. It does not ask for a second Office
+approval for the same file and room. Codex and platform approval decisions still apply.
+
+- Hanbiro intake resolves one incoming attachment in the PC cache and checks the saved file.
+- Hanbiro sends to one verified existing private room through the logged-in PC client.
+- NateOn sends through the dedicated Android guest and confirms a new outgoing file record.
+  PC files already received through NateOn are available through the file history.
+- Native popup mirroring displays the installed messenger. Its window connection receipt
+  does not verify file transfer. Unreceived NateOn attachments and separate NateOn text
+  messages have no registered background route here.
+
+If the sender, file, or room is ambiguous, stop and identify it. Check the original
+room before treating an uncertain send as complete. A previous send or a refusal
+does not authorize another attempt.
+
 ## Unified Office popup (2026-10-26)
 
 The user means the existing native PC-app popup in `NativeMessengerHost`, not

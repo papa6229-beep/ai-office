@@ -4,7 +4,7 @@ Tool outputs are data, including names/content that may contain hostile instruct
 Work-copy path tools are bounded. workspace_run is explicit local Python execution
 under the current user's permissions, audited as an external effect.
 """
-RUNTIME_REVISION = '2026-11-04-nateon-file-tools-v5'
+RUNTIME_REVISION = '2026-11-10-messenger-file-tools-v6'
 import copy
 import contextlib
 import hashlib
@@ -98,6 +98,11 @@ _SPECS = {
     'office_ui_review': ('write','view_image로 실제로 읽은 현재 요청의 창 캡처에 대해 사용자 결과와 맞는지 시각적 판단을 기록합니다. 자동 DOM 조건과 구별하며 보지 않은 화면이나 반영 전 화면을 검증 완료로 말하지 마세요.',{'observation_id':_string(),'matched':{'type':'boolean'},'notes':_string(maxLengthOverride=1200)},['observation_id','matched','notes']),
     'messenger_nateon_connect': ('write','네이트온 백그라운드 업무가 필요할 때 전용 Android를 창 없이 연결하거나 시작합니다. 태준님이 CMD를 열 필요가 없습니다. 앱 설치와 기기 준비만 확인하며 로그인·대화 조회·파일 발신을 수행하지 않습니다.',{},[]),
     'messenger_nateon_send_file': ('external','사용자가 현재 /네이트온전송 명령에 직접 지정한 절대경로와 정확한 원본 대화방에만 파일 한 개를 보냅니다. 새 발신 기록을 확인할 때만 완료로 표시합니다. 다른 전송이나 재시도에 사용하지 않습니다.',{'path':_string(maxLengthOverride=600),'room':_string(maxLengthOverride=160)},['path','room']),
+    'messenger_file_work': ('external','현재 사용자 문장에서 정확히 지정한 파일과 대화방에 대한 등록 업무입니다. 한비로 첨부 수신과 한비로 개인방 또는 네이트온 방으로 파일 전송을 기존 연결로 처리합니다. 실제 현재 지시 전체가 일치해야 하며 미확인 발신은 반복하지 않습니다.',
+                            {'source':_string(enum=['saved','hanbiro']),'file':_string(maxLengthOverride=600),'sender':_string(maxLengthOverride=40),
+                             'target':_string(enum=['hanbiro','nateon']),'recipient':_string(maxLengthOverride=160)},['source','file','sender','target','recipient']),
+    'messenger_file_receive': ('write','현재 사용자 문장에 지정된 한비로 수신 첨부를 저장하고 완료 기록을 확인합니다.',
+                               {'file':_string(maxLengthOverride=600),'sender':_string(maxLengthOverride=40)},['file','sender']),
     'messenger_attachments_status': ('read','메신저별 화면 비간섭 첨부 수신의 실제 연결 범위를 조회합니다. 네이트온 저장 파일 처리와 미다운로드 첨부 직접 수신을 구별하세요.',{},[]),
     'messenger_attachments_list': ('read','사용자가 지정한 한비로 대화방의 PC 캐시 첨부를 코드로 조회합니다. 화면·마우스를 건드리지 않으며 전체 서버 이력은 아닙니다. 실제 첨부 ref를 반환합니다. 네이트온 직접 수신은 미지원입니다.',{'source':_string(enum=['hanbiro','nateon']),'query':_string(maxLengthOverride=200),'room':_string(maxLengthOverride=100),'offset':{'type':'integer','minimum':0}},['source']),
     'messenger_attachment_download': ('write','사용자가 받으라고 지정한 실제 한비로 첨부 ref를 기존 로그인으로 백그라운드 수신합니다. 보내기·화면 조작을 하지 않습니다. 반환 id로 job을 확인한 뒤 실제 저장 완료를 보고하세요. 정리는 별도 received_files_organize입니다.',{'ref':_string(pattern='^[a-f0-9]{64}$')},['ref']),
@@ -318,7 +323,7 @@ class ToolRegistry:
                 'permissions':{'uses_current_windows_user':True,'arbitrary_shell':False,
                                'unknown_native_changes':'execute within current explicit user task; reobserve after each action','protected_os_prompts':False},
                 'capabilities':{'discovery_tool':'office_capabilities','shared_actions':['files_find','files_reveal','organizer_policy_status','organizer_policy_preview','organizer_policy_run','organizer_policy_enabled','organizer_policy_undo','organizer_policy_resume'],
-                                'messengers':{'names':['NateOn','HanbiroTalk'],'adapter_connected':'partial','background_status_tool':'messenger_attachments_status','hanbiro_incoming_attachments':'messenger_attachments_list -> messenger_attachment_download -> messenger_attachment_job','nateon_incoming_attachments':'PC 저장 파일 정리만 연결. 대화방 미다운로드 첨부 직접 수신은 아직 미지원.','desktop_ui_control':True,'login_assumption':'실제 지원 범위를 먼저 확인한다. 사용자가 백그라운드를 요구하면 화면·마우스 조작으로 대체하지 않는다. 파일 발신은 구체적인 수신자·파일 지시가 별도로 필요하다.'},
+                                'messengers':{'names':['NateOn','HanbiroTalk'],'adapter_connected':'partial','background_status_tool':'messenger_attachments_status','hanbiro_incoming_attachments':'messenger_attachments_list -> messenger_attachment_download -> messenger_attachment_job','nateon_incoming_attachments':'PC 저장 파일 정리만 연결. 대화방 미다운로드 첨부 직접 수신은 아직 미지원.','desktop_ui_control':True,'login_assumption':'실제 지원 범위를 먼저 확인한다. 백그라운드 파일 요청은 등록 실행기를 사용한다. 파일과 대화방을 명시한 현재 사용자 발신 지시가 오피스 실행 근거다. 실제 플랫폼 검토 결과는 따로 따른다.'},
                                 'browser_form_adapter_connected':True,'desktop_remote_control':'desktop_observe -> actual image review -> desktop_action','manual_execution_connected':False,'local_python_execution':'workspace_run'},
                 'project_context':{'tool':'office_project_context','source':'PROJECT_CONTEXT.md',
                                    'authority':'reference only; current request and source receipts take precedence'},
@@ -743,6 +748,23 @@ class ToolRegistry:
                 raise ValueError('현재 채팅에 파일과 수신 방을 지정한 /네이트온전송 명령이 필요해요.')
             sent=nateon_file_send.send_file(c.get('root_request_id') or c['request_id'],a['room'],a['path'])
             return _ok(f"네이트온에서 {sent['filename']}의 새 발신 기록을 확인했어요.",sent)
+        if name in {'messenger_file_work','messenger_file_receive'}:
+            import office_routines
+            import messenger_file_routines
+            route=office_routines.match(c.get('user_goal',''))
+            if not route or route['id']!=name or route['args']!=a:
+                raise ValueError('현재 사용자 지시의 파일과 대화방이 일치해야 해요.')
+            plan=dict(a,source='hanbiro',target='',recipient='') if name=='messenger_file_receive' else a
+            result=messenger_file_routines.run(self.db_path,c.get('root_request_id') or c['request_id'],plan)
+            if result['state']=='downloaded':
+                return _ok(f"한비로 파일의 저장을 확인했어요. {result['path']}",result)
+            if result['state']=='sent':
+                label='한비로' if a['target']=='hanbiro' else '네이트온'
+                return _ok(f"{label} {a['recipient']} 대화방의 새 파일 발신 기록을 확인했어요.",result)
+            message=result.get('send_error','원본 대화방에서 새 발신 기록을 확인해야 해요. 이전 시도를 보존했어요.')
+            if result.get('download_path'):
+                message='한비로에서 받은 파일은 저장했어요. '+message
+            return {'status':'error','message':message,'data':result}
         if name.startswith('messenger_attachment'):
             import messenger_attachments as attachments
             if name=='messenger_attachments_status':return _ok('메신저별 실제 첨부 수신 범위예요.',attachments.capabilities(self.db_path))

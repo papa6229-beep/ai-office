@@ -199,8 +199,8 @@ class CapabilityService:
         items.extend([
             {'name': 'messenger_receive_save_forward', 'category': 'messenger', 'effect': 'external',
              'description': '네이트온(NateOn)·HanbiroTalk 수신 파일 확인·보관·수신자 확인 후 전달',
-             'status': 'partial_background_receive', 'channels': ['chat'], 'reason': '한비로 수신 첨부는 messenger_attachments_list/download/job으로 화면 없이 처리합니다. 네이트온은 PC 저장 파일 정리만 연결됐으며 대화방 첨부 직접 수신은 아직 미지원입니다.',
-             'observation': '먼저 messenger_attachments_status로 실제 지원 범위를 확인합니다. 한비로 다운로드 완료와 received_files 정리는 별도입니다. 사용자가 백그라운드를 요구하면 화면 조작으로 대체하지 않습니다. 파일 발신은 이 수신 경로에 포함되지 않습니다.'},
+             'status': 'partial_background_receive', 'channels': ['chat'], 'reason': '한비로 PC 캐시 첨부 수신, 한비로 기존 개인방 및 네이트온 지정 방으로 파일 전송이 연결됩니다. 네이트온 수신은 이미 PC에 저장된 파일을 다룹니다.',
+             'observation': '첨부 이름과 받을 대화방을 지정한 현재 요청은 messenger_file_work로 실행합니다. 수신만 요청하면 messenger_file_receive로 저장 결과를 확인합니다. 네이트온 미다운로드 첨부는 직접 수신이 연결되지 않았습니다.'},
             {'name': 'browser_form_submit', 'category': 'browser', 'effect': 'external',
              'description': '일반 웹 양식 입력·선택·버튼 클릭·키 입력', 'status': 'connected', 'channels': ['chat'],
              'reason': 'browser_inspect/browser_act로 실제 관찰한 입력란과 버튼을 조작하며 파일 업로드는 이 어댑터 범위 밖입니다.'},

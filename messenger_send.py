@@ -63,7 +63,25 @@ def _recipient(room,recipient):
     return domain,own,peers[0]['userKey']
 
 
-def prepare(ident,room,recipient,path):
+def private_room(recipient):
+    _, _, data = intake._storage()
+    own = data['_aemeath_current_user']
+    rooms = data.get('recoil-atomAllRooms', {}).get('rooms', {})
+    matches = []
+    for key, room in rooms.items():
+        if not isinstance(room, dict) or room.get('leftRoom'):
+            continue
+        members = room.get('members', {})
+        if isinstance(members, dict) and own in members and len(members) == 2:
+            peer = next(value for member, value in members.items() if member != own)
+            if isinstance(peer, dict) and peer.get('name') == recipient:
+                matches.append(key)
+    if len(matches) != 1:
+        raise ValueError('한비로에서 지정한 팀원의 기존 개인방을 하나로 확인하지 못했어요.')
+    return matches[0]
+
+
+def prepare(ident,room,recipient,path,*,expected_sha256=''):
     record=_record(ident);source=ops._guard(Path(path))
     if not source.is_file():raise ValueError('실제 보낼 파일을 확인해 주세요.')
     info=source.stat()
@@ -74,6 +92,8 @@ def prepare(ident,room,recipient,path):
               mode='code',model_calls=0,foreground_ui=False,
               _domain=domain,_own=own,_peer=peer,_version=_version(),
               _mtime_ns=info.st_mtime_ns)
+    if expected_sha256 and plan['sha256']!=expected_sha256:
+        raise ValueError('파일 내용이 수신 또는 파일 이력의 확인값과 달라요.')
     if record.exists():
         old=json.loads(record.read_text('utf-8'))
         if any(old.get(k)!=plan[k] for k in ('room','recipient','path','sha256')):
@@ -103,7 +123,8 @@ def _bridge(action,payload=None):
     return value
 
 
-def dispatch(ident):
+def dispatch(ident, *, authorize=None):
+    import task_control
     record=_record(ident);plan=json.loads(record.read_text('utf-8'))
     if plan['state']!='prepared':return public(plan)
     source=ops._guard(Path(plan['path']))
@@ -113,6 +134,9 @@ def dispatch(ident):
     if (domain,own,peer,_version())!=(plan['_domain'],plan['_own'],plan['_peer'],plan['_version']):
         raise ValueError('계정·받는 사람·앱 버전이 바뀌어 전송하지 않았어요.')
     _bridge('preflight')
+    task_control.checkpoint()
+    if authorize is not None:
+        authorize()
     try:
         payload=dict(roomKey=plan['room'],userKeys=[peer],images=[],files=[
             dict(name=source.name,path=str(source),size=plan['size'],serverExt='ETC',duration=0,thumbBase64='')])

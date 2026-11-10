@@ -1,10 +1,13 @@
 """Small registered routines. Full-request matching prevents partial execution."""
 import re
 import datetime
+import messenger_file_routines
 
-RUNTIME_REVISION='2026-11-05-the-hand-cs-pilot-v8'
+RUNTIME_REVISION='2026-11-10-messenger-file-requests-v9'
 
 CATALOG=[
+    {'id':'messenger_file_work','example':'한비로에서 “완료.xlsx”를 받아서 네이트온 “업무팀”에 보내줘','description':'현재 명시한 파일을 정확히 조회·다운로드한 뒤 지정한 기존 대화방으로 한 번 전송'},
+    {'id':'messenger_file_receive','example':'한비로에서 “완료.xlsx”를 받아줘','description':'현재 지정한 받은 첨부를 확인해 저장'},
     {'id':'brand_work_hold','example':'유우 작업 보류: 상세사진 확인 대기','description':'현재 지시의 브랜드·사유를 현황판 대기·보류와 비고에 저장. 여러 차수는 브랜드 뒤 입고일 YYYY-MM-DD 지정'},
     {'id':'cs_pilot_run','example':'/더핸드CS 시험','description':'합성 문의 6건을 정책 분류·초안·검증하고 예외만 검토 자료로 남김. 예약은 /더핸드CS 예약, 조회는 /더핸드CS 상태'},
     {'id':'nateon_file_send','example':'/네이트온전송 C:\\업무\\완료.xlsx | 김우영,오상수,이준민,전수아 (5명)','description':'원본 경로와 정확한 방 이름을 지정한 파일 한 개를 전용 기기로 보내고 새 발신 기록을 확인'},
@@ -42,6 +45,11 @@ def match(message):
         if path.startswith('"') and path.endswith('"'):path=path[1:-1]
         if re.fullmatch(r'[A-Za-z]:[\\/][^"|\r\n]+',path) and room:
             return {'id':'nateon_file_send','args':{'path':path,'room':room}}
+    messenger_file=messenger_file_routines.match(text)
+    if messenger_file:
+        if not messenger_file['target']:
+            return {'id':'messenger_file_receive','args':{key:messenger_file[key] for key in ('file','sender')}}
+        return {'id':'messenger_file_work','args':messenger_file}
     # Only the observed, non-command preface is optional. The entire remaining
     # request must still match; arbitrary leading instructions are not dropped.
     preface=re.fullmatch(r'즉발식으로\s*가능한가[?？]?\s*다시\s*테스트할거야[.!。\n]+\s*([\s\S]+)',text)
@@ -119,6 +127,7 @@ def execute(routine,call):
     name=routine['id'];args=routine['args']
     if name=='brand_work_hold':return call('brand_work_hold',args).get('message','비고 저장 결과를 확인하지 못했어요.')
     if name=='nateon_file_send':return call('messenger_nateon_send_file',args)['message']
+    if name in {'messenger_file_work','messenger_file_receive'}:return call(name,args)['message']
     if name=='detail_materials':return detail_materials_reply()
     if name=='material_search':
         result=call('file_history_list',dict(direction='all',query=args['query'],include_existing=True))
