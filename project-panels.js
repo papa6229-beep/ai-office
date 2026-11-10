@@ -4,6 +4,7 @@
   const panels=new Map(),$=id=>document.getElementById(id);
   let catalog=[],picker=null,dock=null,layer=null,z=600,catalogLoading=false,browseMode='departments',pickerMode='threads',catalogError='',actionToken='';
   let departments=[],departmentLoading=false,departmentError='',departmentRegistryAt=0,departmentNext=0,departmentChatRoutes=false;
+  let supervisorRoutes={},mainRouting=null;
   const departmentStates=new Map();
   const questionStates=new Map(),questionSeen=new Set();let questionAlerts=null,questionBusy=false,questionNext=0,questionAlertSignature='';
   try{for(const id of JSON.parse(localStorage.getItem('office-project-questions-seen-v1')||'[]').slice(-200))if(typeof id==='string')questionSeen.add(id);}catch(_){}
@@ -21,7 +22,8 @@
   const sourceRows=()=>catalog.filter(row=>(row.kind||'codex')==='codex');
   const key=row=>(row.host||'local')+'|'+row.id;
   const departmentWindow=row=>!!row.department||departments.some(item=>key(item)===key(row));
-  const routedWindow=p=>departmentChatRoutes&&p.host==='local'&&departmentWindow(p);
+  const routedWindow=p=>p.host==='local'&&(p.mainComposer?p.id===supervisorRoutes.main:
+    departmentChatRoutes&&(departmentWindow(p)||supervisorRoutes.coordinators?.includes(p.id)));
   const gptId=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
   const gptKey=p=>'office-department-gpt-v1:'+key(p);
   function windowLimit(row){
@@ -446,9 +448,16 @@
     if(!p.routeGroup)return;
     p.routeGroup.hidden=!routedWindow(p);
     p.gptBind.textContent=p.gpt?'GPT 연결 변경':'GPT 연결';
-    p.gptBind.title=p.gpt?'연결된 대화 · '+p.gpt.title:'이 부서에서 사용할 GPT 일반 채팅을 선택';
+    p.gptBind.title=p.gpt?'연결된 대화 · '+p.gpt.title:'이 입력창에서 사용할 GPT 일반 채팅을 선택';
     p.gptLabel.textContent=p.gpt?p.gpt.title:'';
     p.gptLabel.hidden=!p.gpt;
+  }
+  function buildRouting(p){
+    p.gpt=gptBinding(p);p.routeGroup=node('div','project-route-group');p.routeMode=node('select','project-route-select');p.routeMode.setAttribute('aria-label','이번 메시지의 처리 경로');
+    for(const [value,label] of [['auto','자동'],['gpt','GPT로 대화'],['codex','코덱스로 실행']]){const option=node('option','',label);option.value=value;p.routeMode.append(option);}
+    if(['auto','gpt','codex'].includes(p.pending?.route_mode))p.routeMode.value=p.pending.route_mode;
+    p.gptBind=routeButton('GPT 연결',()=>showGptPicker(p));p.gptLabel=node('span','project-gpt-label');
+    p.routeGroup.append(p.routeMode,p.gptBind,p.gptLabel);p.routeActions=node('div','project-route-buttons');routingLabel(p);
   }
   function routeButton(label,click){const button=node('button','project-native',label);button.type='button';button.onclick=click;return button;}
   function showGptOpen(p,row){
@@ -480,7 +489,7 @@
       finally{more.disabled=false;}
     };
     const more=routeButton('이전 대화 더 보기',load);
-    const save=routeButton('이 부서에 연결',async()=>{
+    const save=routeButton('이 채팅에 연결',async()=>{
       const pasted=input.value.trim(),match=pasted.match(/^https:\/\/chatgpt\.com\/(?:g\/[^/]+\/)?c\/([0-9a-f-]+)(?:[/?#].*)?$/);
       const id=pasted?(match?.[1]||''):list.value;
       if(!gptId.test(id)){status.textContent='기존 일반 GPT 대화를 선택하거나 대화 주소를 붙여넣어 주세요.';return;}
@@ -488,7 +497,7 @@
       try{
         const row=await request('project-panel-gpt?id='+encodeURIComponent(id));
         localStorage.setItem(gptKey(p),JSON.stringify(row));p.gpt=row;routingLabel(p);showGptOpen(p,row);
-        notice(p,'이 부서의 GPT 대화를 연결했어요. 입력한 메시지는 보내기를 누르면 전달돼요.');close();
+        notice(p,'이 채팅의 GPT 대화를 연결했어요. 입력한 메시지는 보내기를 누르면 전달돼요.');close();
       }catch(error){status.textContent=error.message;}
       finally{save.disabled=false;}
     });
@@ -498,6 +507,67 @@
     });disconnect.hidden=!p.gpt;
     const buttons=node('div','project-route-buttons');buttons.append(more,save,disconnect,routeButton('닫기',close));
     box.append(status,list,input,buttons);p.routeGroup.after(box);list.focus();await load();
+  }
+  function mountMainRouting(row,input,refreshLocks){
+    const p={...row,mainComposer:true,input};
+    const storageKey=draftKey(p)+':main-route';
+    try{
+      const saved=JSON.parse(sessionStorage.getItem(storageKey)||'null');
+      if(saved?.id===p.id&&saved.host===p.host&&saved.main_composer===true&&['auto','gpt'].includes(saved.route_mode)&&/^[a-f0-9]{32}$/.test(saved.request_id)&&typeof saved.message==='string'){
+        p.pending=saved;input.value=saved.message;
+      }
+    }catch(_){}
+    buildRouting(p);p.note=node('p','project-window-note project-main-route-note');p.note.setAttribute('role','status');
+    input.after(p.routeGroup,p.note,p.routeActions);
+    const clearPending=()=>{p.pending=null;try{sessionStorage.removeItem(storageKey);}catch(_){}};
+    const complete=()=>{clearPending();input.value='';p.routeMode.value='auto';};
+    return {
+      refresh:()=>routingLabel(p),
+      posting:()=>!!p.posting,
+      pending:()=>!!p.pending,
+      lock(blocked,controlled){
+        p.routeMode.disabled=p.gptBind.disabled=blocked||controlled||!!p.pending;
+        if(p.gptPicker){p.gptPicker.inert=blocked||controlled||!!p.pending;}
+        input.readOnly=!!p.pending;
+      },
+      async submit(message,hasFiles,run){
+        if(p.posting)return;
+        if(!p.pending){
+          notice(p,'');p.routeActions.replaceChildren();
+          const mode=routedWindow(p)?p.routeMode.value:'auto';
+          if(mode==='codex'||(mode==='auto'&&(!p.gpt||hasFiles))){run(mode==='codex');p.routeMode.value='auto';return;}
+          if(hasFiles){notice(p,'GPT 대화에는 이 입력창의 파일을 보낼 수 없어요. 코덱스로 실행을 선택해 주세요.',true);return;}
+          if(!p.gpt){notice(p,'이 채팅에서 사용할 GPT 대화를 먼저 연결해 주세요.');showGptPicker(p);return;}
+          p.pending={id:p.id,host:p.host,message,request_id:uid(),route_mode:mode,gpt_id:p.gpt.id,main_composer:true};
+          try{sessionStorage.setItem(storageKey,JSON.stringify(p.pending));}catch(_){}
+        }
+        p.posting=true;refreshLocks();notice(p,'처리 경로를 확인하고 있어요.');p.routeActions.replaceChildren();
+        try{
+          const result=await request('project-panel-send',p.pending);
+          if(result.state==='route_required'){
+            clearPending();
+            if(result.route==='main_routine'||result.route==='main_codex'){
+              notice(p,'');run(result.route==='main_codex');p.routeMode.value='auto';
+            }else{
+              const labels={choose:'이번 메시지는 GPT로 대화 또는 코덱스로 실행을 선택해 주세요.',gpt_binding:'이 채팅에서 사용할 GPT 대화를 다시 연결해 주세요.',gpt_busy:'연결된 GPT 대화가 진행 중이에요. 입력은 보관했어요.'};
+              notice(p,labels[result.route]||'이번 메시지의 처리 경로를 확인해 주세요.',true);
+              if(result.route==='gpt_binding')p.routeActions.append(routeButton('GPT 대화 선택',()=>showGptPicker(p)));
+              if(result.route==='gpt_busy'&&p.gpt)showGptOpen(p,p.gpt);
+            }
+            return;
+          }
+          if(result.route!=='gpt')throw Error('GPT 전달 상태를 확인하지 못했어요.');
+          showGptOpen(p,{id:result.destination,title:result.destination_title});
+          if(result.state==='sent'){
+            complete();notice(p,'GPT로 전달 · '+result.destination_title+' · 답변은 GPT 대화에서 확인해 주세요.');
+          }else{
+            notice(p,'GPT 전달 확인 필요 · 원래 GPT 대화에서 확인해 주세요.',true);
+            p.routeActions.append(routeButton('새 메시지 작성',()=>{complete();notice(p,'새 메시지를 입력해 주세요.');refreshLocks();input.focus();}));
+          }
+        }catch(error){notice(p,error.message+' · 같은 요청의 전달 상태를 다시 확인할 수 있어요.',true);}
+        finally{p.posting=false;refreshLocks();}
+      }
+    };
   }
   function routeRequired(p,route,message){
     p.pending=null;
@@ -596,11 +666,7 @@
     try{const saved=JSON.parse(sessionStorage.getItem(draftKey(p)+':own')||'[]');if(Array.isArray(saved))p.own=saved.filter(m=>m&&/^local:[0-9a-f]{32}$/.test(m.id)&&typeof m.text==='string'&&m.text.length<=12000&&typeof m.anchor==='string'&&['sending','sent','unknown'].includes(m.delivery)).slice(-40).map(m=>({...m,role:'user',delivery:m.delivery==='sending'?'unknown':m.delivery}));}catch(_){}
     p.input.oninput=()=>persistDraft(p);p.input.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing&&event.keyCode!==229){event.preventDefault();if(!p.send.disabled)form.requestSubmit();}});
     const actions=node('div','project-window-actions');p.native=node('button','project-native');p.native.type='button';p.native.onclick=async()=>{try{await request('project-panel-native',{id:p.id,host:p.host});}catch(error){notice(p,error.message,true);}};
-    p.gpt=gptBinding(p);p.routeGroup=node('div','project-route-group');p.routeMode=node('select','project-route-select');p.routeMode.setAttribute('aria-label','이번 메시지의 처리 경로');
-    for(const [value,label] of [['auto','자동'],['gpt','GPT로 대화'],['codex','코덱스로 실행']]){const option=node('option','',label);option.value=value;p.routeMode.append(option);}
-    if(['auto','gpt','codex'].includes(p.pending?.route_mode))p.routeMode.value=p.pending.route_mode;
-    p.gptBind=routeButton('GPT 연결',()=>showGptPicker(p));p.gptLabel=node('span','project-gpt-label');
-    p.routeGroup.append(p.routeMode,p.gptBind,p.gptLabel);p.routeActions=node('div','project-route-buttons');routingLabel(p);
+    buildRouting(p);
     p.attach=node('button','project-native','＋ 첨부');p.attach.type='button';p.attach.onclick=()=>p.fileInput.click();
     p.fileInput=node('input');p.fileInput.type='file';p.fileInput.multiple=true;p.fileInput.hidden=true;p.fileInput.accept='.gif,.png,.jpg,.jpeg,.webp,.ico,.pdf,.docx,.txt,.md,.csv,.tsv,.json,.py,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.sql,.log,.rst,.toml,.zip';
     p.fileInput.onchange=()=>{addFiles(p,p.fileInput.files);p.fileInput.value='';};p.filesNode=node('div','project-draft-files');p.filesNode.hidden=true;
@@ -702,9 +768,10 @@
       if(force||!departmentRegistryAt||Date.now()-departmentRegistryAt>60000){
         const registry=await request('departments');
         departmentChatRoutes=registry.department_chat_routes===1;
+        supervisorRoutes=registry.supervisor_chat_routes||{};
         // HQ already owns the main conversation; the right board shows the other teams.
         departments=(registry.teams||[]).filter(team=>team.id!=='hq').flatMap(team=>(team.agents||[]).filter(a=>a.thread_id).map(agent=>({id:agent.thread_id,host:agent.host||'local',kind:'codex',title:agent.name||team.name,project:agent.project_id===godoDepartmentProject?'고도·메두사':agent.project_id?'프로젝트 전담':'AI OFFICE',team_id:team.id,department:team.name,agent:agent.name||team.name,agent_id:agent.id,project_id:agent.project_id||'',project_root:agent.project_root||''})));
-        departmentRegistryAt=Date.now();departmentError='';for(const panel of panels.values())routingLabel(panel);sectionRender();
+        departmentRegistryAt=Date.now();departmentError='';for(const panel of panels.values())routingLabel(panel);mainRouting?.refresh();sectionRender();
       }
       for(const row of departments){
         if(document.hidden||browseMode!=='departments')break;
@@ -816,6 +883,7 @@
     const supervisors=node('script');supervisors.src='/supervisor-switch.js';document.head.append(supervisors);
   }
   window.officeProjectThreadViews={
+    mountMainRouting(row,input,refreshLocks){mainRouting=mountMainRouting(row,input,refreshLocks);return mainRouting;},
     mount(row,container){
       let p=panels.get(key(row));if(!p){open(row,{embedded:true});p=panels.get(key(row));}if(!p)throw Error('기존 총괄 대화를 연결하지 못했어요.');
       const priorScroll=p.ready?p.log.scrollTop:null;

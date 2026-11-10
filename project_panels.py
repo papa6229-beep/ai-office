@@ -126,6 +126,14 @@ def gpt_identity(ident):
     return {'id':ident,'title':thread.get('title') or '이름 없는 대화'}
 
 
+def supervisor_routes(db):
+    import department_work
+    main=bridge.configuration().get('thread_id')
+    coordinators=[ident for ident,row in department_work.registered(db).items()
+                  if row['registry_kind']=='existing_project_coordinator' or row['team_id']=='hq']
+    return {'main':main,'coordinators':coordinators}
+
+
 def _department_route(text, has_files):
     import office_routines
     value=text.strip()
@@ -398,7 +406,7 @@ def _attachments(db,payload):
 
 
 def send(db,payload):
-    if set(payload)-{'id','host','request_id','message','attachment_ids','attachment_request_id','route_mode','gpt_id'} or not {'id','host','request_id','message'}<=set(payload):raise ValueError('보낼 프로젝트와 내용을 확인해 주세요.')
+    if set(payload)-{'id','host','request_id','message','attachment_ids','attachment_request_id','route_mode','gpt_id','main_composer'} or not {'id','host','request_id','message'}<=set(payload):raise ValueError('보낼 프로젝트와 내용을 확인해 주세요.')
     ident,host=payload['id'],payload['host'];target=_target(ident,host)
     request=payload['request_id'];text=payload['message']
     if not isinstance(request,str) or not re.fullmatch('[0-9a-f]{32}',request):raise ValueError('전송 번호를 확인해 주세요.')
@@ -406,11 +414,14 @@ def send(db,payload):
     ids=payload.get('attachment_ids',[])
     mode=payload.get('route_mode')
     gpt_id=payload.get('gpt_id')
+    main_composer=payload.get('main_composer',False)
     if ((mode is not None and mode not in ('auto','gpt','codex'))
-            or (gpt_id is not None and mode not in ('auto','gpt'))):
+            or (gpt_id is not None and mode not in ('auto','gpt'))
+            or type(main_composer) is not bool or (main_composer and (mode not in ('auto','gpt') or ids))):
         raise ValueError('이번 메시지의 처리 경로를 확인해 주세요.')
     signed=[target,text,ids,payload.get('attachment_request_id')] if ids else [target,text]
     if mode is not None:signed.append({'route_mode':mode,'gpt_id':gpt_id})
+    if main_composer:signed.append('main_composer')
     signature=hashlib.sha256(json.dumps(signed,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
     with _lock:
         with closing(_db(db)) as c,c:
@@ -421,9 +432,12 @@ def send(db,payload):
                 return {'state':old['state'],'request_id':request,**saved.get('route_receipt',{})}
         if mode is not None:
             import department_work
-            if target['hostId']!='local' or ident not in department_work.registered(db):
+            registered_main=ident==bridge.configuration().get('thread_id')
+            if target['hostId']!='local' or (not registered_main if main_composer else ident not in department_work.registered(db)):
                 raise ValueError('등록된 로컬 부서 채팅에서 처리 경로를 고를 수 있어요.')
         route=_department_route(text,bool(ids)) if mode=='auto' else mode or 'codex'
+        if main_composer and route in ('routine','codex'):
+            return {'state':'route_required','route':'main_'+route,'request_id':request}
         if route=='routine':return {'state':'route_required','route':'routine','request_id':request}
         if route=='choose':return {'state':'route_required','route':'choose','request_id':request}
         if route=='gpt':

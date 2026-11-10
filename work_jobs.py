@@ -40,6 +40,12 @@ def resolve(path,action,payload):
     if not isinstance(payload,dict):raise ValueError('업무 요청을 확인하세요.')
     new=payload.get('new_task',False)
     if type(new) is not bool:raise ValueError('새 업무 구분을 확인하세요.')
+    if 'route_mode' in payload:
+        if action!='command' or payload['route_mode']!='codex' or new or any(k in payload for k in ('provider','conversation_id','parent_request_id')):
+            raise ValueError('이번 메시지의 처리 경로를 확인해 주세요.')
+        import desktop_chat_bridge
+        if not desktop_chat_bridge.configuration():raise ValueError('연결된 코덱스 대화를 먼저 확인해 주세요.')
+        return {'channel':'office','provider':'codex'}
     if new:
         if action!='command' or payload.get('conversation_id'):raise ValueError('새 업무 요청을 확인하세요.')
         ident=payload.get('request_id','')

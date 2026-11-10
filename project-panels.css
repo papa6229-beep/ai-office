@@ -36,6 +36,7 @@
 .project-window-actions{display:flex;align-items:center;gap:9px}.project-window-actions small{font-size:10px;color:#8e9c81;flex:1}.project-native{border:1px solid #444b50;background:#23262a;color:#b9c7a7;border-radius:7px;padding:6px 9px;font-size:11px;cursor:pointer}
 .project-route-group,.project-route-buttons{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0}
 .project-route-group[hidden],.project-route-buttons:empty{display:none}
+.project-main-route-note:empty{display:none}
 .project-route-select,.project-gpt-picker input{box-sizing:border-box;min-width:0;border:1px solid #59645c;border-radius:7px;padding:6px 8px;background:#1e2324;color:#e4eadc;font:inherit;font-size:11px}
 .project-route-select:focus-visible,.project-gpt-picker :focus-visible{outline:2px solid #b6f542;outline-offset:2px}
 .project-gpt-label{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9db6c0;font-size:11px}

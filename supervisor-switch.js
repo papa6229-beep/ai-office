@@ -30,6 +30,7 @@
     return label;
   }
   const recipient=recipientLabel(records.get(HQ).row);recipient.id='workSupervisorRecipient';$('workCommandForm').prepend(recipient);$('workSend').dataset.recipientName='Aemeath';
+  window.officeWorkSession?.mountRouting?.(records.get(HQ).row);
   $('workCommand').setAttribute('aria-label','Aemeath 운영본부에 보낼 메시지');$('workCommand').placeholder='Aemeath에게 맡길 일';
   // Hidden composers cannot submit through an old pending Enter or programmatic submit.
   $('workCommandForm').addEventListener('submit',event=>{if(active!==HQ){event.preventDefault();event.stopImmediatePropagation();}},true);

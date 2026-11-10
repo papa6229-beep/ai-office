@@ -502,7 +502,9 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/work/departments':
             if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
             import department_manager
-            return self.reply({**department_manager.snapshot(DB),'department_chat_routes':1})
+            import project_panels
+            return self.reply({**department_manager.snapshot(DB),'department_chat_routes':1,
+                               'supervisor_chat_routes':project_panels.supervisor_routes(DB)})
         if path in {'/api/work/project-panels','/api/work/project-panel','/api/work/project-panel-state','/api/work/project-panel-questions','/api/work/project-panel-gpt'}:
             if self.headers.get('Host') not in {f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}'}:return self.reply({'error':'허용된 주소를 사용하세요.'},403)
             import project_panels
