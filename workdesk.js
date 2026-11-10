@@ -497,32 +497,51 @@
   };
 
   let conversationRenderKey=null;
+  const conversationRows=new WeakMap();
   function renderConversation(){
     if(!overview)return;
     const messages = mainConversationMessages();
     const log = $('workMessages');
     const nextKey=JSON.stringify([messages,overview.launcher_choices||[],overview.assistant_actions||[],busy,!!uncertain]);
     if(conversationRenderKey===nextKey)return;
+    const children=[...log.children];
     const known=new Set(messages.map(m=>String(m.id)));
-    const transient=busy?[...log.querySelectorAll('[data-work-message-id]')].filter(row=>!row.dataset.nativeMessageId&&!known.has(row.dataset.workMessageId)&&!messages.some(m=>m.role===(row.classList.contains('work-user')?'user':'assistant')&&messageText(m)===(row.querySelector('[data-work-message-text]')?.textContent||'').trim())):[];
-    // Reconcile history once; retain only this POST's provisional DOM nodes.
-    // An old persisted message must never be appended as a new live reply.
-    const live=[...log.querySelectorAll('[data-work-live-request]')].filter(row=>
+    const transient=busy?children.filter(row=>row.dataset.workProvisionalControl!==undefined&&!known.has(row.dataset.workMessageId)&&!messages.some(m=>m.role==='user'&&messageText(m)===(row.querySelector('[data-work-message-text]')?.textContent||'').trim())):[];
+    const live=children.filter(row=>row.dataset.workLiveRequest!==undefined&&(
       row.dataset.workLiveRole!=='user'||!messages.some(m=>m.role==='user'&&
         messageText(m)===(row.querySelector('[data-work-message-text]')?.textContent||'').trim()&&
-        (Date.parse(m.created)||Number(m.turn_started_at)*1000||0)>=Number(row.dataset.workLiveSince)-1000));
+        (Date.parse(m.created)||Number(m.turn_started_at)*1000||0)>=Number(row.dataset.workLiveSince)-1000)));
     rememberChatPosition();
     const choices = overview.launcher_choices || [], actions = overview.assistant_actions || [];
-    log.innerHTML = messages.length ? messages.map(m=>{
+    const existing=new Map(children.filter(row=>conversationRows.has(row)).map(row=>[row.dataset.workMessageId,row]));
+    const template=document.createElement('template');
+    const rows=messages.map(m=>{
       const options = m.role === 'assistant' ? choices.filter(c=>c.message_id === m.id).map(c=>`<div class="work-launcher-choice" role="group" aria-label="${escape(c.name)} 프로그램 선택"><span>${escape(c.name)} · 사용할 프로그램을 골라주세요.</span>${(c.options || []).map(option=>`<button type="button" class="work-secondary" data-work-launcher-choice="${escape(c.id)}" data-work-launcher-target="${escape(option.target)}"><strong>${escape(option.title)}</strong>${option.detail ? `<small>${escape(option.detail)}</small>` : ''}</button>`).join('')}</div>`).join('') : '';
       const pending = m.role === 'assistant' ? actions.filter(a=>a.message_id === m.id).map(a=>`<div class="work-assistant-action${a.kind === 'approval' ? ' work-action-approval' : ''}" role="group" aria-label="${escape(a.title)}"><b>${escape(a.title)}</b>${a.description ? `<p>${escape(a.description)}</p>` : ''}<div>${(a.options || []).map(option=>`<button type="button" class="work-secondary" data-work-assistant-action="${escape(a.id)}" data-work-assistant-option="${escape(option.id)}">${escape(option.label)}${option.description ? `<small>${escape(option.description)}</small>` : ''}</button>`).join('')}</div></div>`).join('') : '';
-      return `<div data-work-message-id="${escape(m.id)}" class="work-message ${m.role === 'user' ? 'work-user' : ''}"><strong>${m.role === 'user' ? '태준' : 'Aemeath'}</strong><span data-work-message-text>${escape(m.content)}</span>${m.attachments?.length ? `<div class="work-message-attachments">${attachmentMarkup(m.attachments)}</div>` : ''}${options}${pending}</div>`;
-    }).join('') : '<p class="work-empty">무슨 일을 해야 하나요?<br>업무를 등록하거나 바로가기에 추가할 프로그램을 알려주세요.</p>';
-    for(const message of messages){const row=[...log.querySelectorAll('[data-work-message-id]')].find(n=>n.dataset.workMessageId===String(message.id));if(row)window.officeChatContent?.render(row.querySelector('[data-work-message-text]'),message);}
-    window.officeChatContent?.enhanceAttachments(log);
-    for(const row of transient)log.append(row);
-    for(const row of live)log.append(row);
-    for(const m of messages){if(!m.native_id)continue;const row=[...log.querySelectorAll('[data-work-message-id]')].find(n=>n.dataset.workMessageId===String(m.id));if(row){row.dataset.nativeMessageId=m.native_id;row.dataset.messageId=m.native_id;}}
+      const markup=`<div data-work-message-id="${escape(m.id)}" class="work-message ${m.role === 'user' ? 'work-user' : ''}"><strong>${m.role === 'user' ? '태준' : 'Aemeath'}</strong><span data-work-message-text>${escape(m.content)}</span>${m.attachments?.length ? `<div class="work-message-attachments">${attachmentMarkup(m.attachments)}</div>` : ''}${options}${pending}</div>`;
+      const signature=JSON.stringify([markup,m.parts,m.native_id]);
+      const previous=existing.get(String(m.id));
+      if(previous&&conversationRows.get(previous)===signature)return previous;
+      template.innerHTML=markup;
+      const row=template.content.firstElementChild;
+      window.officeChatContent?.render(row.querySelector('[data-work-message-text]'),m);
+      window.officeChatContent?.enhanceAttachments(row);
+      if(m.native_id){row.dataset.nativeMessageId=m.native_id;row.dataset.messageId=m.native_id;}
+      conversationRows.set(row,signature);
+      return row;
+    });
+    if(!rows.length){
+      template.innerHTML='<p class="work-empty" data-work-empty-conversation>무슨 일을 해야 하나요?<br>업무를 등록하거나 바로가기에 추가할 프로그램을 알려주세요.</p>';
+      rows.push(children.find(row=>row.dataset.workEmptyConversation!==undefined)||template.content.firstElementChild);
+    }
+    rows.push(...transient,...live);
+    const retained=new Set(rows);
+    for(const child of children)if(!retained.has(child))child.remove();
+    let next=log.firstElementChild;
+    for(const row of rows){
+      if(row===next)next=next.nextElementSibling;
+      else log.insertBefore(row,next);
+    }
     applyChatPosition();
     conversationRenderKey=nextKey;
     dispatchEvent(new Event('office-main-conversation-rendered'));
@@ -650,7 +669,8 @@
       if(controlledRequest()?.body.request_id===target){
         const row=document.createElement('div');row.className='work-message work-user';row.dataset.workMessageId=payload.input_id;
         const label=document.createElement('strong');label.textContent='태준';
-        row.append(label,document.createTextNode(kind==='stop' ? '작업 중지 요청' : payload.message));$('workMessages').append(row);
+        const content=document.createElement('span');content.dataset.workMessageText='';content.textContent=kind==='stop' ? '작업 중지 요청' : payload.message;
+        row.dataset.workProvisionalControl='';row.append(label,content);$('workMessages').append(row);
         notice(kind==='stop' ? '중지를 요청했어요. 실행 중인 동작의 결과를 정리하고 있어요.' : '추가 메시지를 보냈어요. 다음 판단에 반영해요.');
         settleChatScroll(true);
       } else if(!busy)window.workLoad();
