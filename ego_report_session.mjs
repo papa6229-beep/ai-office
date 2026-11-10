@@ -1,4 +1,4 @@
-import {saveEventWithDialogs,saveProductWithDialogs} from './ego_report_dialogs.mjs';
+import {saveBannerWithDialogs,saveEventWithDialogs,saveProductWithDialogs} from './ego_report_dialogs.mjs';
 const fs=await import('node:fs/promises'),http=await import('node:http');
 const {fileURLToPath}=await import('node:url');
 const cfg=JSON.parse(await fs.readFile(fileURLToPath(globalThis.egoReportConfig),'utf8'));
@@ -50,6 +50,18 @@ async function dispatch(c){
    throw Error('event_editor_origin_mismatch');
   const button={selector:'.btn_save[data-form="#regiform"][data-savetype="save"] > a'};
   return saveEventWithDialogs(page,()=>element(page,button,'e=>{e.click();return true;}'));
+ }
+ if(c.op==='set_banner_file'||c.op==='submit_banner'){
+  const path='/adminx/popups/nmain_data2.banana.php';
+  const target=new URL((await task.tabs()).find(tab=>tab.label===page.label)?.url);
+  if(target.origin!=='https://banana.bizhost.kr'||target.pathname!==path||target.searchParams.get('index_no')!==String(c.slot)
+      ||![111,138,437,329,325,108,47,426,427].includes(c.slot))throw Error('banner_editor_target_mismatch');
+  if(c.op==='set_banner_file'){
+   await page.setInputFiles('form#search[name="regiform"] input[type="file"][name="file"]',[c.path]);
+   return true;
+  }
+  const button={selector:'.btn_submit[data-form="#search"] > a'};
+  return saveBannerWithDialogs(page,()=>element(page,button,'e=>{e.click();return true;}'),path);
  }
  if(c.op==='element_evaluate')return element(page,c,c.fn);
  if(c.op==='scroll')return element(page,c,'e=>{e.scrollIntoView({block:"nearest"});return true;}');

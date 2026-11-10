@@ -40,6 +40,12 @@
     .preview-header button{flex-shrink:0}
     .preview-scroll{min-height:0;overflow:auto;overscroll-behavior:contain;background:#f4f5f0}
     .preview-scroll img{display:block;max-width:100%;height:auto;margin:auto}
+    .banner-tool summary{cursor:pointer;font-size:1.25rem;font-weight:750}
+    .banner-tool form{padding:0;border:0;margin-bottom:0}
+    .banner-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:14px 0}
+    .banner-fields input{max-width:100%;font:inherit}
+    .banner-slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:10px}
+    .banner-slots input{max-width:100%}.banner-slots input[type=text]{margin-top:6px;padding:6px 8px}
   </style>
   <script defer src="{{ url_for('static', filename='publisher.js') }}"></script>
 </head>
@@ -88,6 +94,46 @@
       {% endfor %}
     </div>
   </section>
+  <details class="results banner-tool" id="banner-tool">
+    <summary>이벤트 배너 등록</summary>
+    <form id="banner-form">
+      <p class="hint">등록할 위치에만 파일을 첨부하세요. 메인24는 별도 작업입니다.</p>
+      <label for="banner-url">배너를 눌렀을 때 열릴 이벤트 주소</label>
+      <input id="banner-url" name="url" type="url" required placeholder="https://www.bananamall.co.kr/etc/evt_example.php">
+      <div class="banner-fields">
+        <label>노출 문구<input id="banner-title" name="title" type="text" maxlength="80" required></label>
+        <label>노출 시작 (한국 시간)<input name="start" type="datetime-local" step="1" required></label>
+        <label>노출 종료 (한국 시간)<input name="end" type="datetime-local" step="1" required></label>
+      </div>
+      <div class="banner-slots">
+        {% for slot, (device, label, width, height) in banner_slots.items() %}
+        <article data-banner-slot="{{ slot }}">
+          <label for="banner-file-{{ slot }}">{{ device }} · {{ label }}</label>
+          <p class="hint">{{ width }}×{{ height }}px · JPG/GIF</p>
+          <input id="banner-file-{{ slot }}" name="file_{{ slot }}" type="file" accept=".jpg,.jpeg,.gif">
+          {% if slot in banner_backgrounds %}
+          <label for="banner-bg-{{ slot }}">배경색</label>
+          <input id="banner-bg-{{ slot }}" name="background_{{ slot }}" type="text" placeholder="#RRGGBB" maxlength="7">
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      <div class="actions">
+        <label><input name="visible" type="checkbox"> 지정 기간에 노출함</label>
+        <button type="submit" class="primary"{% if not publish_enabled %} disabled{% endif %}>등록 내용 확인</button>
+      </div>
+      <p id="banner-result" class="message" role="status"></p>
+    </form>
+  </details>
+  <dialog id="banner-confirm" aria-labelledby="banner-confirm-title">
+    <h2 id="banner-confirm-title">선택한 배너 확인</h2>
+    <p id="banner-summary" class="message"></p>
+    <ol id="banner-selection"></ol>
+    <div class="actions">
+      <button id="banner-register" type="button" class="primary">비즈호스트에 등록</button>
+      <button id="banner-cancel" type="button">닫기</button>
+    </div>
+  </dialog>
   <dialog id="image-picker" aria-labelledby="picker-title">
     <h2 id="picker-title">이벤트 이미지 선택</h2>
     <p class="hint" id="picker-hint"></p>

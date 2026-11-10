@@ -79,6 +79,25 @@ export async function saveEventWithDialogs(page,trigger){
  }
  throw Error('event_save_response_missing');
 }
+export async function saveBannerWithDialogs(page,trigger,path){
+ const state=await beginObservation(page,'https://banana.bizhost.kr',[path]);
+ try{await trigger();}catch(error){if(!dialogInterrupted(error))throw error;}
+ const deadline=Date.now()+20000;
+ while(Date.now()<deadline){
+  await observe(page,state);
+  if(state.dialog){
+   if(state.dialog.type!=='alert'||!state.postSeen){
+    await page.cdp('Page.handleJavaScriptDialog',{accept:false});
+    throw Error('unexpected_banner_dialog');
+   }
+   await acceptObservedDialog(page);
+   state.dialog=null;
+  }
+  if(state.postOk&&state.postFinished)return true;
+  await pause(50);
+ }
+ throw Error('banner_save_response_missing');
+}
 export async function beginAiSave(page,trigger,{timeoutMs=15000,pollMs=25}={}){
  const state=await beginObservation(page,'https://dailywork-phi.vercel.app');
  try{const receipt=await trigger();if(receipt?.dialog)state.dialog=receipt.dialog;}

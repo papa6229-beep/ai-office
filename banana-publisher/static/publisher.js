@@ -278,3 +278,67 @@ form.addEventListener('submit', async event => {
     for (const button of buttons) button.disabled = false;
   }
 });
+
+const bannerTool = document.querySelector('#banner-tool');
+const bannerForm = document.querySelector('#banner-form');
+const bannerDialog = document.querySelector('#banner-confirm');
+const bannerRegister = document.querySelector('#banner-register');
+const bannerResult = document.querySelector('#banner-result');
+const bannerSlots = [...document.querySelectorAll('[data-banner-slot]')];
+const bannerNames = new Map(bannerSlots.map(slot => [Number(slot.dataset.bannerSlot), slot.querySelector('label').textContent]));
+let bannerPayload;
+
+bannerTool.addEventListener('toggle', () => {
+  if (!bannerTool.open) return;
+  for (const [target, source] of [['#banner-url', '#event-url'], ['#banner-title', '#event-title']]) {
+    const field = document.querySelector(target);
+    if (!field.value) field.value = document.querySelector(source).value;
+  }
+});
+
+bannerForm.addEventListener('submit', event => {
+  event.preventDefault();
+  if (bannerForm.dataset.running) return;
+  const selected = bannerSlots.filter(slot => slot.querySelector('input[type=file]').files.length);
+  if (!selected.length) {
+    bannerResult.textContent = '등록할 위치에 배너 파일을 첨부하세요.';
+    return;
+  }
+  bannerPayload = new FormData(bannerForm);
+  bannerPayload.set('request_id', crypto.randomUUID().replaceAll('-', ''));
+  document.querySelector('#banner-summary').textContent = [bannerPayload.get('url'), bannerPayload.get('title'),
+    `${bannerPayload.get('start')} ~ ${bannerPayload.get('end')} (한국 시간)`,
+    bannerPayload.has('visible') ? '지정 기간에 노출' : '노출 안 함으로 등록'].join('\n');
+  document.querySelector('#banner-selection').replaceChildren(...selected.map(slot => {
+    const row = document.createElement('li');
+    row.textContent = `${bannerNames.get(Number(slot.dataset.bannerSlot))} · ${slot.querySelector('input[type=file]').files[0].name}`;
+    const background = slot.querySelector('input[type=text]')?.value.trim();
+    if (background) row.append(` · 배경 ${background}`);
+    return row;
+  }));
+  bannerDialog.showModal();
+});
+
+document.querySelector('#banner-cancel').addEventListener('click', () => bannerDialog.close());
+bannerRegister.addEventListener('click', async () => {
+  if (!bannerPayload || bannerForm.dataset.running) return;
+  const payload = bannerPayload;
+  bannerPayload = null;
+  bannerDialog.close();
+  bannerForm.dataset.running = 'true';
+  const buttons = [...bannerForm.querySelectorAll('button:enabled')];
+  for (const button of buttons) button.disabled = true;
+  bannerResult.textContent = '비즈호스트의 위치별 양식을 확인하고 배너를 등록 중입니다.';
+  try {
+    const response = await fetch('/api/banners/register', {method: 'POST', body: payload});
+    const data = await response.json();
+    const rows = (data.results || []).map(row => `${bannerNames.get(row.slot)} · ${row.state === 'existing' ? '동일 등록 확인' : '등록 확인'}`);
+    if (data.error) rows.push([bannerNames.get(data.slot), data.error].filter(Boolean).join(' · '));
+    bannerResult.textContent = rows.join('\n') || '배너 등록 결과를 확인하세요.';
+  } catch {
+    bannerResult.textContent = '등록 응답을 받지 못했습니다. 비즈호스트 목록을 확인한 뒤 진행하세요.';
+  } finally {
+    delete bannerForm.dataset.running;
+    for (const button of buttons) button.disabled = false;
+  }
+});

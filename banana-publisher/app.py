@@ -6,14 +6,17 @@ import json
 import os
 import posixpath
 import re
+import shutil
 import sqlite3
 import stat
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
 from contextlib import closing
 from dataclasses import dataclass
+from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import quote, urlencode, urlsplit
@@ -22,6 +25,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 import paramiko
 from flask import Flask, abort, jsonify, redirect, render_template, request
 from PIL import Image, UnidentifiedImageError
+
+import banner_register as banners
 
 
 SKINS = {'web': ('웹', 20), 'mobile': ('모바일', 21)}
@@ -168,6 +173,49 @@ def event_text(field, limit):
     if not value or len(value) > limit or re.search(r'[\x00-\x1f<>\\{}]', value):
         raise PreparationError('행사명과 검색 설명은 각각 80자, 180자 이내의 일반 텍스트로 입력하세요.')
     return value
+
+
+def banner_fields():
+    event, _ = plan(request.form.get('url', ''))
+    try:
+        start = datetime.fromisoformat(request.form.get('start', ''))
+        end = datetime.fromisoformat(request.form.get('end', ''))
+    except ValueError:
+        raise PreparationError('배너 노출 시작과 종료 시각을 입력하세요.') from None
+    if start.tzinfo or end.tzinfo or start >= end:
+        raise PreparationError('종료 시각은 시작 시각 뒤로 지정하세요.')
+    return {'links': f'/etc/{event}.php', 'text': event_text('title', 80), 'text2': '', 'target': '_self',
+            'orders': '0', 'isuse': 'Y' if request.form.get('visible') == 'on' else 'N',
+            'sdate': start.strftime('%Y-%m-%d %H:%M:%S'), 'edate': end.strftime('%Y-%m-%d %H:%M:%S')}
+
+
+def read_banner_files():
+    if set(request.files) - {f'file_{slot}' for slot in banners.SLOTS}:
+        raise PreparationError('등록 가능한 배너 위치를 확인하세요.')
+    fields = banner_fields()
+    selected = []
+    for slot, (device, label, width, height) in banners.SLOTS.items():
+        field = f'file_{slot}'
+        files = [file for file in request.files.getlist(field) if file.filename]
+        if not files:
+            continue
+        if len(files) != 1 or posixpath.splitext(files[0].filename)[1].lower() not in {'.jpg', '.jpeg', '.gif'}:
+            raise PreparationError(f'{device} {label}에 JPG 또는 GIF 한 장을 첨부하세요.')
+        asset = read_assets(files)[0]
+        with Image.open(asset.stream) as image:
+            if image.size != (width, height):
+                raise PreparationError(f'{device} {label}은 {width}×{height}px 이미지가 필요합니다.')
+        asset.stream.seek(0)
+        item_fields = fields.copy()
+        if slot in banners.BACKGROUND_SLOTS:
+            color = request.form.get(f'background_{slot}', '').strip()
+            if not re.fullmatch(r'#[0-9a-fA-F]{6}', color):
+                raise PreparationError(f'{device} {label} 배경색을 #RRGGBB 형식으로 입력하세요.')
+            item_fields['text2'] = color
+        selected.append((slot, asset, item_fields))
+    if not selected:
+        raise PreparationError('등록할 위치에 배너 파일을 첨부하세요.')
+    return selected
 
 
 def remote_stat(sftp, path):
@@ -390,7 +438,8 @@ def create_app():
 
     @app.get('/')
     def index():
-        return render_template('index.html', sftp_ready=settings()['ready'], publish_enabled=publish_enabled, skins=SKINS)
+        return render_template('index.html', sftp_ready=settings()['ready'], publish_enabled=publish_enabled, skins=SKINS,
+                               banner_slots=banners.SLOTS, banner_backgrounds=banners.BACKGROUND_SLOTS)
 
     @app.get('/editor/<skin>')
     def open_editor(skin):
@@ -414,6 +463,62 @@ def create_app():
             return process_preparation()
         finally:
             lock.release()
+
+    def run_worker(name, payload, timeout):
+        worker = Path(__file__).with_name(name).resolve()
+        worker_env = {key: value for key, value in os.environ.items()
+                      if not key.startswith(('BANANA_SFTP_', 'BANANA_PUBLISH_WEB_'))}
+        response = subprocess.run([str(office_python), '-X', 'utf8', str(worker)],
+                                  input=json.dumps(payload), encoding='utf-8', capture_output=True, timeout=timeout,
+                                  env=worker_env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), check=True)
+        return json.loads(response.stdout)
+
+    @app.post('/api/banners/register')
+    def register_banners():
+        if not publish_enabled:
+            return jsonify(error='비즈호스트 자동 등록 연결을 확인하세요.'), 503
+        if not lock.acquire(blocking=False):
+            return jsonify(error='다른 이벤트 작업이 진행 중입니다. 완료 후 진행하세요.'), 409
+        try:
+            return process_banners()
+        except PreparationError as error:
+            return jsonify(error=str(error)), 400
+        except (OSError, sqlite3.Error):
+            return jsonify(error='배너 작업 결과를 확인하지 못했습니다. 비즈호스트 목록을 먼저 확인하세요.'), 500
+        finally:
+            lock.release()
+
+    def process_banners():
+        ident = request.form.get('request_id', '')
+        if not re.fullmatch(r'[0-9a-f]{32}', ident):
+            raise PreparationError('배너 등록 요청을 다시 확인하세요.')
+        selected = read_banner_files()
+        signature = hashlib.sha256(json.dumps([(slot, asset.sha256, fields) for slot, asset, fields in selected],
+                                               sort_keys=True).encode()).hexdigest()
+        with closing(selection_db()) as db, db:
+            db.execute('CREATE TABLE IF NOT EXISTS banner_batches (id TEXT PRIMARY KEY, signature TEXT, outcome TEXT)')
+            prior = db.execute('SELECT signature, outcome FROM banner_batches WHERE id = ?', (ident,)).fetchone()
+            if prior:
+                if prior[0] != signature or not prior[1]:
+                    return jsonify(error='기존 배너 요청을 먼저 확인하세요. 중복 등록을 막았습니다.'), 409
+                outcome = json.loads(prior[1])
+                return jsonify(outcome), 200 if outcome['state'] == 'completed' else 409
+            db.execute('INSERT INTO banner_batches VALUES (?, ?, NULL)', (ident, signature))
+        with tempfile.TemporaryDirectory(prefix='banana-banner-files-') as folder:
+            items = []
+            for slot, asset, fields in selected:
+                destination = Path(folder) / str(slot) / asset.name
+                destination.parent.mkdir()
+                with destination.open('xb') as stream:
+                    shutil.copyfileobj(asset.stream, stream)
+                items.append(dict(slot=slot, fields=fields, file=str(destination), sha256=asset.sha256))
+            try:
+                outcome = run_worker('banner_register.py', {'id': ident, 'items': items}, 1200)
+            except (OSError, ValueError, subprocess.SubprocessError):
+                outcome = dict(state='unconfirmed', error='등록 응답을 받지 못했습니다. 비즈호스트 목록을 먼저 확인하세요.')
+        with closing(selection_db()) as db, db:
+            db.execute('UPDATE banner_batches SET outcome = ? WHERE id = ?', (json.dumps(outcome, ensure_ascii=False), ident))
+        return jsonify(outcome), 200 if outcome['state'] == 'completed' else 409
 
     @app.post('/api/replacements/<job_id>/publish')
     def publish_replacement(job_id):
@@ -484,14 +589,7 @@ def create_app():
                 return dict(state='blocked', error='새 이미지를 공개 CDN에서 확인하지 못해 게시를 시작하지 않았습니다.')
         payload = dict(id=job_id, event=job['event'], editors=job['editors'], target=target, registration=registration)
         try:
-            worker = Path(__file__).with_name('publish_edit.py').resolve()
-            worker_env = {key: value for key, value in os.environ.items()
-                          if not key.startswith(('BANANA_SFTP_', 'BANANA_PUBLISH_WEB_'))}
-            response = subprocess.run([str(office_python), '-X', 'utf8', str(worker)],
-                                      input=json.dumps(payload), encoding='utf-8', capture_output=True, timeout=430,
-                                      env=worker_env,
-                                      creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), check=True)
-            outcome = json.loads(response.stdout)
+            outcome = run_worker('publish_edit.py', payload, 430)
         except (OSError, ValueError, subprocess.SubprocessError):
             return dict(state='unconfirmed', error='비즈호스트 저장 결과를 받지 못했습니다. 공개 페이지를 먼저 확인해 주세요.')
         if outcome['state'] != 'saved':
