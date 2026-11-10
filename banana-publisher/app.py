@@ -64,8 +64,13 @@ class EventImages(HTMLParser):
         self.bases = set()
         self.images = {}
         self.media = []
+        self.description = ''
 
     def handle_starttag(self, tag, attributes):
+        if tag == 'meta' and not self.description:
+            meta = dict(attributes)
+            if (meta.get('name') or '').lower() == 'description':
+                self.description = ' '.join((meta.get('content') or '').split())
         if tag not in {'img', 'source'}:
             return
         for key, value in attributes:
@@ -175,8 +180,21 @@ def event_text(field, limit):
     return value
 
 
+def banner_seo(raw_url):
+    event, _ = plan(raw_url)
+    pages = dict(public_event_sources({}, event))
+    web, mobile = pages['web'].description, pages['mobile'].description
+    if not web or len(web) > 300:
+        raise PreparationError('이벤트 공개 페이지에서 SEO 검색 설명을 읽을 수 없습니다.')
+    if web != mobile:
+        raise PreparationError('PC와 모바일의 SEO 검색 설명이 다릅니다. 페이지 설명을 먼저 확인하세요.')
+    return event, web
+
+
 def banner_fields():
-    event, _ = plan(request.form.get('url', ''))
+    event, seo = banner_seo(request.form.get('url', ''))
+    if request.form.get('seo') != seo:
+        raise PreparationError('이벤트 SEO 문구가 바뀌었습니다. 등록 내용을 다시 확인하세요.')
     try:
         start = datetime.fromisoformat(request.form.get('start', ''))
         end = datetime.fromisoformat(request.form.get('end', ''))
@@ -184,28 +202,40 @@ def banner_fields():
         raise PreparationError('배너 노출 시작과 종료 시각을 입력하세요.') from None
     if start.tzinfo or end.tzinfo or start >= end:
         raise PreparationError('종료 시각은 시작 시각 뒤로 지정하세요.')
-    return {'links': f'/etc/{event}.php', 'text': event_text('title', 80), 'text2': '', 'target': '_self',
-            'orders': '0', 'isuse': 'Y' if request.form.get('visible') == 'on' else 'N',
+    visibility = request.form.get('visible')
+    if visibility not in {'Y', 'N'}:
+        raise PreparationError('배너 사용 여부를 선택하세요.')
+    return {'links': f'/etc/{event}.php', 'text': seo, 'text2': '', 'target': '_self',
+            'orders': '0', 'isuse': visibility,
             'sdate': start.strftime('%Y-%m-%d %H:%M:%S'), 'edate': end.strftime('%Y-%m-%d %H:%M:%S')}
 
 
 def read_banner_files():
-    if set(request.files) - {f'file_{slot}' for slot in banners.SLOTS}:
+    if set(request.files) - {'files'}:
         raise PreparationError('등록 가능한 배너 위치를 확인하세요.')
+    files = [file for file in request.files.getlist('files') if file.filename]
+    allowed = {(width, height) for _, _, width, height in banners.SLOTS.values()}
+    if not 1 <= len(files) <= len(allowed):
+        raise PreparationError('등록할 배너 파일을 규격별로 한 장씩 선택하세요.')
+    assets = {}
+    for file in files:
+        if posixpath.splitext(file.filename)[1].lower() not in {'.jpg', '.jpeg', '.gif'}:
+            raise PreparationError('JPG 또는 GIF 배너를 첨부하세요.')
+        asset = read_assets([file])[0]
+        with Image.open(asset.stream) as image:
+            size = image.size
+        asset.stream.seek(0)
+        if size not in allowed:
+            raise PreparationError(f'{asset.name}의 배너 규격 {size[0]}×{size[1]}px는 등록 대상이 아닙니다.')
+        if size in assets:
+            raise PreparationError(f'{size[0]}×{size[1]}px 파일을 한 장만 선택하세요.')
+        assets[size] = asset
     fields = banner_fields()
     selected = []
     for slot, (device, label, width, height) in banners.SLOTS.items():
-        field = f'file_{slot}'
-        files = [file for file in request.files.getlist(field) if file.filename]
-        if not files:
+        asset = assets.get((width, height))
+        if not asset:
             continue
-        if len(files) != 1 or posixpath.splitext(files[0].filename)[1].lower() not in {'.jpg', '.jpeg', '.gif'}:
-            raise PreparationError(f'{device} {label}에 JPG 또는 GIF 한 장을 첨부하세요.')
-        asset = read_assets(files)[0]
-        with Image.open(asset.stream) as image:
-            if image.size != (width, height):
-                raise PreparationError(f'{device} {label}은 {width}×{height}px 이미지가 필요합니다.')
-        asset.stream.seek(0)
         item_fields = fields.copy()
         if slot in banners.BACKGROUND_SLOTS:
             color = request.form.get(f'background_{slot}', '').strip()
@@ -213,8 +243,6 @@ def read_banner_files():
                 raise PreparationError(f'{device} {label} 배경색을 #RRGGBB 형식으로 입력하세요.')
             item_fields['text2'] = color
         selected.append((slot, asset, item_fields))
-    if not selected:
-        raise PreparationError('등록할 위치에 배너 파일을 첨부하세요.')
     return selected
 
 
@@ -488,6 +516,18 @@ def create_app():
         finally:
             lock.release()
 
+    @app.post('/api/banners/seo')
+    def preview_banner_seo():
+        body = request.get_json(silent=True)
+        raw_url = body.get('url') if isinstance(body, dict) else None
+        if not isinstance(raw_url, str):
+            return jsonify(error='이벤트 주소를 입력하세요.'), 400
+        try:
+            event, seo = banner_seo(raw_url)
+            return jsonify(event=event, seo=seo)
+        except PreparationError as error:
+            return jsonify(error=str(error)), 400
+
     def process_banners():
         ident = request.form.get('request_id', '')
         if not re.fullmatch(r'[0-9a-f]{32}', ident):
@@ -510,6 +550,7 @@ def create_app():
                 destination = Path(folder) / str(slot) / asset.name
                 destination.parent.mkdir()
                 with destination.open('xb') as stream:
+                    asset.stream.seek(0)
                     shutil.copyfileobj(asset.stream, stream)
                 items.append(dict(slot=slot, fields=fields, file=str(destination), sha256=asset.sha256))
             try:

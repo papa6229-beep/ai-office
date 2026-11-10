@@ -21,6 +21,20 @@ BACKGROUND_SLOTS = {108, 47}
 ADMIN_PATH = '/adminx/popups/nmain_data2.banana.php'
 ADMIN_ORIGIN = 'https://banana.bizhost.kr'
 MEDIA_ORIGIN = 'https://cdn-banana.bizhost.kr/files/new_main/'
+LOCK_STANDARD = ('1732509267_1.jpg', 'fa92c9d66853850e905fd331b6b116e10e9713e7d83e2b148c784f7084e64b31')
+LOCK_MOBILE_800 = ('1793351345_1.jpg', '529d40fd2a4bcf67b37d9bbb7050ee52e2f060e6d986e4fbf9c7739cef22fad6')
+# Each source is the existing white +19 lock, identified in that slot's secondary-file cell.
+AUXILIARY = {
+    111: LOCK_STANDARD,
+    138: ('1747963671_1.jpg', 'f473c891df52defe6f72f3bf89c03f9e8e8b495110fc2c46afd6f2de8e74c144'),
+    437: LOCK_STANDARD,
+    329: LOCK_STANDARD,
+    325: ('1747962021_1.jpg', '69275ea58fa7587767c3b5f73a519bce08f057c3037cba96c175d9aeb813c296'),
+    108: ('1747961904_1.gif', '1dd67b37351aa4867ea484d12a035d772c80903b8c8d463be83a14517e10cb6b'),
+    47: ('1747961728_1.gif', 'e0116b405f960e5ae0f1fa032a684c441bda89135d87148f74bad3d6547a8bd9'),
+    426: LOCK_MOBILE_800,
+    427: LOCK_MOBILE_800,
+}
 
 READ = r'''({slot,link}) => {
     const form = document.querySelector('form#search[name="regiform"]');
@@ -30,7 +44,7 @@ READ = r'''({slot,link}) => {
     if (!form || form.method !== 'post' || form.enctype !== 'multipart/form-data' ||
         form.getAttribute('action') !== '/adminx/popups/nmain_data2.banana.php?code=' ||
         value(form,'mode') !== 'w' || value(form,'index_no') !== String(slot) ||
-        form.elements.namedItem('file')?.type !== 'file' || button.length !== 1 ||
+        form.elements.namedItem('file')?.type !== 'file' || form.elements.namedItem('file2')?.type !== 'file' || button.length !== 1 ||
         button[0].textContent.trim() !== '등록하기' || !rows) return null;
     return [...rows.querySelectorAll('input[name^="data_idx"]')].flatMap(el => {
         const n = el.name.slice(8);
@@ -39,9 +53,10 @@ READ = r'''({slot,link}) => {
             const url = new URL(savedLink, 'https://www.bananamall.co.kr');
             if (!['www.bananamall.co.kr','m.bananamall.co.kr','bananamall.co.kr'].includes(url.hostname) || url.pathname !== link) return [];
         } catch { return []; }
-        const media = [...(rows.elements.namedItem('file'+n)?.closest('tr')?.querySelectorAll('img,a') ?? [])]
-            .map(e => e.src || e.href).find(u => u?.startsWith('https://cdn-banana.bizhost.kr/files/new_main/'));
-        return [{id:el.value, media:media??null, fields:{links:savedLink, text:value(rows,'text'+n), text2:value(rows,'text'+n+'_2'),
+        const fileUrl = name => [...(rows.elements.namedItem(name)?.closest('td')?.querySelectorAll('img,a') ?? [])]
+            .map(e => e.src || e.href).find(u => u?.startsWith('https://cdn-banana.bizhost.kr/files/new_main/')) ?? null;
+        return [{id:el.value, media:fileUrl('file'+n), auxiliary:fileUrl('files'+n),
+            fields:{links:savedLink, text:value(rows,'text'+n), text2:value(rows,'text'+n+'_2'),
             target:value(rows,'target'+n), orders:value(rows,'orders'+n), isuse:value(rows,'isuse'+n),
             sdate:value(rows,'sdate'+n), edate:value(rows,'edate'+n)}}];
     });
@@ -71,10 +86,20 @@ def rows_for(page, slot, link):
 
 
 def matches(page, row, item):
-    if row['fields'] != item['fields'] or not row['media'] or not row['media'].startswith(MEDIA_ORIGIN):
+    if row['fields'] != item['fields']:
         return False
-    response = page.request.get(row['media'], timeout=15000)
-    return response.ok and hashlib.sha256(response.body()).hexdigest() == item['sha256']
+    return (read_image(page, row['media'], item['sha256']) is not None
+            and read_image(page, row['auxiliary'], AUXILIARY[item['slot']][1]) is not None)
+
+
+def read_image(page, url, expected):
+    if not url or not url.startswith(MEDIA_ORIGIN):
+        return None
+    response = page.request.get(url, timeout=15000)
+    if not response.ok:
+        return None
+    data = response.body()
+    return data if hashlib.sha256(data).hexdigest() == expected else None
 
 
 def register(job, root):
@@ -99,21 +124,38 @@ def register(job, root):
                     else:
                         return {'state': 'blocked', 'results': results, 'slot': slot,
                                 'error': '같은 이벤트 주소의 기존 배너가 있습니다. 기존 등록을 확인하세요.'}
+                auxiliary_files = {}
+                for item in pending:
+                    slot = item['slot']
+                    name, sha256 = AUXILIARY[slot]
+                    path = Path(folder) / name
+                    if not path.exists():
+                        data = read_image(page, MEDIA_ORIGIN + name, sha256)
+                        if data is None:
+                            return {'state': 'blocked', 'results': results, 'slot': slot,
+                                    'error': '흰색 자물쇠 보조 이미지 원본을 확인할 수 없습니다.'}
+                        path.write_bytes(data)
+                    auxiliary_files[slot] = path
                 for item in pending:
                     slot, fields = item['slot'], item['fields']
                     if rows_for(page, slot, fields['links']):
                         return {'state': 'blocked', 'results': results, 'slot': slot,
                                 'error': '등록 준비 후 같은 이벤트 배너가 생겼습니다. 목록을 확인하세요.'}
                     file = Path(item['file'])
+                    auxiliary = auxiliary_files[slot]
                     if hashlib.sha256(file.read_bytes()).hexdigest() != item['sha256'] or not page.evaluate(FILL, fields):
                         raise ValueError('배너 첨부 또는 입력값을 대조하지 못했습니다.')
-                    page.call('set_banner_file', slot=slot, path=str(file), timeout=12000)
-                    attached = page.evaluate(r'''({name,size,fields}) => {
+                    page.call('set_banner_file', slot=slot, path=str(file), auxiliary=str(auxiliary), timeout=24000)
+                    attached = page.evaluate(r'''({files,fields}) => {
                         const form = document.querySelector('form#search[name="regiform"]');
-                        const files = form?.elements.namedItem('file')?.files;
-                        return files?.length === 1 && files[0].name === name && files[0].size === size &&
+                        const attached = files.every(({key,name,size}) => {
+                            const input = form?.elements.namedItem(key)?.files;
+                            return input?.length === 1 && input[0].name === name && input[0].size === size;
+                        });
+                        return attached &&
                             Object.entries(fields).every(([key,value]) => form.elements.namedItem(key)?.value === value);
-                    }''', {'name': file.name, 'size': file.stat().st_size, 'fields': fields})
+                    }''', {'files': [{'key': key, 'name': path.name, 'size': path.stat().st_size}
+                                    for key, path in (('file', file), ('file2', auxiliary))], 'fields': fields})
                     if not attached:
                         raise ValueError('비즈호스트의 첨부 또는 입력값을 확인하지 못했습니다.')
                     active = slot

@@ -58,6 +58,7 @@ async function dispatch(c){
       ||![111,138,437,329,325,108,47,426,427].includes(c.slot))throw Error('banner_editor_target_mismatch');
   if(c.op==='set_banner_file'){
    await page.setInputFiles('form#search[name="regiform"] input[type="file"][name="file"]',[c.path]);
+   await page.setInputFiles('form#search[name="regiform"] input[type="file"][name="file2"]',[c.auxiliary]);
    return true;
   }
   const button={selector:'.btn_submit[data-form="#search"] > a'};
