@@ -9,8 +9,10 @@ import stat
 import threading
 import uuid
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import paramiko
 from flask import Flask, abort, jsonify, redirect, render_template, request
@@ -19,6 +21,8 @@ from PIL import Image, UnidentifiedImageError
 
 SKINS = {'web': ('웹', 20), 'mobile': ('모바일', 21)}
 ADMIN = 'https://banana.bizhost.kr/adminx/newdesign.php'
+PUBLIC_HOSTS = {'www.bananamall.co.kr', 'bananamall.co.kr', 'm.bananamall.co.kr'}
+CDN_HOST = 'cdn-banana.bizhost.kr'
 PAGE = re.compile(r'/etc/([A-Za-z0-9][A-Za-z0-9_-]{0,99})\.php')
 NAME = re.compile(r'[\w][\w .-]{0,100}\.(?:jpe?g|png|gif|webp)', re.IGNORECASE)
 FORMATS = {'.jpg': 'JPEG', '.jpeg': 'JPEG', '.png': 'PNG', '.gif': 'GIF', '.webp': 'WEBP'}
@@ -41,6 +45,36 @@ class PinnedHostKey(paramiko.MissingHostKeyPolicy):
             raise PreparationError('확인된 SFTP 서버 지문과 현재 연결이 일치하지 않습니다.')
 
 
+class EventImages(HTMLParser):
+    def __init__(self, prefixes):
+        super().__init__()
+        self.prefixes = prefixes
+        self.bases = set()
+
+    def handle_starttag(self, tag, attributes):
+        if tag not in {'img', 'source'}:
+            return
+        for key, value in attributes:
+            if key not in {'src', 'data-src', 'srcset'} or not value:
+                continue
+            sources = [item.split()[0] for item in value.split(',') if item.split()] if key == 'srcset' else [value]
+            for source in sources:
+                try:
+                    url = urlsplit(source.strip())
+                except ValueError:
+                    continue
+                if url.netloc == CDN_HOST and url.scheme in {'', 'http', 'https'}:
+                    self.bases.update(base for prefix, base in self.prefixes.items() if url.path.startswith(prefix))
+
+
+class EventRedirects(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        url = urlsplit(newurl)
+        if url.scheme != 'https' or url.netloc not in PUBLIC_HOSTS or url.path != urlsplit(request.full_url).path:
+            raise PreparationError('공개 이벤트가 다른 주소로 이동했습니다.')
+        return super().redirect_request(request, fp, code, msg, headers, newurl)
+
+
 @dataclass
 class Asset:
     name: str
@@ -61,7 +95,7 @@ def plan(raw_url):
     except ValueError:
         raise PreparationError('바나나몰 이벤트 페이지의 HTTPS 주소를 입력하세요.') from None
     match = PAGE.fullmatch(url.path)
-    if url.scheme != 'https' or url.netloc not in {'www.bananamall.co.kr', 'bananamall.co.kr'} or not match:
+    if url.scheme != 'https' or url.netloc not in PUBLIC_HOSTS or not match:
         raise PreparationError('바나나몰의 /etc/이벤트이름.php 주소를 입력하세요.')
     name = match[1]
     file = f'/etc/{name}.htm'
@@ -174,7 +208,40 @@ def settings():
             'password': password, 'key': key, 'port': port, 'fingerprint': fingerprint}
 
 
+def replacement_bases(paths, name):
+    prefixes = {f'/{posixpath.basename(posixpath.dirname(base))}/etc/{name}/': base for base in paths.values()}
+    if len(prefixes) != len(paths):
+        raise PreparationError('웹·모바일 스킨의 SFTP 설정을 구분해 주세요.')
+    opener = build_opener(EventRedirects())
+    sources = {
+        'web': ('www.bananamall.co.kr', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36'),
+        'mobile': ('m.bananamall.co.kr', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 Mobile/15E148 Safari/604.1'),
+    }
+    verified = {}
+    for skin, (host, agent) in sources.items():
+        label = SKINS[skin][0]
+        page = Request(f'https://{host}/etc/{name}.php', headers={'User-Agent': agent, 'Accept-Encoding': 'identity'})
+        try:
+            with opener.open(page, timeout=8) as response:
+                html = response.read(4 * 1024 * 1024 + 1)
+                encoding = response.headers.get_content_charset() or 'utf-8'
+        except OSError:
+            raise PreparationError(f'{label} 공개 이벤트에서 기존 이미지 경로를 읽지 못했습니다.') from None
+        if len(html) > 4 * 1024 * 1024:
+            raise PreparationError(f'{label} 공개 이벤트가 확인할 수 있는 크기를 넘었습니다.')
+        parser = EventImages(prefixes)
+        try:
+            parser.feed(html.decode(encoding, errors='replace'))
+        except (LookupError, ValueError):
+            raise PreparationError(f'{label} 공개 이벤트의 이미지 주소를 읽을 수 없습니다.') from None
+        if len(parser.bases) != 1:
+            raise PreparationError(f'{label} 공개 이벤트에서 기존 이미지 폴더 하나를 확인할 수 없습니다.')
+        verified[skin] = parser.bases.pop()
+    return verified
+
+
 def prepare(config, name, mode, assets, results):
+    paths = replacement_bases(config['paths'], name) if mode == 'replace' else config['paths']
     with paramiko.SSHClient() as ssh:
         if config['fingerprint']:
             ssh.set_missing_host_key_policy(PinnedHostKey(config['fingerprint']))
@@ -188,11 +255,14 @@ def prepare(config, name, mode, assets, results):
             folders = {}
             names = [asset.remote_name(mode) for asset in assets]
             for skin, (label, _) in SKINS.items():
-                base = config['paths'][skin]
+                base = paths[skin]
+                folder = posixpath.join(base, name)
+                if folder in folders:
+                    folders[folder][1].append(skin)
+                    continue
                 root = remote_stat(sftp, base)
                 if root is None or not stat.S_ISDIR(root.st_mode):
                     raise PreparationError(f'{label} 스킨의 SFTP etc 폴더를 확인하세요.')
-                folder = posixpath.join(base, name)
                 found = remote_stat(sftp, folder)
                 if found is None and mode == 'replace':
                     raise PreparationError(f'{label}에 기존 이벤트 폴더가 없습니다.')
@@ -201,16 +271,18 @@ def prepare(config, name, mode, assets, results):
                 if found is not None:
                     for asset, filename in zip(assets, names):
                         same_asset(sftp, posixpath.join(folder, filename), asset)
-                folders[skin] = (folder, found is None)
-            for skin, (folder, missing) in folders.items():
-                state = results[skin]
-                state.update(status='running', folder=folder)
+                folders[folder] = (found is None, [skin])
+            for folder, (missing, skins) in folders.items():
+                for skin in skins:
+                    results[skin].update(status='running', folder=folder, shared=len(skins) > 1)
                 if missing:
                     sftp.mkdir(folder)
                 for asset, filename in zip(assets, names):
                     status = put_asset(sftp, posixpath.join(folder, filename), asset)
-                    state['files'].append({'name': filename, 'size': asset.size, 'status': status})
-                state['status'] = 'ready'
+                    for skin in skins:
+                        results[skin]['files'].append({'name': filename, 'size': asset.size, 'status': status})
+                for skin in skins:
+                    results[skin]['status'] = 'ready'
 
 
 def create_app():

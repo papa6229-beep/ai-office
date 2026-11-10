@@ -34,7 +34,7 @@ zone.addEventListener('drop', event => {
 
 function editorLinks(url) {
   if (!/^\/etc\/[A-Za-z0-9][A-Za-z0-9_-]{0,99}\.php$/.test(url.pathname)
-      || url.protocol !== 'https:' || !['www.bananamall.co.kr', 'bananamall.co.kr'].includes(url.host)
+      || url.protocol !== 'https:' || !['www.bananamall.co.kr', 'bananamall.co.kr', 'm.bananamall.co.kr'].includes(url.host)
       || url.username || url.password) throw new Error('바나나몰의 /etc/이벤트이름.php 주소를 입력하세요.');
   for (const panel of panels) {
     const editor = new URL(panel.dataset.editor, window.location.origin);
@@ -49,7 +49,7 @@ function displayStatus(skins = {}) {
   const names = {waiting: '업로드 대기', running: '진행 중', ready: '이미지 확인 완료', failed: '확인 필요'};
   for (const panel of panels) {
     const status = skins[panel.dataset.skin];
-    panel.querySelector('.state').textContent = status ? [names[status.status], status.folder].filter(Boolean).join(' · ') : '업로드 확인 필요';
+    panel.querySelector('.state').textContent = status ? [names[status.status], status.shared && '웹·모바일 공용 폴더', status.folder].filter(Boolean).join(' · ') : '업로드 확인 필요';
     panel.querySelector('.uploads').replaceChildren(...(status?.files || []).map(file => {
       const row = document.createElement('li');
       row.textContent = file.name + (file.status === 'reused' ? ' · 기존 파일 확인' : ' · 업로드 확인');
