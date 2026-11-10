@@ -500,8 +500,8 @@ class AssistantRuntime:
                 result['message']=result['answer']=message
         # Fenced source remains an unexecuted draft; visible prose never
         # determines source_changes or activation.
-        draft_blocks = list(re.finditer(r'```([\w+.-]{0,30})[ \t]*\r?\n([\s\S]*?)```',
-                                        str(final_answer or '')[:6000]))[:4]
+        draft_blocks = [block for block in re.finditer(r'```([\w+.-]{0,30})[ \t]*\r?\n([\s\S]*?)```',
+                                        str(final_answer or '')[:6000]) if block[1]!='codex-request'][:4]
         if draft_blocks:
             result['drafts'] = [{'kind': 'code', 'language': block[1],
                                  'text': block[2][:6000], 'origin': 'draft'} for block in draft_blocks]

@@ -86,12 +86,31 @@
     button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();revealFolder(button,reference,status);});
     wrap.append(button,status);return wrap;
   }
+  function codexRequestDraft(value){
+    const match=typeof value==='string'&&value.match(/^```codex-request[ \t]*\r?\n([\s\S]+?)\r?\n```$/);
+    if(!match||match[1].length>1200||!match[1].trim())return null;
+    const text=match[1].trim();
+    const block=document.createElement('span');block.className='office-chat-request-draft';
+    const body=document.createElement('span');body.textContent=text;
+    const copy=document.createElement('button');copy.type='button';copy.className='office-chat-folder';copy.textContent='코덱스 요청 문구 복사';
+    const status=document.createElement('span');status.className='office-chat-folder-status';status.setAttribute('role','status');
+    copy.addEventListener('click',async event=>{
+      if(!event.isTrusted)return;
+      event.stopPropagation();
+      try{await navigator.clipboard.writeText(text);status.textContent='복사했어요. 코덱스 입력칸에서 내용을 확인하고 보내 주세요.';}
+      catch(_){status.textContent='위 문구를 선택해 복사해 주세요.';}
+    });
+    block.append(body,copy,status);return block;
+  }
   function render(container,message){
     if(!container)return;
     const parts=Array.isArray(message.parts)?message.parts:fallback(message.content??message.text);
-    const signature=JSON.stringify(parts);if(container.dataset.chatContent===signature)return;
+    const signature=JSON.stringify([message.role,parts]);if(container.dataset.chatContent===signature)return;
     container.dataset.chatContent=signature;const fragment=document.createDocumentFragment();
     for(const part of parts){
+      if(part.kind==='code'&&message.role==='assistant'){
+        const draft=codexRequestDraft(part.text);if(draft){fragment.append(draft);continue;}
+      }
       if(!['link','file'].includes(part.kind)){fragment.append(document.createTextNode(part.text||''));continue;}
       const href=url(part.href);if(!href){fragment.append(document.createTextNode(part.text||''));continue;}
       const pathname=new URL(part.path||href,location.href).pathname;
