@@ -447,7 +447,9 @@
       const m=native[i],signature=messageSignature(m);
       let at=-1,distance=Infinity;
       base.forEach((b,index)=>{if(used.has(index)||messageSignature(b)!==signature)return;
-        const delta=Math.abs((Date.parse(b.created)||0)-(Number(m.turn_started_at)||0)*1000);
+        const created=Date.parse(b.created)||0;
+        if(m.role==='user'&&m.turn_completed_at&&created>m.turn_completed_at*1000)return;
+        const delta=Math.abs(created-(Number(m.turn_started_at)||0)*1000);
         if(delta<=distance){distance=delta;at=index;}});
       if(at>=0){used.add(at);anchors.set(i,at);Object.assign(base[at],{native_id:m.id,native_turn:m.turn_id,phase:m.phase,parts:m.parts||base[at].parts});}
     }
@@ -455,13 +457,14 @@
     for(let i=0;i<native.length;i++){
       if(anchors.has(i))continue;
       const m=native[i];
-      let nextAnchor=-1;
-      for(let j=i+1;j<native.length;j++)if(anchors.has(j)){nextAnchor=j;break;}
-      let boundary=base.length;
-      if(nextAnchor>=0)boundary=anchors.get(nextAnchor);
-      else{
-        const nextTurn=native.find(x=>(x.turn_started_at||0)>(m.turn_started_at||0));
-        if(nextTurn){const nextTime=Number(nextTurn.turn_started_at)*1000-1000;const index=base.findIndex(x=>(Date.parse(x.created)||0)>=nextTime);if(index>=0)boundary=index;}
+      // Position history by its own turn even when the newest native page lags behind Office.
+      const turnTime=(Number(m.turn_started_at)||0)*1000;
+      const index=base.findIndex(b=>Date.parse(b.created)>turnTime);
+      let boundary=index<0?base.length:index;
+      for(const [position,anchor] of anchors){
+        if(native[position].turn_id!==m.turn_id)continue;
+        if(position>i){boundary=Math.min(boundary,anchor);break;}
+        boundary=Math.max(boundary,anchor+1);
       }
       result.push({...m,id:'native:'+m.turn_id+':'+m.id,native_id:m.id,native_turn:m.turn_id,content:m.text,
         _order:boundary-.5+(i/(native.length+1))*.4});
