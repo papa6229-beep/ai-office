@@ -13,3 +13,5 @@ body button.office-chat-folder:hover{border-color:var(--ao-accent,#b6f542);color
 body button.office-chat-folder:focus-visible{outline:2px solid var(--ao-accent,#b6f542);outline-offset:3px}
 body button.office-chat-folder:disabled{opacity:.55;cursor:wait}
 .office-chat-folder-status{font-size:10px;color:var(--ao-muted,#9aa9b5);margin-right:4px;white-space:normal}.office-chat-folder-status:empty{display:none}.office-chat-folder-status[data-state=error]{color:var(--ao-danger,#ff9e91)}
+.office-chat-request-draft{display:block;margin:6px 0;padding:8px;border:1px solid var(--ao-border,#586c84);border-radius:6px;white-space:pre-wrap;overflow-wrap:anywhere}
+.office-chat-request-draft>span:first-child{display:block;margin-bottom:6px}
