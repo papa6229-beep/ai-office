@@ -302,6 +302,13 @@ let bannerScan = 0;
 let scanningBanners = false;
 let bannerPayload;
 
+const bannerLink = document.querySelector('.studio-nav a[href="#banner-tool"]');
+if (location.hash === '#banner-tool') bannerTool.open = true;
+bannerLink?.addEventListener('click', () => { bannerTool.open = true; });
+window.addEventListener('hashchange', () => {
+  if (location.hash === '#banner-tool') bannerTool.open = true;
+});
+
 bannerTool.addEventListener('toggle', () => {
   if (!bannerTool.open) return;
   const field = document.querySelector('#banner-url');
@@ -464,7 +471,7 @@ bannerForm.addEventListener('submit', async event => {
     for (const file of selectedFiles.values()) payload.append('files', file);
     bannerPayload = payload;
     document.querySelector('#banner-summary').textContent = [payload.get('url'), `노출 문구 · ${data.seo}`,
-      `${payload.get('start')} ~ ${payload.get('end')} (한국 시간)`,
+      `${payload.get('start').replace('T', ' ')} ~ ${payload.get('end').replace('T', ' ')} (한국 시간)`,
       payload.get('visible') === 'Y' ? '지정 기간에 노출' : '노출 안 함으로 등록'].join('\n');
     document.querySelector('#banner-selection').replaceChildren(...selected.map(slot => {
       const row = document.createElement('li');

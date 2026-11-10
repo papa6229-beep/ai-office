@@ -3,84 +3,97 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>바나나몰 이벤트 게시 준비</title>
-  <style>
-    *{box-sizing:border-box} body{margin:0;background:#f4f5f0;color:#252923;font:16px/1.5 system-ui,sans-serif}
-    main{max-width:920px;margin:auto;padding:clamp(20px,5vw,56px)} h1{font-size:clamp(28px,5vw,42px);line-height:1.2;margin:.25em 0}
-    h2,h3,p{margin-top:0} small,.hint{color:#4f584c} .eyebrow{font-weight:750;color:#4a5d16;letter-spacing:.06em}
-    form,.results{background:#fff;border:1px solid #dadfd4;border-radius:16px;padding:clamp(16px,4vw,28px);margin:20px 0}
-    label{display:block;font-weight:700;margin-bottom:6px} input[type=url],input[type=text]{display:block;width:100%;padding:12px;border:1px solid #818a7d;border-radius:8px;font:inherit}
-    fieldset{margin:14px 0 0;border:1px solid #dadfd4;border-radius:8px} fieldset input+label{margin-top:10px}
-    .drop{border:2px dashed #b3bdac;border-radius:10px;padding:18px;margin:18px 0 8px;background:#f8f9f5}
-    .drop[data-drag]{border-color:#5a730e;background:#f2f6db} .drop input{max-width:100%} .files{padding-left:1.5rem;overflow-wrap:anywhere}
-    .files li{padding:4px 0} .files button{padding:2px 7px;margin-left:6px;font-size:.85em}
-    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px} button,.editor{font:inherit;font-weight:700;border-radius:8px;padding:10px 16px;cursor:pointer}
-    button{border:1px solid #768063;background:#fff;color:#25301d} button.primary{background:#d9ed7c;border-color:#a9bd4c;color:#222a13}
-    button:disabled{cursor:wait;opacity:.65} .editor{display:inline-block;color:#25301d;background:#eef1e7;text-decoration:none;margin-bottom:10px}
-    .skins{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px}
-    article{padding:14px;border:1px solid #dadfd4;border-radius:10px;overflow-wrap:anywhere} article ul{padding-left:1.2rem;margin-bottom:0}
-    .warning{padding:10px 14px;border-left:4px solid #97600c;background:#fff5df} .message{white-space:pre-wrap} [hidden]{display:none!important}
-    dialog{width:min(760px,calc(100% - 32px));max-height:calc(100% - 32px);border:1px solid #dadfd4;border-radius:16px;padding:20px;color:inherit}
-    dialog::backdrop{background:#1c211bc0} .choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:10px;max-height:50vh;overflow:auto;padding:3px}
-    .choice{border:1px solid #adb8a5;border-radius:8px;padding:8px}
-    .choice:has(input:checked){outline:2px solid #617618;background:#f1f6d8}
-    .choice label{margin:8px 0 0;cursor:pointer}
-    .choice label input{margin:0 4px 0 0}
-    .choice-preview{display:block;width:100%;padding:4px;background:#f4f5f0;cursor:zoom-in}
-    .choice-preview img{display:block;width:100%;height:130px;object-fit:contain}
-    .choices small{display:block;font-weight:400}
-    .choices.registration-preview{display:block}
-    .registration-preview figure{margin:0 auto 12px;max-width:440px;background:#f4f5f0}
-    .registration-preview img,.registration-preview video{display:block;width:100%;max-height:300px;object-fit:contain}
-    .registration-preview figcaption{padding:6px;overflow-wrap:anywhere}
-    #preview-dialog{width:min(1024px,calc(100% - 24px));max-height:calc(100dvh - 24px);overflow:hidden}
-    #preview-dialog[open]{display:flex;flex-direction:column}
-    .preview-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
-    .preview-header h2{margin:0;overflow-wrap:anywhere;font-size:1.1rem}
-    .preview-header button{flex-shrink:0}
-    .preview-scroll{min-height:0;overflow:auto;overscroll-behavior:contain;background:#f4f5f0}
-    .preview-scroll img{display:block;max-width:100%;height:auto;margin:auto}
-    .banner-tool summary{cursor:pointer;font-size:1.25rem;font-weight:750}
-    .banner-tool form{padding:0;border:0;margin-bottom:0}
-    .banner-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:14px 0}
-    .banner-fields input{max-width:100%;font:inherit}
-    .banner-slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:10px}
-    .banner-slots input{max-width:100%}.banner-slots input[type=text]{margin-top:6px;padding:6px 8px}
-  </style>
+  <title>바나나몰 퍼블리싱 스튜디오</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='studio.css') }}">
   <script defer src="{{ url_for('static', filename='publisher.js') }}"></script>
 </head>
 <body>
 <main>
-  <header>
-    <div class="eyebrow">바나나몰 · 디자인 운영</div>
-    <h1>이벤트 게시 준비</h1>
-    <p class="hint">신규 페이지에 이미지와 영상을 순서대로 등록하거나 기존 이벤트의 이미지 한 장을 교체·삭제할 수 있습니다.</p>
+  <header class="studio-hero">
+    <div class="hero-copy">
+      <p class="studio-brand"><span aria-hidden="true"></span> 바나나몰 디자인 운영</p>
+      <h1>퍼블리싱<br>스튜디오</h1>
+      <p>이벤트 페이지와 배너를 준비하고, 확인한 뒤 게시하세요.</p>
+    </div>
+    <svg class="hero-art" viewBox="0 0 420 268" aria-hidden="true">
+      <defs>
+        <pattern id="proof-grid" width="16" height="16" patternUnits="userSpaceOnUse">
+          <path d="M 16 0 H 0 V 16" fill="none" stroke="#2b2818" stroke-opacity=".16"/>
+        </pattern>
+        <pattern id="proof-hatch" width="6" height="6" patternUnits="userSpaceOnUse">
+          <path d="M -1 1 L 1 -1 M 0 6 L 6 0 M 5 7 L 7 5" fill="none" stroke="#262310" stroke-opacity=".36"/>
+        </pattern>
+      </defs>
+      <path d="M0 0H420V232L384 268H0Z" fill="#ffdf51"/>
+      <path d="M0 0H420V232L384 268H0Z" fill="url(#proof-grid)"/>
+      <g fill="none" stroke="#191810" stroke-width="2">
+        <path d="M25 44V24H45M374 24H394V44M25 224V244H45M372 244H385V231"/>
+        <path d="M45 130H36M382 130H391M208 34V42M208 225V234"/>
+      </g>
+      <path d="M69 70H313V201H69Z" fill="#b79c2b"/>
+      <rect x="61" y="62" width="244" height="131" fill="#fff6c7" stroke="#191810" stroke-width="3"/>
+      <path d="M61 62H305V84H61Z" fill="#191810"/>
+      <g fill="#ffdf51"><circle cx="74" cy="73" r="2.7"/><circle cx="84" cy="73" r="2.7"/><circle cx="94" cy="73" r="2.7"/></g>
+      <path d="M77 100H289V151H77Z" fill="#ffdf51" stroke="#191810" stroke-width="2"/>
+      <path d="M80 148L126 109L153 130L179 115L222 149Z" fill="#282315"/>
+      <circle cx="253" cy="122" r="12" fill="#fff6c7" stroke="#191810" stroke-width="2"/>
+      <path d="M77 163H171V176H77ZM179 163H230V176H179Z" fill="url(#proof-hatch)"/>
+      <rect x="286" y="105" width="67" height="115" rx="5" fill="#b79c2b"/>
+      <rect x="279" y="98" width="67" height="115" rx="5" fill="#fff6c7" stroke="#191810" stroke-width="3"/>
+      <path d="M300 109H325M304 201H320" stroke="#191810" stroke-width="3" stroke-linecap="round"/>
+      <path d="M287 120H338V162H287Z" fill="#ffdf51" stroke="#191810" stroke-width="2"/>
+      <path d="M290 159L307 140L321 153L332 145L335 159Z" fill="#282315"/>
+      <path d="M288 170H337V187H288Z" fill="url(#proof-hatch)"/>
+    </svg>
   </header>
+  <nav class="studio-nav" aria-label="퍼블리싱 작업">
+    <a href="#prepare" class="work-link">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 13h10M7 16h6"/></svg>
+      <span><strong>이벤트 페이지</strong><small>신규 게시 · 이미지 교체 및 삭제</small></span>
+      <span class="link-arrow" aria-hidden="true">↘</span>
+    </a>
+    <a href="#banner-tool" class="work-link">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1"/><rect x="3" y="15" width="10" height="5" rx="1"/><rect x="17" y="15" width="4" height="5" rx="1"/></svg>
+      <span><strong>배너 일괄 등록</strong><small>픽셀 규격 자동 배정 · 노출 일정 설정</small></span>
+      <span class="link-arrow" aria-hidden="true">↘</span>
+    </a>
+  </nav>
   {% if not sftp_ready %}<p class="warning">SFTP 연결 설정이 필요합니다. 편집 화면은 열 수 있고, 업로드는 서버 설정 후 사용할 수 있습니다.</p>{% endif %}
   {% if not publish_enabled %}<p class="warning">이 서버에 비즈호스트 자동 게시 연결을 설정해야 등록·교체·삭제를 진행할 수 있습니다.</p>{% endif %}
-  <form id="prepare">
-    <label for="event-url">바나나몰 페이지 주소</label>
-    <input id="event-url" name="url" type="url" required placeholder="https://www.bananamall.co.kr/etc/evt_example.php">
-    <fieldset>
-      <legend>신규 등록용 행사 정보</legend>
-      <label for="event-title">행사명</label>
-      <input id="event-title" name="event_title" type="text" maxlength="80">
-      <label for="event-description">검색 설명</label>
-      <input id="event-description" name="event_description" type="text" maxlength="180">
-    </fieldset>
-    <div class="drop" id="drop-zone">
-      <label for="images">웹·모바일에 올릴 파일</label>
-      <input id="images" name="images" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.mp4" multiple>
-      <small>아래 목록 순서대로 등록됩니다. 최대 16개, 이미지당 20MB, MP4당 80MB, 합계 100MB 미만입니다.</small>
+  <form id="prepare" class="work-panel" aria-labelledby="page-title">
+    <header class="section-heading">
+      <h2 id="page-title">이벤트 페이지</h2>
+      <p class="hint">이미지와 영상을 순서대로 게시하거나 기존 페이지의 이미지를 교체·삭제할 수 있습니다.</p>
+    </header>
+    <div class="page-fields">
+      <div>
+        <label for="event-url">바나나몰 페이지 주소</label>
+        <input id="event-url" name="url" type="url" required placeholder="https://www.bananamall.co.kr/etc/evt_example.php">
+        <fieldset>
+          <legend>신규 등록용 행사 정보</legend>
+          <label for="event-title">행사명</label>
+          <input id="event-title" name="event_title" type="text" maxlength="80">
+          <label for="event-description">검색 설명</label>
+          <input id="event-description" name="event_description" type="text" maxlength="180">
+        </fieldset>
+      </div>
+      <div>
+        <div class="drop" id="drop-zone">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m-5 5 5-5 5 5M4 16v4h16v-4"/></svg>
+          <label for="images">웹·모바일에 올릴 파일</label>
+          <input id="images" name="images" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.mp4" multiple>
+          <small>파일을 끌어 놓거나 선택하세요. 목록 순서대로 등록됩니다. 최대 16개, 이미지당 20MB, MP4당 80MB, 합계 100MB 미만입니다.</small>
+        </div>
+        <ol id="files" class="files" aria-label="첨부 파일 순서"></ol>
+      </div>
     </div>
-    <ol id="files" class="files" aria-label="첨부 파일 순서"></ol>
     <div class="actions">
       <button type="submit" value="new" class="primary"{% if not publish_enabled %} disabled{% endif %}>신규 등록 준비</button>
       <button type="submit" value="replace"{% if not publish_enabled %} disabled{% endif %}>이미지 교체</button>
       <button type="submit" value="delete"{% if not publish_enabled %} disabled{% endif %}>이미지 삭제</button>
     </div>
   </form>
-  <section class="results" id="results" hidden>
+  <section class="work-panel" id="results" hidden>
     <h2>준비 결과</h2>
     <p class="message" id="message" role="status" aria-live="polite"></p>
     <div class="skins">
@@ -94,8 +107,8 @@
       {% endfor %}
     </div>
   </section>
-  <details class="results banner-tool" id="banner-tool">
-    <summary>이벤트 배너 등록</summary>
+  <details class="work-panel banner-tool" id="banner-tool">
+    <summary><span>배너 일괄 등록</span></summary>
     <form id="banner-form">
       <p class="hint">배너 파일을 한꺼번에 올리면 픽셀 규격으로 등록 위치를 찾습니다. 모바일 800×250 한 장은 두 곳에 사용합니다.</p>
       <label for="banner-url">배너를 눌렀을 때 열릴 이벤트 주소</label>
@@ -105,8 +118,10 @@
         <label>노출 시작 (한국 시간)<input name="start" type="datetime-local" step="1" required></label>
         <label>노출 종료 (한국 시간)<input name="end" type="datetime-local" step="1" required></label>
       </div>
-      <label for="banner-files">배너 파일 여러 장 선택</label>
-      <input id="banner-files" type="file" accept=".jpg,.jpeg,.gif" multiple>
+      <div class="banner-file-field">
+        <label for="banner-files">배너 파일 여러 장 선택</label>
+        <input id="banner-files" type="file" accept=".jpg,.jpeg,.gif" multiple>
+      </div>
       <p class="hint" id="banner-file-status" role="status"></p>
       <div id="banner-duplicates"></div>
       <div class="banner-slots">
