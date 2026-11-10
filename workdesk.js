@@ -438,6 +438,7 @@
   document.addEventListener('focusout',event=>{if(event.target.closest('#workTaskDetailPanel'))setTimeout(()=>{if(overview)renderDetail();},0);});
   // Read-only conversation projection. A displayed native reply is never an execution receipt.
   const nativeConversation = new Map();
+  let conversationEpoch = 0;
   const messageText = m => String(m.content ?? m.text ?? '').replace(/^\[AI OFFICE 요청 [0-9a-f]{32}\]\s*/, '').trim();
   const messageSignature = m => m.role+'\0'+messageText(m).replace(/\s+/g,' ');
   function mainConversationMessages(){
@@ -554,9 +555,11 @@
     // Refresh the records without replacing the live conversation/draft.
     if(busy || uncertain)return refreshRecords();
     const initialRecordRevision=recordRevision;
+    const initialConversationEpoch=conversationEpoch;
     loading = true; companionOutcome=null; companionError=''; companionUpdate();
     try {
       const response = await fetch('/api/work', {cache:'no-store'}), data = await response.json();
+      if(conversationEpoch!==initialConversationEpoch)return false;
       if (!response.ok || data.error) throw new Error(data.error || '업무를 불러오지 못했습니다.');
       const initialLoad = !overview;
       if(overview && recordRevision!==initialRecordRevision){
@@ -566,7 +569,9 @@
       if(initialLoad){try{const draft=sessionStorage.getItem('ai-office-command-draft');if(draft && !$('workCommand').value)$('workCommand').value=draft;sessionStorage.removeItem('ai-office-command-draft');}catch(_){}window.officeUpdates?.restore();}
       settleChatScroll(initialLoad);
       if ($('workTaskDialog').open && selected) loadHistory(selected);
+      return true;
     } catch (e) {
+      if(conversationEpoch!==initialConversationEpoch)return false;
       companionError='연결을 확인해 주세요';
       notice(`업무 연결 실패: ${e.message} 화면을 다시 열어 재연결하세요.`, true);
       if (!overview) {
@@ -575,6 +580,7 @@
 
       }
       locks();
+      return false;
     } finally { loading = false; locks(); }
   };
   let mirrorRevision=null;
@@ -589,11 +595,12 @@
       companionUpdate();
       if(!data.enabled || data.revision===mirrorRevision || loading || recordBusy)return;
       if(!busy && !uncertain){
-        await window.workLoad();
+        if(!await window.workLoad())return;
       }else{
         // A running POST must not hide direct desktop replies or detach its live draft.
+        const initialConversationEpoch=conversationEpoch;
         const response=await fetch('/api/work',{cache:'no-store'}), latest=await response.json();
-        if(!response.ok || latest.error)return;
+        if(!response.ok || latest.error || conversationEpoch!==initialConversationEpoch)return;
         // Use the same persisted/native merge as every other refresh. Appending
         // all DB assistants here briefly replayed history at the bottom before
         // renderConversation removed those duplicate cards again.
@@ -769,6 +776,7 @@
     if (busy || (!existing && uncertain) || !overview?.action_token) return;
     const initialRecordRevision=recordRevision;
     const request = existing || {endpoint, body:{...payload, ...(['command','assistant-action'].includes(endpoint)&&window.officeUI?{client:window.officeUI.capture()}:{}), token:overview.action_token, request_id:payload.request_id || requestID()}, cleanup};
+    conversationEpoch++;
     companionError=''; companionOutcome=null; liveActivity=null; clearTimeout(outcomeTimer); busy = true; notice(); locks();
     let confirmedResponse = false;
     const stageRequest=['command','assistant-action','choose-launcher'].includes(request.endpoint);
@@ -835,7 +843,7 @@
       companionOutcome=null;companionError=confirmedResponse ? '요청을 확인해 주세요' : '결과 확인이 필요해요';
       notice(`${confirmedResponse ? '요청 실패' : '처리 결과 확인 실패'}: ${e.message}`, true);
       if(['task','task-edit'].includes(request.endpoint)&&$('workTaskCreateDialog').open){$('workTaskFormNotice').textContent=e.message;$('workTaskFormNotice').hidden=false;}
-    } finally { stopLive();liveActivity=null;busy = false;if(!uncertain){activeRequest=null;stopRequested=false;delete controlPending.message;delete controlPending.stop;}locks();if(recordRevision!==initialRecordRevision && !recordBusy && !recordUncertain)refreshRecords(); }
+    } finally { conversationEpoch++;stopLive();liveActivity=null;busy = false;if(!uncertain){activeRequest=null;stopRequested=false;delete controlPending.message;delete controlPending.stop;}locks();if(recordRevision!==initialRecordRevision && !recordBusy && !recordUncertain)refreshRecords(); }
   }
   function openTaskEditor(task=null){
     const form=$('workTaskForm');form.reset();form.dataset.taskId=task?.id||'';
