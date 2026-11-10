@@ -117,7 +117,9 @@
           <p data-banner-match class="hint">미첨부</p>
           {% if slot in banner_backgrounds %}
           <label for="banner-bg-{{ slot }}">배경색</label>
-          <input id="banner-bg-{{ slot }}" name="background_{{ slot }}" type="text" placeholder="#RRGGBB" maxlength="7">
+          <input id="banner-bg-{{ slot }}" name="background_{{ slot }}" type="text" placeholder="#RRGGBB" maxlength="7"
+                 data-banner-background aria-describedby="banner-bg-status-{{ slot }}">
+          <p id="banner-bg-status-{{ slot }}" class="hint" data-banner-background-status role="status"></p>
           {% endif %}
         </article>
         {% endfor %}

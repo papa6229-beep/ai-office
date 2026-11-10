@@ -290,6 +290,12 @@ const bannerFiles = document.querySelector('#banner-files');
 const bannerFileStatus = document.querySelector('#banner-file-status');
 const bannerDuplicates = document.querySelector('#banner-duplicates');
 const bannerSizes = new Set(bannerSlots.map(slot => slot.dataset.bannerSize));
+const bannerBackgrounds = bannerSlots.flatMap(slot => {
+  const field = slot.querySelector('[data-banner-background]');
+  return field ? [{field, size: slot.dataset.bannerSize, status: slot.querySelector('[data-banner-background-status]')}] : [];
+});
+const bannerBackgroundSizes = new Set(bannerBackgrounds.map(({size}) => size));
+const bannerBackgroundColors = new WeakMap();
 let bannerGroups = new Map();
 let bannerSelected = new Map();
 let bannerScan = 0;
@@ -302,11 +308,62 @@ bannerTool.addEventListener('toggle', () => {
   if (!field.value) field.value = document.querySelector('#event-url').value;
 });
 
+function detectBannerBackground(bitmap) {
+  // Read both sides where the storefront's surrounding color meets the image.
+  const canvas = document.createElement('canvas');
+  canvas.width = 2;
+  canvas.height = bitmap.height;
+  const context = canvas.getContext('2d', {willReadFrequently: true});
+  const edges = [0, bitmap.width - 1].map((x, side) => {
+    context.drawImage(bitmap, x, 0, 1, canvas.height, side, 0, 1, canvas.height);
+    const pixels = context.getImageData(side, 0, 1, canvas.height).data;
+    const colors = [];
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i + 3] >= 128) colors.push([pixels[i], pixels[i + 1], pixels[i + 2]]);
+    }
+    return colors;
+  });
+  const pixels = edges.flat();
+  if (!pixels.length) return;
+  const median = [0, 1, 2].map(channel => {
+    const values = pixels.map(pixel => pixel[channel]).sort((a, b) => a - b);
+    return values[Math.floor(values.length / 2)];
+  });
+  const uniform = edges.every(edge => edge.filter(pixel =>
+    pixel.every((value, channel) => Math.abs(value - median[channel]) <= 12)).length >= canvas.height * 0.9);
+  const visibleEdges = edges.filter(edge => edge.length);
+  // Give each visible edge the same weight, even when one is partly transparent.
+  const rgb = uniform ? median : median.map((_, channel) => Math.round(visibleEdges.reduce((sum, edge) =>
+    sum + edge.reduce((total, pixel) => total + pixel[channel], 0) / edge.length, 0) / visibleEdges.length));
+  return {color: '#' + rgb.map(value => value.toString(16).padStart(2, '0')).join('').toUpperCase(), uniform};
+}
+
+for (const {field, status} of bannerBackgrounds) {
+  field.addEventListener('input', () => {
+    delete field.dataset.autoBackground;
+    status.textContent = field.value.trim() ? '직접 입력한 색' : '';
+  });
+}
+
 function drawBannerMatches() {
   for (const slot of bannerSlots) {
     const size = slot.dataset.bannerSize;
     slot.querySelector('[data-banner-match]').textContent = bannerSelected.get(size)?.name ||
       (bannerGroups.has(size) ? '같은 규격에서 파일 선택 필요' : '미첨부');
+  }
+  for (const {field, size, status} of bannerBackgrounds) {
+    const file = bannerSelected.get(size);
+    if (field.dataset.autoBackground) field.value = '';
+    delete field.dataset.autoBackground;
+    if (field.value.trim()) continue;
+    const background = file && bannerBackgroundColors.get(file);
+    if (background) {
+      field.value = background.color;
+      field.dataset.autoBackground = 'true';
+      status.textContent = background.uniform ? '좌우 가장자리에서 자동 입력' : '좌우 색이 섞여 유사 색상으로 자동 입력';
+    } else {
+      status.textContent = file ? '가장자리에서 색을 읽을 수 없습니다.' : '';
+    }
   }
 }
 
@@ -333,7 +390,13 @@ bannerFiles.addEventListener('change', async () => {
         throw Error('JPG/GIF, 20MB 이하');
       const bitmap = await createImageBitmap(file, {imageOrientation: 'none'});
       const size = `${bitmap.width}x${bitmap.height}`;
-      bitmap.close();
+      try {
+        if (bannerBackgroundSizes.has(size)) bannerBackgroundColors.set(file, detectBannerBackground(bitmap));
+      } catch {
+        // Color extraction is optional; the selected file can still be used with a manual color.
+      } finally {
+        bitmap.close();
+      }
       if (!bannerSizes.has(size)) throw Error(`${size.replace('x', '×')}px 제외 규격`);
       if (!groups.has(size)) groups.set(size, []);
       groups.get(size).push(file);
