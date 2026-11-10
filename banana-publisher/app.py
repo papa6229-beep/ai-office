@@ -2,16 +2,21 @@ import base64
 import errno
 import hashlib
 import hmac
+import json
 import os
 import posixpath
 import re
+import sqlite3
 import stat
+import subprocess
 import threading
+import time
 import uuid
+from contextlib import closing
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import paramiko
@@ -50,6 +55,7 @@ class EventImages(HTMLParser):
         super().__init__()
         self.prefixes = prefixes
         self.bases = set()
+        self.images = {}
 
     def handle_starttag(self, tag, attributes):
         if tag not in {'img', 'source'}:
@@ -64,7 +70,13 @@ class EventImages(HTMLParser):
                 except ValueError:
                     continue
                 if url.netloc == CDN_HOST and url.scheme in {'', 'http', 'https'}:
-                    self.bases.update(base for prefix, base in self.prefixes.items() if url.path.startswith(prefix))
+                    for prefix, base in self.prefixes.items():
+                        if not url.path.startswith(prefix):
+                            continue
+                        self.bases.add(base)
+                        if tag == 'img' and key == 'src' and posixpath.basename(url.path):
+                            preview = url._replace(scheme='https', fragment='').geturl()
+                            self.images.setdefault(url.path, preview)
 
 
 class EventRedirects(HTTPRedirectHandler):
@@ -208,7 +220,7 @@ def settings():
             'password': password, 'key': key, 'port': port, 'fingerprint': fingerprint}
 
 
-def replacement_bases(paths, name):
+def replacement_sources(paths, name, *, allow_empty=False):
     prefixes = {f'/{posixpath.basename(posixpath.dirname(base))}/etc/{name}/': base for base in paths.values()}
     if len(prefixes) != len(paths):
         raise PreparationError('웹·모바일 스킨의 SFTP 설정을 구분해 주세요.')
@@ -217,10 +229,11 @@ def replacement_bases(paths, name):
         'web': ('www.bananamall.co.kr', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36'),
         'mobile': ('m.bananamall.co.kr', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 Mobile/15E148 Safari/604.1'),
     }
-    verified = {}
+    verified, candidates = {}, {}
     for skin, (host, agent) in sources.items():
         label = SKINS[skin][0]
-        page = Request(f'https://{host}/etc/{name}.php', headers={'User-Agent': agent, 'Accept-Encoding': 'identity'})
+        page = Request(f'https://{host}/etc/{name}.php', headers={
+            'User-Agent': agent, 'Accept-Encoding': 'identity', 'Cache-Control': 'no-cache'})
         try:
             with opener.open(page, timeout=8) as response:
                 html = response.read(4 * 1024 * 1024 + 1)
@@ -234,17 +247,22 @@ def replacement_bases(paths, name):
             parser.feed(html.decode(encoding, errors='replace'))
         except (LookupError, ValueError):
             raise PreparationError(f'{label} 공개 이벤트의 이미지 주소를 읽을 수 없습니다.') from None
+        if allow_empty and not parser.bases:
+            continue
         if len(parser.bases) != 1:
             raise PreparationError(f'{label} 공개 이벤트에서 기존 이미지 폴더 하나를 확인할 수 없습니다.')
         verified[skin] = parser.bases.pop()
-    return verified
+        for path, preview in parser.images.items():
+            item = candidates.setdefault(path, {'preview': preview, 'label': posixpath.basename(path), 'skins': []})
+            item['skins'].append(skin)
+    if not candidates and not allow_empty:
+        raise PreparationError('공개 이벤트에서 교체할 수 있는 이미지 주소를 찾지 못했습니다.')
+    if len(candidates) > 100:
+        raise PreparationError('이벤트 이미지가 100장을 넘어 교체 대상을 준비할 수 없습니다.')
+    return verified, list(candidates.values())
 
 
-def prepare(config, name, mode, assets, results):
-    if mode == 'replace':
-        paths = replacement_bases(config['paths'], name)
-    else:
-        paths = dict.fromkeys(SKINS, config['paths']['web'])
+def prepare(config, name, mode, assets, results, paths):
     with paramiko.SSHClient() as ssh:
         if config['fingerprint']:
             ssh.set_missing_host_key_policy(PinnedHostKey(config['fingerprint']))
@@ -300,6 +318,18 @@ def create_app():
         raise ValueError('팀 접속은 HTTPS 주소와 웹 로그인 설정이 필요합니다.')
     origin = f'{public.scheme}://{public.netloc}'
     lock = threading.Lock()
+    selection_path = Path(os.environ.get('BANANA_PUBLISH_SELECTION_DB') or
+                          Path.home() / '.banana-publisher' / 'replacements.sqlite3')
+    office_python = Path(os.environ.get('BANANA_PUBLISH_OFFICE_PYTHON', ''))
+    publish_enabled = local and office_python.is_file()
+
+    def selection_db():
+        selection_path.parent.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(selection_path)
+        db.execute('''CREATE TABLE IF NOT EXISTS replacements (
+            id TEXT PRIMARY KEY, created INTEGER NOT NULL, plan TEXT NOT NULL,
+            chosen INTEGER, outcome TEXT)''')
+        return db
 
     @app.before_request
     def guard():
@@ -318,12 +348,12 @@ def create_app():
     def response_headers(response):
         response.headers.update({'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
                                  'Referrer-Policy': 'no-referrer',
-                                 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
+                                 'Content-Security-Policy': f"default-src 'self'; img-src 'self' https://{CDN_HOST}; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
         return response
 
     @app.get('/')
     def index():
-        return render_template('index.html', sftp_ready=settings()['ready'], skins=SKINS)
+        return render_template('index.html', sftp_ready=settings()['ready'], publish_enabled=publish_enabled, skins=SKINS)
 
     @app.get('/editor/<skin>')
     def open_editor(skin):
@@ -348,25 +378,128 @@ def create_app():
         finally:
             lock.release()
 
+    @app.post('/api/replacements/<job_id>/publish')
+    def publish_replacement(job_id):
+        if not publish_enabled:
+            return jsonify(error='이 서버에 비즈호스트 자동 게시 연결이 설정되지 않았습니다.'), 503
+        if not lock.acquire(blocking=False):
+            return jsonify(error='다른 이벤트 작업이 진행 중입니다. 완료 후 진행하세요.'), 409
+        try:
+            return process_publication(job_id)
+        except sqlite3.Error:
+            return jsonify(error='게시 기록을 확인할 수 없습니다. 현재 공개 페이지를 확인해 주세요.'), 500
+        finally:
+            lock.release()
+
+    def process_publication(job_id):
+        body = request.get_json(silent=True)
+        choice = body.get('candidate') if isinstance(body, dict) else None
+        if type(choice) is not int or choice < 0 or not re.fullmatch(r'[0-9a-f]{32}', job_id):
+            return jsonify(error='교체할 이미지를 선택하세요.'), 400
+        with closing(selection_db()) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT plan, chosen, outcome, created FROM replacements WHERE id = ?', (job_id,)).fetchone()
+            if row is None or (row[1] is None and row[3] < int(time.time()) - 86400):
+                return jsonify(error='교체 준비 기록이 만료되었습니다. 수정 준비부터 다시 진행하세요.'), 404
+            raw_plan, previous, recorded, _ = row
+            job = json.loads(raw_plan)
+            if choice >= len(job['candidates']):
+                return jsonify(error='준비된 이미지 중에서 선택하세요.'), 400
+            if previous is not None:
+                if previous != choice:
+                    return jsonify(error='이 준비 작업에는 이미 다른 이미지가 선택되어 있습니다.'), 409
+                if recorded:
+                    outcome = json.loads(recorded)
+                    return jsonify(outcome), 200 if outcome['state'] == 'published' else 409
+                return jsonify(error='이미 시작된 게시입니다. 현재 공개 페이지를 먼저 확인해 주세요.'), 409
+            db.execute('UPDATE replacements SET chosen = ? WHERE id = ?', (choice, job_id))
+        target = job['candidates'][choice]
+        outcome = run_publication(job_id, job, target)
+        with closing(selection_db()) as db, db:
+            db.execute('UPDATE replacements SET outcome = ? WHERE id = ?',
+                       (json.dumps(outcome, ensure_ascii=False), job_id))
+        return jsonify(outcome), 200 if outcome['state'] == 'published' else 409
+
+    def run_publication(job_id, job, target):
+        if target.get('replacement'):
+            try:
+                with build_opener(EventRedirects()).open(target['replacement'], timeout=12) as image:
+                    _, sha256 = digest(image, MAX_FILE)
+                if sha256 != job['sha256']:
+                    raise PreparationError('CDN에서 읽은 새 이미지가 첨부 원본과 다릅니다.')
+            except (OSError, PreparationError):
+                return dict(state='blocked', error='새 이미지를 공개 CDN에서 확인하지 못해 게시를 시작하지 않았습니다.')
+        payload = dict(id=job_id, event=job['event'], editors=job['editors'], target=target)
+        try:
+            worker = Path(__file__).with_name('publish_edit.py').resolve()
+            response = subprocess.run([str(office_python), '-X', 'utf8', str(worker)],
+                                      input=json.dumps(payload), encoding='utf-8', capture_output=True, timeout=430,
+                                      creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), check=True)
+            outcome = json.loads(response.stdout)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return dict(state='unconfirmed', error='비즈호스트 저장 결과를 받지 못했습니다. 공개 페이지를 먼저 확인해 주세요.')
+        if outcome['state'] != 'saved':
+            return outcome
+        for attempt in range(4):
+            if attempt:
+                time.sleep(2)
+            try:
+                _, current = replacement_sources(settings()['paths'], job['event'], allow_empty=True)
+            except PreparationError:
+                continue
+            old_path = urlsplit(target['preview']).path
+            new_path = urlsplit(target.get('replacement', '')).path
+            visible = {urlsplit(item['preview']).path: item['skins'] for item in current}
+            if all(skin not in visible.get(old_path, ()) and (not new_path or skin in visible.get(new_path, ()))
+                   for skin in target['skins']):
+                return dict(state='published', skins=target['skins'])
+        return dict(state='unconfirmed', error='비즈호스트 저장은 확인했습니다. 공개 페이지 반영을 아직 확인하지 못했습니다.',
+                    skins=outcome['skins'])
+
     def process_preparation():
         results = {skin: {'status': 'waiting', 'files': []} for skin in SKINS}
         try:
             name, editors = plan(request.form.get('url', ''))
             mode = request.form.get('mode')
-            if mode not in {'new', 'replace'}:
-                raise PreparationError('신규등록 또는 수정을 선택하세요.')
+            if mode not in {'new', 'replace', 'delete'}:
+                raise PreparationError('신규등록, 이미지 교체 또는 삭제를 선택하세요.')
+            if mode != 'new' and not publish_enabled:
+                return jsonify(error='이 서버에 비즈호스트 자동 게시 연결이 설정되지 않았습니다.'), 503
             config = settings()
             if not config['ready']:
                 return jsonify(error='서버에 SFTP 로그인, 서버 키, 웹·모바일 etc 폴더 설정이 필요합니다.', editors=editors), 503
-            assets = read_assets(request.files.getlist('images'))
-            prepare(config, name, mode, assets, results)
-            return jsonify(state='ready', event=name, editors=editors, skins=results)
+            assets = read_assets(request.files.getlist('images')) if mode != 'delete' else []
+            if mode in {'replace', 'delete'}:
+                if mode == 'replace' and len(assets) != 1:
+                    raise PreparationError('한 장을 교체할 때는 새 이미지 한 장을 첨부하세요.')
+                paths, candidates = replacement_sources(config['paths'], name)
+            else:
+                paths = dict.fromkeys(SKINS, config['paths']['web'])
+            if assets:
+                prepare(config, name, mode, assets, results, paths)
+            payload = dict(state='ready', event=name, editors=editors, skins=results, mode=mode)
+            if mode in {'replace', 'delete'}:
+                if assets:
+                    for item in candidates:
+                        image_url = urlsplit(item['preview'])
+                        root = image_url.path.split(f'/etc/{name}/', 1)[0]
+                        item['replacement'] = f'https://{CDN_HOST}{root}/etc/{name}/{quote(assets[0].remote_name(mode))}'
+                job_id, created = uuid.uuid4().hex, int(time.time())
+                job = dict(event=name, candidates=candidates, editors=editors, sha256=assets[0].sha256 if assets else None)
+                with closing(selection_db()) as db, db:
+                    db.execute('DELETE FROM replacements WHERE chosen IS NULL AND created < ?', (created - 86400,))
+                    db.execute('INSERT INTO replacements (id, created, plan) VALUES (?, ?, ?)',
+                               (job_id, created, json.dumps(job, ensure_ascii=False)))
+                payload.update(replacement_id=job_id, candidates=candidates)
+            return jsonify(payload)
         except PreparationError as error:
             message, status = str(error), 400
         except paramiko.BadHostKeyException:
             message, status = '등록된 SFTP 서버 키가 현재 연결과 일치하지 않습니다.', 502
         except paramiko.AuthenticationException:
             message, status = 'SFTP 자동 로그인에 실패했습니다. 서버의 보관 계정을 확인하세요.', 502
+        except sqlite3.Error:
+            message, status = '이미지 선택 기록을 준비하지 못했습니다. 다시 실행하면 올린 파일을 먼저 대조합니다.', 500
         except (OSError, paramiko.SSHException):
             message, status = 'SFTP 연결 또는 파일 확인에 실패했습니다. 이미 확인된 파일은 아래에 표시됩니다.', 502
         for state in results.values():

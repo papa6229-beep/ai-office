@@ -18,6 +18,12 @@
     .skins{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px}
     article{padding:14px;border:1px solid #dadfd4;border-radius:10px;overflow-wrap:anywhere} article ul{padding-left:1.2rem;margin-bottom:0}
     .warning{padding:10px 14px;border-left:4px solid #97600c;background:#fff5df} .message{white-space:pre-wrap} [hidden]{display:none!important}
+    dialog{width:min(760px,calc(100% - 32px));max-height:calc(100% - 32px);border:1px solid #dadfd4;border-radius:16px;padding:20px;color:inherit}
+    dialog::backdrop{background:#1c211bc0} .choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:10px;max-height:50vh;overflow:auto;padding:3px}
+    .choices label{border:1px solid #adb8a5;border-radius:8px;padding:8px;overflow-wrap:anywhere;cursor:pointer}
+    .choices label:has(input:checked){outline:2px solid #617618;background:#f1f6d8}
+    .choices img{display:block;width:100%;height:105px;object-fit:contain;background:#f4f5f0;margin:4px 0 8px}
+    .choices small{display:block;font-weight:400}
   </style>
   <script defer src="{{ url_for('static', filename='publisher.js') }}"></script>
 </head>
@@ -26,9 +32,10 @@
   <header>
     <div class="eyebrow">바나나몰 · 디자인 운영</div>
     <h1>이벤트 게시 준비</h1>
-    <p class="hint">웹·모바일에서 함께 쓰는 이미지를 올리고 두 비즈호스트 편집 화면을 엽니다. 페이지 저장은 편집기에서 진행합니다.</p>
+    <p class="hint">기존 이벤트에서 교체하거나 삭제할 이미지 한 장을 선택하면 해당 스킨에 게시합니다.</p>
   </header>
   {% if not sftp_ready %}<p class="warning">SFTP 연결 설정이 필요합니다. 편집 화면은 열 수 있고, 업로드는 서버 설정 후 사용할 수 있습니다.</p>{% endif %}
+  {% if not publish_enabled %}<p class="warning">이 서버에 비즈호스트 자동 게시 연결을 설정해야 교체·삭제를 진행할 수 있습니다.</p>{% endif %}
   <form id="prepare">
     <label for="event-url">바나나몰 페이지 주소</label>
     <input id="event-url" name="url" type="url" required placeholder="https://www.bananamall.co.kr/etc/evt_example.php">
@@ -40,7 +47,8 @@
     <ol id="files" class="files" aria-label="첨부 이미지 순서"></ol>
     <div class="actions">
       <button type="submit" value="new" class="primary">신규등록 준비</button>
-      <button type="submit" value="replace">수정 준비</button>
+      <button type="submit" value="replace"{% if not publish_enabled %} disabled{% endif %}>이미지 교체</button>
+      <button type="submit" value="delete"{% if not publish_enabled %} disabled{% endif %}>이미지 삭제</button>
     </div>
   </form>
   <section class="results" id="results" hidden>
@@ -56,8 +64,17 @@
       </article>
       {% endfor %}
     </div>
-    <small>편집 탭이 자동으로 열리지 않으면 위 링크를 누르세요. 비즈호스트 로그인은 각자의 브라우저 세션을 사용합니다.</small>
   </section>
+  <dialog id="image-picker" aria-labelledby="picker-title">
+    <h2 id="picker-title">이벤트 이미지 선택</h2>
+    <p class="hint" id="picker-hint"></p>
+    <div id="choices" class="choices"></div>
+    <p id="publish-status" class="message" role="status"></p>
+    <div class="actions">
+      <button type="button" id="publish" class="primary" disabled>선택한 이미지 게시</button>
+      <button type="button" id="close-picker">닫기</button>
+    </div>
+  </dialog>
 </main>
 </body>
 </html>

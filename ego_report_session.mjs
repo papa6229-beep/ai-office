@@ -1,4 +1,4 @@
-import {saveProductWithDialogs} from './ego_report_dialogs.mjs';
+import {saveEventWithDialogs,saveProductWithDialogs} from './ego_report_dialogs.mjs';
 const fs=await import('node:fs/promises'),http=await import('node:http');
 const {fileURLToPath}=await import('node:url');
 const cfg=JSON.parse(await fs.readFile(fileURLToPath(globalThis.egoReportConfig),'utf8'));
@@ -43,6 +43,13 @@ async function dispatch(c){
    return saveProductWithDialogs(page,()=>element(page,c,'e=>{e.click();return true;}'));
   }
   const receipt=await page.click(sel(c),{timeout:c.timeout,label:'Execute registered report action'});await dialogs(page,receipt);return true;
+ }
+ if(c.op==='publish_event'){
+  const editor=new URL((await task.tabs()).find(tab=>tab.label===page.label)?.url);
+  if(editor.origin!=='https://banana.bizhost.kr'||editor.pathname!=='/adminx/newdesign.php'||editor.searchParams.get('code')!=='editor')
+   throw Error('event_editor_origin_mismatch');
+  const button={selector:'.btn_save[data-form="#regiform"][data-savetype="save"] > a'};
+  return saveEventWithDialogs(page,()=>element(page,button,'e=>{e.click();return true;}'));
  }
  if(c.op==='element_evaluate')return element(page,c,c.fn);
  if(c.op==='scroll')return element(page,c,'e=>{e.scrollIntoView({block:"nearest"});return true;}');
