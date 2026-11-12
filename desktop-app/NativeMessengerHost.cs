@@ -28,7 +28,7 @@ namespace AemeathDesktop
         readonly TableLayoutPanel hanbiroRecovery = new TableLayoutPanel();
         readonly Button hanbiroLaunch = new Button();
         readonly SemaphoreSlim openGate = new SemaphoreSlim(1,1);
-        internal const string Revision="20261112-hanbiro-native-visible-v9";
+        internal const string Revision="20261112-hanbiro-minimized-roster-v10";
         string hanbiroSelection="none";
         bool hanbiroRendererVisible;
         IntPtr hanbiroPopup;
@@ -417,7 +417,7 @@ namespace AemeathDesktop
                 windows.RemoveAt(windows.Count-1);
             }
             if(windows.Count==0) {
-                if(client.NativeVisible&&(!Win.IsWindowVisible(main)||Win.IsIconic(main)))
+                if(client.NativeVisible&&!Win.IsWindowVisible(main))
                     throw new InvalidOperationException("한비로톡 PC 대화 목록을 먼저 열어 주세요.");
                 Attach(main);
             }

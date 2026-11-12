@@ -65,7 +65,9 @@ def inspect(pids, main_title=None, *, visible_only=False):
     def visit(handle,_):
         pid=w.DWORD();u.GetWindowThreadProcessId(handle,ctypes.byref(pid))
         if pid.value not in pids:return True
-        if visible_only and (not u.IsWindowVisible(handle) or u.IsIconic(handle) or u.GetWindow(handle,4)):return True
+        # An iconic roster still has WS_VISIBLE. Classify it using the normal
+        # placement below so its minimized 160px system bounds do not reject it.
+        if visible_only and (not u.IsWindowVisible(handle) or u.GetWindow(handle,4)):return True
         text=ctypes.create_unicode_buffer(512);cls=ctypes.create_unicode_buffer(128)
         u.GetWindowTextW(handle,text,len(text));u.GetClassNameW(handle,cls,len(cls))
         if cls.value!='Chrome_WidgetWin_1' or not text.value.strip() or text.value.strip() in names:return True
