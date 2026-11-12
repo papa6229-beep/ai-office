@@ -28,7 +28,7 @@ namespace AemeathDesktop
         readonly TableLayoutPanel hanbiroRecovery = new TableLayoutPanel();
         readonly Button hanbiroLaunch = new Button();
         readonly SemaphoreSlim openGate = new SemaphoreSlim(1,1);
-        internal const string Revision="20261112-hanbiro-preserve-native-window-v8";
+        internal const string Revision="20261112-hanbiro-native-visible-v9";
         string hanbiroSelection="none";
         bool hanbiroRendererVisible;
         IntPtr hanbiroPopup;
@@ -134,6 +134,10 @@ namespace AemeathDesktop
         {
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs),"HanbiroTalk2.lnk");
         }
+        bool NativeHanbiro
+        {
+            get { ClientSession client; return source=="hanbiro"&&clients.TryGetValue(source,out client)&&client.NativeVisible; }
+        }
         async Task RecoverHanbiro()
         {
             if(opening||source!="hanbiro"||!hanbiroRecovery.Visible)return;
@@ -144,10 +148,13 @@ namespace AemeathDesktop
                     await Open("hanbiro");
                     return;
                 }
+                string app=Executable("hanbiro");
                 string shortcut=HanbiroShortcut();
+                if(File.Exists(app)&&FileVersionInfo.GetVersionInfo(app).ProductVersion=="2.1.283.0")shortcut=app;
                 if(!File.Exists(shortcut))throw new FileNotFoundException("시작 메뉴에서 한비로톡을 실행한 뒤 대화 목록을 눌러 주세요.");
                 // Use the user's existing Start menu entry only after a click.
-                using(var process=Process.Start(new ProcessStartInfo(shortcut){UseShellExecute=true})) { }
+                using(var process=Process.Start(new ProcessStartInfo(shortcut){UseShellExecute=true,
+                    WorkingDirectory=shortcut==app?Environment.GetFolderPath(Environment.SpecialFolder.UserProfile):Path.GetDirectoryName(shortcut)})) { }
                 hanbiroLaunch.Text="한비로 대화 목록 연결";
                 ShowNotice("한비로톡 창이 뜨면 여기서 대화 목록 연결을 눌러 주세요.");
             } catch(Exception error) {
@@ -261,7 +268,7 @@ namespace AemeathDesktop
             if(request!=generation||disposed||closeAfterWake)throw new OperationCanceledException("메신저 창을 닫았어요.");
             if(result==null||!result.ContainsKey("ok")||!(result["ok"] is bool)||!(bool)result["ok"])
                 throw new InvalidOperationException(result!=null&&result.ContainsKey("error")?Convert.ToString(result["error"]):"한비로 내부 화면이 아직 숨김 상태예요.");
-            hanbiroRendererVisible=result.ContainsKey("renderer_visible")&&result["renderer_visible"] is bool&&(bool)result["renderer_visible"];
+                hanbiroRendererVisible=result.ContainsKey("renderer_visible")&&result["renderer_visible"] is bool&&(bool)result["renderer_visible"];
             fittedBounds=Rectangle.Empty;Fit();
         }
 
@@ -291,10 +298,14 @@ namespace AemeathDesktop
                 watch.Stop();
                 if(source!=null)popupSizes[source]=shade.Size;
                 if(source!=selected) {
-                    foreach(var prior in windows)if(Win.IsWindow(prior.Handle))Win.ShowWindow(prior.Handle,0);
-                    ClientSession previous;
-                    if(source!=null&&clients.TryGetValue(source,out previous))
-                        foreach(var popup in previous.Floating)if(Win.IsWindow(popup.Handle))Win.ShowWindow(popup.Handle,0);
+                    if(NativeHanbiro) {
+                        if(!RestoreHanbiroAfterFailure())throw new InvalidOperationException("한비로 원본 창 복원을 확인하지 못했어요.");
+                    } else {
+                        foreach(var prior in windows)if(Win.IsWindow(prior.Handle))Win.ShowWindow(prior.Handle,0);
+                        ClientSession previous;
+                        if(source!=null&&clients.TryGetValue(source,out previous))
+                            foreach(var popup in previous.Floating)if(Win.IsWindow(popup.Handle))Win.ShowWindow(popup.Handle,0);
+                    }
                 }
                 source=selected;
                 lastSource=selected;NativeReady=false;hanbiroRendererVisible=false;
@@ -319,7 +330,7 @@ namespace AemeathDesktop
                             "한비로톡 PC 앱이 꺼져 있어요. 시작 메뉴에서 실행한 뒤 대화 목록을 눌러 주세요.");
                     }
                     await SelectHanbiro(client,item,request);
-                    Fit();await RevealHanbiro(request);await EnsurePresented(request);
+                    Fit();if(!client.NativeVisible)await RevealHanbiro(request);await EnsurePresented(request);
                     if(hanbiroPopup!=IntPtr.Zero)PresentHanbiroPopup(hanbiroPopup);
                     watch.Start();
                     switchElapsed=elapsed.ElapsedMilliseconds;SaveReceipt("attached");return;
@@ -379,7 +390,7 @@ namespace AemeathDesktop
                     start.EnvironmentVariables["PYTHONIOENCODING"]="utf-8";
                     using(var process=Process.Start(start)) {
                         var output=process.StandardOutput.ReadToEndAsync();var error=process.StandardError.ReadToEndAsync();
-                        process.StandardInput.Write(new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(new{pids=new List<int>(allowedPids)}));
+                        process.StandardInput.Write(new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(new{pids=new List<int>(allowedPids),allowNativeVisible=true}));
                         process.StandardInput.Close();
                         if(!process.WaitForExit(6000)){process.Kill();throw new InvalidOperationException("한비로 대화 목록 확인 시간이 초과됐어요.");}
                         Task.WaitAll(output,error);
@@ -393,6 +404,8 @@ namespace AemeathDesktop
                 main=new IntPtr(Convert.ToInt64(result["handle"]));Win.GetWindowThreadProcessId(main,out pid);
                 if(!allowedPids.Contains((int)pid)||!AllowedPath("hanbiro",Win.ProcessPath((int)pid))||Win.Title(main)!=(string)result["title"])
                     throw new InvalidOperationException("한비로 목록창이 바뀌어 연결을 보류했어요.");
+                object nativeVisible;
+                client.NativeVisible=result.TryGetValue("native_visible",out nativeVisible)&&object.Equals(nativeVisible,true);
                 client.Main=main;client.MainTitle=(string)result["title"];
             }
             // Keep the verified main/list window at the bottom of the stack.
@@ -403,7 +416,11 @@ namespace AemeathDesktop
                 if(!Restore(prior))throw new InvalidOperationException("앞선 한비로 창 복원을 확인하지 못했어요.");
                 windows.RemoveAt(windows.Count-1);
             }
-            if(windows.Count==0)Attach(main);
+            if(windows.Count==0) {
+                if(client.NativeVisible&&(!Win.IsWindowVisible(main)||Win.IsIconic(main)))
+                    throw new InvalidOperationException("한비로톡 PC 대화 목록을 먼저 열어 주세요.");
+                Attach(main);
+            }
             hanbiroSelection="list";hanbiroPopup=IntPtr.Zero;
             if(item!=null) {
                 string target=((string)item["title"]).Trim();
@@ -456,7 +473,7 @@ namespace AemeathDesktop
                     if(!suspended&&Win.IsWindowVisible(handle)&&!Win.IsIconic(handle)
                         &&actual.Left==fittedBounds.Left&&actual.Top==fittedBounds.Top
                         &&actual.Right==fittedBounds.Right&&actual.Bottom==fittedBounds.Bottom&&AboveOffice(handle)
-                        &&(source!="hanbiro"||hanbiroRendererVisible)) { NativeReady=true;return; }
+                        &&(source!="hanbiro"||NativeHanbiro||hanbiroRendererVisible)) { NativeReady=true;return; }
                 }
                 await Task.Delay(30);
             } while(elapsed.ElapsedMilliseconds<900);
@@ -569,11 +586,11 @@ namespace AemeathDesktop
             saved.Placement.Length=Marshal.SizeOf(typeof(Win.Placement));
             if(!Win.GetWindowPlacement(handle,ref saved.Placement))throw new InvalidOperationException("원본 창의 복원 정보를 확보하지 못했어요.");
             windows.Add(saved); SaveReceipt("attaching");
-            Win.ShowWindow(handle,0);
+            if(!NativeHanbiro)Win.ShowWindow(handle,0);
             // GWLP_HWNDPARENT sets an owner for a top-level window. Unlike
             // SetParent this preserves Chromium's native compositor and IME.
             Win.SetWindowLongPtr(handle,-8,office.Handle);
-            if(Win.GetWindowLongPtr(handle,-8)!=office.Handle){if(Restore(saved))windows.Remove(saved);throw new InvalidOperationException("원본 창을 에이메스에 연결하지 못했어요.");}
+            if(Win.GetWindowLongPtr(handle,-8)!=office.Handle){if(Restore(saved,NativeHanbiro))windows.Remove(saved);throw new InvalidOperationException("원본 창을 에이메스에 연결하지 못했어요.");}
             int attachStyle=saved.Style&~0x00c40000&~0x21000000;
             if(source=="hanbiro"||source=="between") {
                 // ShowWindow(HIDE) has already cleared WS_VISIBLE. Do not put
@@ -615,7 +632,7 @@ namespace AemeathDesktop
             IntPtr handle=windows[windows.Count-1].Handle;
             if(!Win.IsWindow(handle))return;
             if(!shade.Visible||!office.Visible||office.WindowState==FormWindowState.Minimized) {
-                suspended=true; Win.ShowWindow(handle,0);return;
+                SuspendWindow(handle);return;
             }
             // Restore only when actually hidden/minimized, then apply the final
             // bounds. Repeated SW_SHOWNOACTIVATE after sizing can restore a
@@ -623,7 +640,7 @@ namespace AemeathDesktop
             for(int pass=0;pass<3;pass++) {
                 var bounds=surface.RectangleToScreen(surface.ClientRectangle);
                 bounds=Rectangle.Intersect(bounds,office.RectangleToScreen(office.ClientRectangle));
-                if(bounds.Width<1||bounds.Height<1){suspended=true;Win.ShowWindow(handle,0);return;}
+                if(bounds.Width<1||bounds.Height<1){SuspendWindow(handle);return;}
                 Win.Rect actual;Win.GetWindowRect(handle,out actual);
                 bool reveal=!Win.IsWindowVisible(handle)||Win.IsIconic(handle);
                 if(bounds!=fittedBounds||reveal||actual.Left!=bounds.Left||actual.Top!=bounds.Top||actual.Right!=bounds.Right||actual.Bottom!=bounds.Bottom) {
@@ -637,7 +654,7 @@ namespace AemeathDesktop
                     int width=Math.Max(shade.Width,actualWidth+shade.Width-surface.Width);
                     int height=Math.Max(shade.Height,actualHeight+shade.Height-surface.Height);
                     if(width>office.ClientSize.Width-16||height>office.ClientSize.Height-16) {
-                        suspended=true;Win.ShowWindow(handle,0);
+                        SuspendWindow(handle);
                         notice.Text="원본 메신저의 최소 크기보다 오피스 창이 작아요. 오피스 창을 넓혀주세요.";notice.Visible=true;return;
                     }
                     minimumContent[source]=new Size(actualWidth,actualHeight);
@@ -647,7 +664,14 @@ namespace AemeathDesktop
                 }
                 fittedBounds=bounds;suspended=false;return;
             }
-            suspended=true;Win.ShowWindow(handle,0);notice.Text="원본 메신저 크기를 내부 영역에 맞추지 못했어요.";notice.Visible=true;
+            SuspendWindow(handle);notice.Text="원본 메신저 크기를 내부 영역에 맞추지 못했어요.";notice.Visible=true;
+        }
+        void SuspendWindow(IntPtr handle)
+        {
+            suspended=true;
+            if(!NativeHanbiro){Win.ShowWindow(handle,0);return;}
+            NativeReady=false;
+            RestoreHanbiroAfterFailure();
         }
         void Observe()
         {
@@ -705,17 +729,18 @@ namespace AemeathDesktop
         {
             if(!Win.IsWindow(saved.Handle))return true;
             uint pid; Win.GetWindowThreadProcessId(saved.Handle,out pid);if(pid!=saved.Pid)return true;
-            Win.ShowWindow(saved.Handle,0);
+            bool wasVisible=restoreVisibility&&(saved.Style&0x10000000)!=0;
+            if(!wasVisible)Win.ShowWindow(saved.Handle,0);
             Win.SetWindowLong(saved.Handle,-16,saved.Style);
             Win.SetWindowLong(saved.Handle,-20,saved.ExStyle);
             var owner=Win.IsWindow(saved.Owner)?saved.Owner:IntPtr.Zero;
             Win.SetWindowLongPtr(saved.Handle,-8,owner);
             if(Win.GetWindowLongPtr(saved.Handle,-8)!=owner)return false;
-            var placement=saved.Placement; placement.Show=0;
-            Win.SetWindowPlacement(saved.Handle,ref placement);
-            if(restoreVisibility&&(saved.Style&0x10000000)!=0) {
-                if((saved.Style&0x20000000)!=0)Win.ShowWindow(saved.Handle,7);
-                else Win.SetWindowPos(saved.Handle,IntPtr.Zero,0,0,0,0,0x0257);
+            var placement=saved.Placement;
+            placement.Show=wasVisible?((saved.Style&0x20000000)!=0?7:4):0;
+            if(!Win.SetWindowPlacement(saved.Handle,ref placement)&&wasVisible)return false;
+            if(wasVisible) {
+                Win.SetWindowPos(saved.Handle,IntPtr.Zero,0,0,0,0,0x0277);
                 return Win.IsWindowVisible(saved.Handle);
             }
             // Keep the client logged in in the background; closing this Office
@@ -735,9 +760,9 @@ namespace AemeathDesktop
             string pending=null;
             foreach(var pair in clients) {
                 var floating=pair.Value.Floating;
-                for(int i=floating.Count-1;i>=0;i--)if(Restore(floating[i]))floating.RemoveAt(i);
+                for(int i=floating.Count-1;i>=0;i--)if(Restore(floating[i],pair.Value.NativeVisible))floating.RemoveAt(i);
                 var saved=pair.Value.Windows;
-                for(int i=saved.Count-1;i>=0;i--)if(Restore(saved[i]))saved.RemoveAt(i);
+                for(int i=saved.Count-1;i>=0;i--)if(Restore(saved[i],pair.Value.NativeVisible))saved.RemoveAt(i);
                 if(saved.Count>0||floating.Count>0)pending=pair.Key;
             }
             if(pending!=null){source=pending;windows=clients[source].Windows;ScanPids();SetHeader(source);ShowNotice("원본 창 복원이 끝나지 않아 화면을 닫지 않았어요. 닫기를 다시 눌러 주세요.");SaveReceipt("restore_pending");return false;}
@@ -767,7 +792,7 @@ namespace AemeathDesktop
             return Win.IsWindow(handle)&&Win.IsWindow(office.Handle);
         }
         public void Dispose() { if(disposed||!Close())return;disposed=true;watch.Dispose();sources.Dispose();hints.Dispose();appIcon.Image=null;foreach(var icon in icons.Values)if(icon!=null)icon.Dispose();shade.Dispose(); }
-        sealed class ClientSession { internal readonly List<SavedWindow> Windows=new List<SavedWindow>();internal readonly List<SavedWindow> Floating=new List<SavedWindow>();internal bool Revealed;internal IntPtr Main;internal string MainTitle; }
+        sealed class ClientSession { internal readonly List<SavedWindow> Windows=new List<SavedWindow>();internal readonly List<SavedWindow> Floating=new List<SavedWindow>();internal bool Revealed,NativeVisible;internal IntPtr Main;internal string MainTitle; }
         sealed class SavedWindow { internal IntPtr Handle,Owner; internal int Pid,Style,ExStyle; internal Win.Placement Placement; }
 
         static GraphicsPath Round(RectangleF bounds,float radius)

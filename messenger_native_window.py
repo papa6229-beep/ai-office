@@ -36,16 +36,22 @@ const fs=require('fs');
 """
 
 
-def presentation_settings():
-    root = Path(__file__).resolve().parent
+def installed_hanbiro():
     app = Path.home() / 'AppData/Local/Programs/hanbiro-talk/HanbiroTalk2.exe'
     with (app.parent / 'resources/app.asar').open('rb') as stream:
         header = struct.unpack('<4I', stream.read(16))
         tree = json.loads(stream.read(header[3]))
         node = tree['files']['package.json']
         stream.seek(8 + header[1] + int(node['offset']))
-        if json.loads(stream.read(node['size']))['version'] != '2.1.257':
-            raise ValueError('업데이트된 한비로톡은 PC 원본 창에서 이용해 주세요. 통합 화면 연결을 확인 중이에요.')
+        version = json.loads(stream.read(node['size']))['version']
+    return app, version
+
+
+def presentation_settings():
+    root = Path(__file__).resolve().parent
+    app, version = installed_hanbiro()
+    if version != '2.1.257':
+        raise ValueError('업데이트된 한비로톡은 PC 원본 창에서 이용해 주세요. 통합 화면 연결을 확인 중이에요.')
     cfg = json.loads((root / '.provider_runtime/messenger/hanbiro-cdp.json').read_text('utf-8-sig'))
     port = cfg.get('port')
     if type(port) is not int or not 1024 <= port <= 65535:
