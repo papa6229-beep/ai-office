@@ -25,8 +25,10 @@ namespace AemeathDesktop
         readonly ContextMenuStrip sources = new ContextMenuStrip();
         readonly ToolTip hints = new ToolTip();
         readonly Button back = new Button();
+        readonly TableLayoutPanel hanbiroRecovery = new TableLayoutPanel();
+        readonly Button hanbiroLaunch = new Button();
         readonly SemaphoreSlim openGate = new SemaphoreSlim(1,1);
-        internal const string Revision="20261105-between-native-restore-v6";
+        internal const string Revision="20261112-hanbiro-start-recovery-v7";
         string hanbiroSelection="none";
         bool hanbiroRendererVisible;
         IntPtr hanbiroPopup;
@@ -86,6 +88,15 @@ namespace AemeathDesktop
             notice.ForeColor=Color.FromArgb(239,181,181); notice.Font=new Font("Malgun Gothic",8.5f);
             surface.Dock=DockStyle.Fill; surface.BackColor=Color.FromArgb(22,24,24);
             surface.Resize+=delegate { Fit(); };
+            hanbiroRecovery.Dock=DockStyle.Fill;hanbiroRecovery.Visible=false;
+            hanbiroRecovery.ColumnCount=1;hanbiroRecovery.RowCount=1;
+            hanbiroLaunch.Anchor=AnchorStyles.None;hanbiroLaunch.AutoSize=true;
+            hanbiroLaunch.Padding=new Padding(14,8,14,8);
+            hanbiroLaunch.FlatStyle=FlatStyle.Flat;
+            hanbiroLaunch.BackColor=Color.FromArgb(44,48,51);hanbiroLaunch.ForeColor=title.ForeColor;
+            hanbiroLaunch.Click+=async delegate { await RecoverHanbiro(); };
+            hanbiroRecovery.Controls.Add(hanbiroLaunch,0,0);
+            surface.Controls.Add(hanbiroRecovery);
             frame.Controls.Add(surface);frame.Controls.Add(notice);frame.Controls.Add(header);
             shade.Controls.Add(frame); office.Controls.Add(shade);
             var grip=new ResizeGrip { Size=new Size(18,18), Anchor=AnchorStyles.Right|AnchorStyles.Bottom };
@@ -109,6 +120,8 @@ namespace AemeathDesktop
         void SetHeader(string selected)
         {
             title.Text="통합메신저 · "+Label(selected);notice.Visible=false;
+            hanbiroRecovery.Visible=false;
+            hanbiroLaunch.Text="한비로톡 실행";
             back.Text=selected=="hanbiro"?"대화 목록":"";
             back.Width=selected=="hanbiro"?112:34;
             back.AccessibleName=selected=="hanbiro"?"대화 목록으로 돌아가기":"이전 대화";
@@ -116,6 +129,31 @@ namespace AemeathDesktop
             back.Invalidate();
             foreach(ToolStripMenuItem item in sources.Items)item.Checked=item.Text==Label(selected);
             appIcon.Image=AppImage(selected);
+        }
+        static string HanbiroShortcut()
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs),"HanbiroTalk2.lnk");
+        }
+        async Task RecoverHanbiro()
+        {
+            if(opening||source!="hanbiro"||!hanbiroRecovery.Visible)return;
+            hanbiroLaunch.Enabled=false;
+            try {
+                ScanPids();
+                if(allowedPids.Count>0) {
+                    await Open("hanbiro");
+                    return;
+                }
+                string shortcut=HanbiroShortcut();
+                if(!File.Exists(shortcut))throw new FileNotFoundException("시작 메뉴에서 한비로톡을 실행한 뒤 대화 목록을 눌러 주세요.");
+                // Use the user's existing Start menu entry only after a click.
+                using(var process=Process.Start(new ProcessStartInfo(shortcut){UseShellExecute=true})) { }
+                hanbiroLaunch.Text="한비로 대화 목록 연결";
+                ShowNotice("한비로톡 창이 뜨면 여기서 대화 목록 연결을 눌러 주세요.");
+            } catch(Exception error) {
+                if(source=="hanbiro"&&shade.Visible)ShowNotice(error is System.ComponentModel.Win32Exception?
+                    "한비로톡을 실행하지 못했어요. 시작 메뉴에서 직접 열어 주세요.":error.Message);
+            } finally { hanbiroLaunch.Enabled=true; }
         }
         Image AppImage(string selected)
         {
@@ -273,6 +311,13 @@ namespace AemeathDesktop
                 ScanPids();
                 fittedBounds=Rectangle.Empty;
                 if(source=="hanbiro") {
+                    if(allowedPids.Count==0) {
+                        hanbiroSelection="client_not_running";
+                        hanbiroRecovery.Visible=File.Exists(HanbiroShortcut());
+                        throw new InvalidOperationException(hanbiroRecovery.Visible?
+                            "한비로톡 PC 앱이 꺼져 있어요. 한비로톡 실행을 눌러 주세요.":
+                            "한비로톡 PC 앱이 꺼져 있어요. 시작 메뉴에서 실행한 뒤 대화 목록을 눌러 주세요.");
+                    }
                     await SelectHanbiro(client,item,request);
                     Fit();await RevealHanbiro(request);await EnsurePresented(request);
                     if(hanbiroPopup!=IntPtr.Zero)PresentHanbiroPopup(hanbiroPopup);
