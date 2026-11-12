@@ -28,7 +28,7 @@ namespace AemeathDesktop
         readonly TableLayoutPanel hanbiroRecovery = new TableLayoutPanel();
         readonly Button hanbiroLaunch = new Button();
         readonly SemaphoreSlim openGate = new SemaphoreSlim(1,1);
-        internal const string Revision="20261112-hanbiro-start-recovery-v7";
+        internal const string Revision="20261112-hanbiro-preserve-native-window-v8";
         string hanbiroSelection="none";
         bool hanbiroRendererVisible;
         IntPtr hanbiroPopup;
@@ -344,13 +344,16 @@ namespace AemeathDesktop
                 switchElapsed=elapsed.ElapsedMilliseconds;
                 SaveReceipt("attached");
             } catch(Exception error) {
-                if(item!=null&&!disposed&&!(error is OperationCanceledException)) {
-                    watch.Stop();foreach(var saved in windows)if(Win.IsWindow(saved.Handle))Win.ShowWindow(saved.Handle,0);
-                    NativeReady=false;ShowNotice(error.Message);SaveReceipt("record_only");return;
-                }
                 if(!disposed&&!(error is OperationCanceledException)) {
-                    watch.Stop();foreach(var saved in windows)if(Win.IsWindow(saved.Handle))Win.ShowWindow(saved.Handle,0);
-                    NativeReady=false;ShowNotice(error.Message);SaveReceipt("connection_failed");throw;
+                    watch.Stop();
+                    bool restored=true;
+                    if(source=="hanbiro")restored=RestoreHanbiroAfterFailure();
+                    else foreach(var saved in windows)if(Win.IsWindow(saved.Handle))Win.ShowWindow(saved.Handle,0);
+                    NativeReady=false;
+                    ShowNotice(restored?error.Message:"한비로 원본 창을 되돌리지 못했어요. 통합메신저 닫기를 다시 눌러 주세요.");
+                    SaveReceipt(!restored?"restore_pending":item!=null?"record_only":"connection_failed");
+                    if(item!=null)return;
+                    throw;
                 }
                 Close(); throw;
             } finally {
@@ -363,7 +366,7 @@ namespace AemeathDesktop
         {
             IntPtr main=client.Main;uint pid;
             Win.GetWindowThreadProcessId(main,out pid);
-            if(main==IntPtr.Zero||!Win.IsWindow(main)||!allowedPids.Contains((int)pid)||Win.Title(main)!=client.MainTitle) {
+            if(windows.Count==0||main==IntPtr.Zero||!Win.IsWindow(main)||!allowedPids.Contains((int)pid)||Win.Title(main)!=client.MainTitle) {
                 var result=await Task.Run(()=>{
                     // Match messenger_attachments._runtime: its cache reader uses the
                     // already installed bundled Python, not the backend Python.
@@ -385,8 +388,8 @@ namespace AemeathDesktop
                     }
                 });
                 if(request!=generation||disposed)throw new OperationCanceledException("메신저 연결을 취소했어요.");
-                if(result==null||!result.ContainsKey("ok")||!(result["ok"] is bool)||(bool)result["ok"]==false)
-                    throw new InvalidOperationException("한비로 대화 목록창을 확인하지 못했어요. 이전 개인 대화창을 대신 표시하지 않았어요.");
+                if(result==null||!result.ContainsKey("ok")||!(result["ok"] is bool)||!(bool)result["ok"])
+                    throw new InvalidOperationException(result!=null&&result.ContainsKey("error")?Convert.ToString(result["error"]):"한비로 대화 목록창을 확인하지 못했어요.");
                 main=new IntPtr(Convert.ToInt64(result["handle"]));Win.GetWindowThreadProcessId(main,out pid);
                 if(!allowedPids.Contains((int)pid)||!AllowedPath("hanbiro",Win.ProcessPath((int)pid))||Win.Title(main)!=(string)result["title"])
                     throw new InvalidOperationException("한비로 목록창이 바뀌어 연결을 보류했어요.");
@@ -690,7 +693,15 @@ namespace AemeathDesktop
             if(windows.Count>0)Win.RedrawWindow(windows[windows.Count-1].Handle,IntPtr.Zero,IntPtr.Zero,0x0481);
             SaveReceipt("attached");
         }
-        static bool Restore(SavedWindow saved)
+        bool RestoreHanbiroAfterFailure()
+        {
+            ClientSession client;
+            if(!clients.TryGetValue("hanbiro",out client))return true;
+            for(int i=client.Floating.Count-1;i>=0;i--)if(Restore(client.Floating[i],true))client.Floating.RemoveAt(i);
+            for(int i=windows.Count-1;i>=0;i--)if(Restore(windows[i],true))windows.RemoveAt(i);
+            return windows.Count==0&&client.Floating.Count==0;
+        }
+        static bool Restore(SavedWindow saved,bool restoreVisibility=false)
         {
             if(!Win.IsWindow(saved.Handle))return true;
             uint pid; Win.GetWindowThreadProcessId(saved.Handle,out pid);if(pid!=saved.Pid)return true;
@@ -702,6 +713,11 @@ namespace AemeathDesktop
             if(Win.GetWindowLongPtr(saved.Handle,-8)!=owner)return false;
             var placement=saved.Placement; placement.Show=0;
             Win.SetWindowPlacement(saved.Handle,ref placement);
+            if(restoreVisibility&&(saved.Style&0x10000000)!=0) {
+                if((saved.Style&0x20000000)!=0)Win.ShowWindow(saved.Handle,7);
+                else Win.SetWindowPos(saved.Handle,IntPtr.Zero,0,0,0,0,0x0257);
+                return Win.IsWindowVisible(saved.Handle);
+            }
             // Keep the client logged in in the background; closing this Office
             // surface must not terminate a messenger or activate it elsewhere.
             Win.ShowWindow(saved.Handle,0);

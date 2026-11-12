@@ -36,6 +36,23 @@ const fs=require('fs');
 """
 
 
+def presentation_settings():
+    root = Path(__file__).resolve().parent
+    app = Path.home() / 'AppData/Local/Programs/hanbiro-talk/HanbiroTalk2.exe'
+    with (app.parent / 'resources/app.asar').open('rb') as stream:
+        header = struct.unpack('<4I', stream.read(16))
+        tree = json.loads(stream.read(header[3]))
+        node = tree['files']['package.json']
+        stream.seek(8 + header[1] + int(node['offset']))
+        if json.loads(stream.read(node['size']))['version'] != '2.1.257':
+            raise ValueError('업데이트된 한비로톡은 PC 원본 창에서 이용해 주세요. 통합 화면 연결을 확인 중이에요.')
+    cfg = json.loads((root / '.provider_runtime/messenger/hanbiro-cdp.json').read_text('utf-8-sig'))
+    port = cfg.get('port')
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError('기존 한비로 연결을 확인하세요.')
+    return app, port
+
+
 def process_path(pid):
     kernel = ctypes.WinDLL('kernel32', use_last_error=True)
     kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
@@ -73,25 +90,15 @@ def run(value):
     user.GetWindowThreadProcessId(office, ctypes.byref(office_pid))
     user.GetWindowThreadProcessId(handle, ctypes.byref(app_pid))
     root = Path(__file__).resolve().parent
-    expected_app = Path.home() / 'AppData/Local/Programs/hanbiro-talk/HanbiroTalk2.exe'
+    expected_app, port = presentation_settings()
     if process_path(app_pid.value) != expected_app.resolve():
         raise ValueError('한비로 원본 앱의 경로가 달라요.')
     if process_path(office_pid.value) != (root / 'local_backups/desktop-app/bin/Aemeath.exe').resolve():
         raise ValueError('현재 에이메스 앱의 경로가 달라요.')
-    with (expected_app.parent / 'resources/app.asar').open('rb') as stream:
-        header = struct.unpack('<4I', stream.read(16))
-        tree = json.loads(stream.read(header[3]))
-        node = tree['files']['package.json']
-        stream.seek(8 + header[1] + int(node['offset']))
-        if json.loads(stream.read(node['size']))['version'] != '2.1.257':
-            raise ValueError('한비로 버전이 바뀌어 표시 API 재확인이 필요해요.')
-    cfg = json.loads((root / '.provider_runtime/messenger/hanbiro-cdp.json').read_text('utf-8-sig'))
-    if type(cfg.get('port')) is not int or not 1024 <= cfg['port'] <= 65535:
-        raise ValueError('기존 한비로 연결을 확인하세요.')
     if value['action'] == 'present' and user.GetForegroundWindow() not in {office, handle}:
         raise ValueError('다른 화면을 사용 중이라 한비로 표시를 시작하지 않았어요. 다시 선택해 주세요.')
     node = Path.home() / '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe'
-    result = subprocess.run([str(node), '-e', SCRIPT], input=json.dumps({'port':cfg['port'], 'action':value['action']}),
+    result = subprocess.run([str(node), '-e', SCRIPT], input=json.dumps({'port':port, 'action':value['action']}),
                             text=True, encoding='utf-8', capture_output=True, timeout=7,
                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     result_value = json.loads(result.stdout)

@@ -3,15 +3,12 @@ import ctypes
 from ctypes import wintypes as w
 from http.client import HTTPConnection
 import json
-from pathlib import Path
 import sys
 
+from messenger_native_window import presentation_settings
 
-def _main_renderer_title():
-    config_path = Path(__file__).resolve().parent / '.provider_runtime/messenger/hanbiro-cdp.json'
-    port = json.loads(config_path.read_text('utf-8-sig')).get('port')
-    if type(port) is not int or not 1024 <= port <= 65535:
-        raise ValueError('Invalid Hanbiro loopback port')
+
+def _main_renderer_title(port):
     connection = HTTPConnection('127.0.0.1', port, timeout=1.5)
     try:
         connection.request('GET', '/json/list')
@@ -34,7 +31,7 @@ def _main_renderer_title():
     return main[0]
 
 
-def inspect(pids):
+def inspect(pids, main_title):
     import messenger_attachment_worker as cache
     _,_,data=cache._storage()
     members=data.get('recoil-atomAllMembers',{}).get('members',[])
@@ -83,7 +80,6 @@ def inspect(pids):
     if len(candidates) > 1:
         # An auxiliary window can survive hidden after leaving a conversation.
         # Match Hanbiro's main renderer, since the roster itself can be hidden.
-        main_title = _main_renderer_title()
         candidates = [row for row in candidates if row['title'].strip() == main_title]
     # Unknown/duplicate windows never become a guessed conversation or main.
     if len(candidates)!=1:raise ValueError('Main window is ambiguous')
@@ -95,7 +91,17 @@ def main():
         if len(raw)>4096:raise ValueError('Input too long')
         value=json.loads(raw);pids=value.get('pids')
         if not isinstance(pids,list) or not 1<=len(pids)<=32 or any(type(p) is not int or p<=0 for p in pids):raise ValueError('Invalid process scope')
-        result=inspect(set(pids))
+        try:
+            _, port = presentation_settings()
+        except ValueError as error:
+            print(json.dumps({'ok': False, 'error': str(error)}, ensure_ascii=True))
+            return
+        try:
+            main_title = _main_renderer_title(port)
+        except (OSError, ValueError):
+            print(json.dumps({'ok': False, 'error': '한비로톡 PC 원본 창은 사용할 수 있어요. 통합 화면 연결이 준비되면 다시 선택해 주세요.'}, ensure_ascii=True))
+            return
+        result=inspect(set(pids), main_title)
     except Exception:
         result={'ok':False,'error':'한비로 대화 목록창을 하나로 확인하지 못했어요. 한비로 목록을 한 번 연 뒤 다시 선택해 주세요.'}
     print(json.dumps(result,ensure_ascii=True))
