@@ -124,6 +124,14 @@ def _login_biz(context, db, emit, *, sms_reader=None, new_page=False):
     return page
 
 
+def _report_comparable(report):
+    # This timestamp records the brand feed read, not a report edit.
+    source = report.get('brandSource')
+    if isinstance(source, dict) and 'fetchedAt' in source:
+        return {**report, 'brandSource': {k: v for k, v in source.items() if k != 'fetchedAt'}}
+    return report
+
+
 def _report(db, page, day, inputs, result, persist):
     if not isinstance(inputs,dict) or inputs.get('available') is not True:
         raise ValueError('현재 오피스 탭의 타부서 요청 목록이 아직 동기화되지 않음. 기존 보고서 요청을 임의로 삭제하지 않음')
@@ -144,16 +152,17 @@ def _report(db, page, day, inputs, result, persist):
     target['departmentRequests']=requests
     persist('report-before.json',before)
     # Optimistic read immediately before writing to avoid overwriting concurrent edits.
-    current=page.request.get(REPORT+'/api/report?'+urlencode({'date':day}),timeout=20000).json()
-    if current!=before:raise ValueError('보고서가 다른 곳에서 변경됨; 덮어쓰지 않음')
+    current=page.request.get(REPORT+'/api/report?'+urlencode({'date':day}),timeout=20000)
+    if not current.ok or _report_comparable(current.json())!=_report_comparable(before):raise ValueError('보고서가 다른 곳에서 변경됨; 덮어쓰지 않음')
     changed=target!=before
     if changed:
         response=page.request.post(REPORT+'/api/report',data={'date':day,'report':target},timeout=25000)
         if not response.ok:raise ValueError('보고서 저장 응답 실패')
     after=page.request.get(REPORT+'/api/report?'+urlencode({'date':day}),timeout=20000).json()
-    for key in before:
+    original=_report_comparable(before);observed=_report_comparable(after)
+    for key in original:
         if key in ('leadNote','departmentRequests','kpis'):continue
-        if after.get(key)!=before[key]:raise ValueError('보고서의 다른 항목이 달라짐; 추가 실행 중단')
+        if observed.get(key)!=original[key]:raise ValueError('보고서의 다른 항목이 달라짐; 추가 실행 중단')
     if after.get('leadNote')!=target['leadNote'] or after.get('departmentRequests')!=target['departmentRequests']:
         raise ValueError('보고서 저장값 재조회 불일치')
     result['report']={'day':day,'tasks':len(rows),'requests':len(requests),'saved':changed,'verified':True,'verified_at':time.time()}
@@ -266,7 +275,7 @@ def _inspection_report(page, day, result, persist):
         target['inspectionText'] = before['inspectionText'].rstrip('\r\n') + ('\n' if before['inspectionText'].rstrip('\r\n') else '') + '\n'.join(additions)
     persist('report-inspection-before.json', before)
     current = page.request.get(REPORT+'/api/report?'+urlencode({'date':day}), timeout=20000)
-    if not current.ok or current.json() != before:
+    if not current.ok or _report_comparable(current.json()) != _report_comparable(before):
         raise ValueError('보고서가 다른 곳에서 변경됨; 검수 내역 덮어쓰기 중단')
     _checkpoint()
     if additions:
@@ -275,9 +284,11 @@ def _inspection_report(page, day, result, persist):
     response = page.request.get(REPORT+'/api/report?'+urlencode({'date':day}), timeout=20000)
     if not response.ok: raise ValueError('검수 완료 목록 최종 저장 재조회 실패')
     after = response.json()
-    for key in set(before) | set(target):
+    observed = _report_comparable(after)
+    expected = _report_comparable(target)
+    for key in set(before) | set(expected):
         if key == 'kpis': continue  # The report service may recompute derived counts.
-        if after.get(key) != target.get(key): raise ValueError('최종 보고서 저장값 또는 보존 항목 불일치')
+        if observed.get(key) != expected.get(key): raise ValueError('최종 보고서 저장값 또는 보존 항목 불일치')
     result['inspection_report'] = {'day':day,'added':len(additions),'completed':len(result['completed']),
                                    'saved':bool(additions),'verified':True}
     persist('result.json', result)
