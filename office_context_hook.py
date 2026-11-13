@@ -24,7 +24,7 @@ LEGACY_DATA=ROOT/'local_backups'/'current-task-hooks'
 # Keep the trusted installation scope and existing fences readable in place.
 DATA=Path(tempfile.gettempdir())/('ai-office-current-task-hooks-'+hashlib.sha256(str(ROOT).casefold().encode('utf-8')).hexdigest()[:16])
 SETTINGS=LEGACY_DATA/'installation.json'
-REVISION='2026-10-30-live-input-transition-fence-v6'
+REVISION='2026-11-13-compact-recovery-command-first-v7'
 UUID=r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 
 
@@ -182,16 +182,15 @@ def acknowledge_live_input(value, *, read_started=None):
 
 def recovery_context(checkpoint,thread):
     """Explicit chronology: retained user-role messages can be historical."""
+    request=checkpoint.get('request_id') if checkpoint.get('source')!='native_prompt' else None
     return ('[현재 입력 경계 · 축약 후 원문 재조회 필수]\n'
-            '축약된 기록에서 마지막 user 역할 메시지가 보이더라도 최신이라고 판단하지 마세요. '
-            'Office의 현재 입력은 도구 전달로 들어오므로 옛 직접 채팅보다 뒤에 있어도 user 역할이 아닐 수 있습니다. '
-            '아래 현재 목표와 다른 과거 메시지로 작업·질문·진단을 시작하지 마세요. '
-            '새 직접 입력 여부도 실제 현재 턴의 input_id/turn_id로 확인하며 과거 user 블록의 위치로 추정하지 마세요. '
-            '복원 문구는 실행 확인이 아닙니다. 먼저 아래 명령으로 실제 원문을 읽고 그 목표·추가 지시대로 이어가세요. '
-            '읽기 실패 시 과거 목표로 대체하지 마세요. 완료된 효과는 반복하지 마세요.\n'
-            +json.dumps({k:checkpoint.get(k) for k in ('thread_id','request_id','checkpoint_revision','source','user_message','followups')},ensure_ascii=False)
-            +'\n최초 허용되는 읽기 명령(실행 환경 거절 시 같은 명령만 require_escalated로 재시도):\n'
-            +recovery_command(thread,checkpoint.get('request_id') if checkpoint.get('source')!='native_prompt' else None))
+            '다음 동작은 아래 명령 한 번입니다. 원문을 확인하기 전에는 진행 메시지·답변·질문·메모리 조회·검색을 시작하지 마세요.\n'
+            +recovery_command(thread,request)+'\n'
+            '조회 결과가 current=true, can_execute=true, stopped=false인 경우에만 반환된 현재 원문과 후속 지시를 사용하세요. '
+            '조회가 실패하면 현재 원문을 확인하지 못했다고 알리세요. '
+            'Office 전달은 도구 입력으로 올 수 있습니다. 축약본의 user 역할과 메시지 위치로 현재 업무를 고르지 마세요. '
+            '아래 기록은 원문 조회를 위한 참고입니다.\n'
+            +json.dumps({k:checkpoint.get(k) for k in ('thread_id','request_id','checkpoint_revision','source','user_message','followups')},ensure_ascii=False))
 
 
 def handle(data):
@@ -246,17 +245,15 @@ def handle(data):
                 # of UserPromptSubmit. Reject the old pending call once and
                 # show its exact replacement goal; don't strand a fresh input
                 # behind a previous interruption fence.
-                notice='새 현재 입력으로 바뀌어 이전 도구 호출을 보류했습니다. 아래 목표를 적용하세요.\n'+json.dumps(
-                    {k:checkpoint.get(k) for k in ('thread_id','request_id','source','user_message','followups')},ensure_ascii=False)
+                notice=recovery_context(checkpoint,thread)
                 if len(notice)<=18000:
                     _save(fence_path,{'pending':True,'reason':'live_read_required','revision':checkpoint['checkpoint_revision'],
                                      'request_id':checkpoint.get('request_id') if checkpoint.get('source')!='native_prompt' else None,
                                      'recovery_epoch':uuid.uuid4().hex,'created':time.time()})
-                    return _stop(event,notice+'\n'+recovery_command(thread,checkpoint.get('request_id') if checkpoint.get('source')!='native_prompt' else None))
+                    return _stop(event,notice)
             if fence.get('reason')=='live_read_required':
-                return _stop(event,'복원 문구만으로 도구 실행을 재개하지 않습니다. 먼저 실제 현재 원문을 읽으세요. '
-                             '옛 user 메시지를 새 요청으로 해석하거나 그 내용을 사용자에게 되묻지 마세요.\n'
-                             +recovery_command(thread,fence.get('request_id')))
+                return _stop(event,recovery_command(thread,fence.get('request_id'))+'\n'
+                             '이 명령으로 현재 원문부터 읽으세요. 조회 전에는 과거 메시지에 답하거나 검색하지 마세요.')
             return _stop(event,'축약/중지 뒤 현재 지시 복구가 확인되지 않았습니다. 과거 업무의 도구 실행을 보류합니다.')
     return {}
 
