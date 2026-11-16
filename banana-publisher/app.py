@@ -64,13 +64,8 @@ class EventImages(HTMLParser):
         self.bases = set()
         self.images = {}
         self.media = []
-        self.description = ''
 
     def handle_starttag(self, tag, attributes):
-        if tag == 'meta' and not self.description:
-            meta = dict(attributes)
-            if (meta.get('name') or '').lower() == 'description':
-                self.description = ' '.join((meta.get('content') or '').split())
         if tag not in {'img', 'source'}:
             return
         for key, value in attributes:
@@ -180,21 +175,30 @@ def event_text(field, limit):
     return value
 
 
-def banner_seo(raw_url):
-    event, _ = plan(raw_url)
-    pages = dict(public_event_sources({}, event))
-    web, mobile = pages['web'].description, pages['mobile'].description
-    if not web or len(web) > 300:
-        raise PreparationError('이벤트 공개 페이지에서 SEO 검색 설명을 읽을 수 없습니다.')
-    if web != mobile:
-        raise PreparationError('PC와 모바일의 SEO 검색 설명이 다릅니다. 페이지 설명을 먼저 확인하세요.')
-    return event, web
+def banner_content(raw_url, raw_text):
+    link = raw_url.strip()
+    text = raw_text.strip()
+    if not link or len(link) > 2000 or re.search(r'''[\s\x00-\x1f\x7f<>\\"']''', link):
+        raise PreparationError('배너 연결 주소를 확인하세요.')
+    try:
+        parsed = urlsplit(link)
+        if link.startswith('/') and not link.startswith('//'):
+            valid = not parsed.netloc
+        else:
+            valid = (parsed.scheme in {'http', 'https'} and bool(parsed.hostname)
+                     and parsed.username is None and parsed.password is None)
+            parsed.port  # Reject invalid or out-of-range port numbers.
+    except ValueError:
+        valid = False
+    if not valid:
+        raise PreparationError('https:// 또는 http:// 웹 주소나 /로 시작하는 바나나몰 경로를 입력하세요.')
+    if len(text) > 300 or re.search(r'[\x00-\x1f\x7f<>]', text):
+        raise PreparationError('노출 문구는 300자 이내의 일반 텍스트로 입력하세요.')
+    return link, text
 
 
 def banner_fields():
-    event, seo = banner_seo(request.form.get('url', ''))
-    if request.form.get('seo') != seo:
-        raise PreparationError('이벤트 SEO 문구가 바뀌었습니다. 등록 내용을 다시 확인하세요.')
+    link, text = banner_content(request.form.get('url', ''), request.form.get('text', ''))
     try:
         start = datetime.fromisoformat(request.form.get('start', ''))
         end = datetime.fromisoformat(request.form.get('end', ''))
@@ -205,7 +209,7 @@ def banner_fields():
     visibility = request.form.get('visible')
     if visibility not in {'Y', 'N'}:
         raise PreparationError('배너 사용 여부를 선택하세요.')
-    return {'links': f'/etc/{event}.php', 'text': seo, 'text2': '', 'target': '_self',
+    return {'links': link, 'text': text, 'text2': '', 'target': '_self',
             'orders': '0', 'isuse': visibility,
             'sdate': start.strftime('%Y-%m-%d %H:%M:%S'), 'edate': end.strftime('%Y-%m-%d %H:%M:%S')}
 
@@ -516,15 +520,16 @@ def create_app():
         finally:
             lock.release()
 
-    @app.post('/api/banners/seo')
-    def preview_banner_seo():
+    @app.post('/api/banners/preview')
+    def preview_banner_content():
         body = request.get_json(silent=True)
         raw_url = body.get('url') if isinstance(body, dict) else None
-        if not isinstance(raw_url, str):
-            return jsonify(error='이벤트 주소를 입력하세요.'), 400
+        raw_text = body.get('text', '') if isinstance(body, dict) else None
+        if not isinstance(raw_url, str) or not isinstance(raw_text, str):
+            return jsonify(error='배너 연결 주소와 노출 문구를 확인하세요.'), 400
         try:
-            event, seo = banner_seo(raw_url)
-            return jsonify(event=event, seo=seo)
+            link, text = banner_content(raw_url, raw_text)
+            return jsonify(url=link, text=text)
         except PreparationError as error:
             return jsonify(error=str(error)), 400
 

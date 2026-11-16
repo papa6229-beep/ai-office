@@ -458,19 +458,20 @@ bannerForm.addEventListener('submit', async event => {
     }
   }
   const submit = event.submitter;
-  bannerForm.dataset.running = 'seo';
+  bannerForm.dataset.running = 'preview';
   if (submit) submit.disabled = true;
-  bannerResult.textContent = '이벤트 페이지에서 SEO 검색 설명을 읽고 있습니다.';
+  bannerResult.textContent = '배너 연결 주소를 확인하고 있습니다.';
   try {
-    const response = await fetch('/api/banners/seo', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url: payload.get('url')})});
+    const response = await fetch('/api/banners/preview', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: payload.get('url'), text: payload.get('text')})});
     const data = await response.json();
-    if (!response.ok) throw Error(data.error || 'SEO 검색 설명을 읽을 수 없습니다.');
-    payload.set('seo', data.seo);
+    if (!response.ok) throw Error(data.error || '배너 연결 주소를 확인하지 못했습니다.');
+    payload.set('url', data.url);
+    payload.set('text', data.text);
     payload.set('request_id', crypto.randomUUID().replaceAll('-', ''));
     for (const file of selectedFiles.values()) payload.append('files', file);
     bannerPayload = payload;
-    document.querySelector('#banner-summary').textContent = [payload.get('url'), `노출 문구 · ${data.seo}`,
+    document.querySelector('#banner-summary').textContent = [data.url, `노출 문구 · ${data.text || '미입력'}`,
       `${payload.get('start').replace('T', ' ')} ~ ${payload.get('end').replace('T', ' ')} (한국 시간)`,
       payload.get('visible') === 'Y' ? '지정 기간에 노출' : '노출 안 함으로 등록'].join('\n');
     document.querySelector('#banner-selection').replaceChildren(...selected.map(slot => {

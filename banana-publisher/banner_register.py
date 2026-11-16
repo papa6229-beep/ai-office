@@ -46,17 +46,18 @@ READ = r'''({slot,link}) => {
         value(form,'mode') !== 'w' || value(form,'index_no') !== String(slot) ||
         form.elements.namedItem('file')?.type !== 'file' || form.elements.namedItem('file2')?.type !== 'file' || button.length !== 1 ||
         button[0].textContent.trim() !== '등록하기' || !rows) return null;
+    const base = 'https://www.bananamall.co.kr';
+    const requested = new URL(link, base).href;
     return [...rows.querySelectorAll('input[name^="data_idx"]')].flatMap(el => {
         const n = el.name.slice(8);
         const savedLink = value(rows,'links'+n).trim();
         try {
-            const url = new URL(savedLink, 'https://www.bananamall.co.kr');
-            if (!['www.bananamall.co.kr','m.bananamall.co.kr','bananamall.co.kr'].includes(url.hostname) || url.pathname !== link) return [];
+            if (!savedLink || new URL(savedLink, base).href !== requested) return [];
         } catch { return []; }
         const fileUrl = name => [...(rows.elements.namedItem(name)?.closest('td')?.querySelectorAll('img,a') ?? [])]
             .map(e => e.src || e.href).find(u => u?.startsWith('https://cdn-banana.bizhost.kr/files/new_main/')) ?? null;
         return [{id:el.value, media:fileUrl('file'+n), auxiliary:fileUrl('files'+n),
-            fields:{links:savedLink, text:value(rows,'text'+n), text2:value(rows,'text'+n+'_2'),
+            fields:{text:value(rows,'text'+n), text2:value(rows,'text'+n+'_2'),
             target:value(rows,'target'+n), orders:value(rows,'orders'+n), isuse:value(rows,'isuse'+n),
             sdate:value(rows,'sdate'+n), edate:value(rows,'edate'+n)}}];
     });
@@ -86,7 +87,8 @@ def rows_for(page, slot, link):
 
 
 def matches(page, row, item):
-    if row['fields'] != item['fields']:
+    # rows_for already compared the full destination, including query and fragment.
+    if any(value != item['fields'][key] for key, value in row['fields'].items()):
         return False
     return (read_image(page, row['media'], item['sha256']) is not None
             and read_image(page, row['auxiliary'], AUXILIARY[item['slot']][1]) is not None)
@@ -117,13 +119,10 @@ def register(job, root):
                 for item in job['items']:
                     slot, link = item['slot'], item['fields']['links']
                     rows = rows_for(page, slot, link)
-                    if not rows:
-                        pending.append(item)
-                    elif len(rows) == 1 and matches(page, rows[0], item):
+                    if any(matches(page, row, item) for row in rows):
                         results.append({'slot': slot, 'state': 'existing'})
                     else:
-                        return {'state': 'blocked', 'results': results, 'slot': slot,
-                                'error': '같은 이벤트 주소의 기존 배너가 있습니다. 기존 등록을 확인하세요.'}
+                        pending.append(item)
                 auxiliary_files = {}
                 for item in pending:
                     slot = item['slot']
@@ -138,9 +137,11 @@ def register(job, root):
                     auxiliary_files[slot] = path
                 for item in pending:
                     slot, fields = item['slot'], item['fields']
-                    if rows_for(page, slot, fields['links']):
-                        return {'state': 'blocked', 'results': results, 'slot': slot,
-                                'error': '등록 준비 후 같은 이벤트 배너가 생겼습니다. 목록을 확인하세요.'}
+                    previous_rows = rows_for(page, slot, fields['links'])
+                    if any(matches(page, row, item) for row in previous_rows):
+                        results.append({'slot': slot, 'state': 'existing'})
+                        continue
+                    previous_ids = {row['id'] for row in previous_rows}
                     file = Path(item['file'])
                     auxiliary = auxiliary_files[slot]
                     if hashlib.sha256(file.read_bytes()).hexdigest() != item['sha256'] or not page.evaluate(FILL, fields):
@@ -164,8 +165,8 @@ def register(job, root):
                     except EgoCommandError:
                         if session.reconciliation_required:
                             raise
-                    rows = rows_for(page, slot, fields['links'])
-                    if len(rows) != 1 or not matches(page, rows[0], item):
+                    rows = [row for row in rows_for(page, slot, fields['links']) if row['id'] not in previous_ids]
+                    if len(rows) != 1 or not rows[0]['id'] or not matches(page, rows[0], item):
                         return {'state': 'unconfirmed', 'results': results, 'slot': slot,
                                 'error': '저장 뒤 등록 내용과 이미지 원본을 모두 대조하지 못했습니다.'}
                     results.append({'slot': slot, 'state': 'registered'})
