@@ -292,8 +292,12 @@ def finish_confirmation(db,ident,*,timed_out=False):
         # Old-runtime bootstrap can use the same report path: append an explicitly
         # code-observed result, preserving the agent's earlier provisional text.
         original=data.get('result_before_activation',data.get('result',''))
+        verification=data.get('verification') or {}
+        if verification.get('level')!='department_repair_observed':
+            verification={'level':'source_loaded' if row['state']=='active' else 'activation_not_confirmed',
+                          'business_success':'not_independently_verified'}
         data.update(result_before_activation=original,activation_observation=observation,
-                    verification={'level':'source_loaded' if row['state']=='active' else 'activation_not_confirmed','business_success':'not_independently_verified'},
+                    verification=verification,
                     result=original+'\n\n[코드가 확인한 실제 활성화·재사용 결과]\n'+json.dumps(observation,ensure_ascii=False),next_poll=0)
         current['report_gate']=dict(gate,state='timed_out' if timed_out else 'confirmed',observation=observation,confirmed_at=time.time())
         if current.get('confirmation_worker'):

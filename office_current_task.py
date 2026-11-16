@@ -211,8 +211,10 @@ def read_current(request_id=None, *, thread_id=None):
         if result.get('current'):
             import department_work
             if thread in department_work.registered(ROOT/'office.db'):
+                from department_tasks import REPAIR_GUIDANCE
                 result['work_tracking']={'entry':str(ROOT/'department_runtime.py'),
-                    'rule':'실제 직접 산출물 업무는 declare --request-id 현재ID --title 짧은업무명 --kind 업무종류로 연결합니다. 기존 배정/추가 입력은 재사용하고 질문·잡담·조회는 새 업무가 아닙니다. 완료보고는 코드가 처리합니다.'}
+                    'rule':'실제 직접 산출물 업무는 declare --request-id 현재ID --title 짧은업무명 --kind 업무종류로 연결합니다. 기존 배정/추가 입력은 재사용하고 질문·잡담·조회는 새 업무가 아닙니다. 완료보고는 코드가 처리합니다.',
+                    'repair':REPAIR_GUIDANCE}
             elif thread==hq:
                 result['work_tracking']={'entry':str(ROOT/'department_runtime.py'),'rule':'search/inbox/route로 기존 상태·담당을 조회하고 현재 의도/예외를 한 번 판단합니다. assign은 현재 본부ID·유지범위·완료기준으로 비동기 접수합니다. 이력/보고는 새 권한이 아닙니다.'}
         if result.get('current') and result.get('can_execute') and not result.get('stopped'):

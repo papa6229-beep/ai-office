@@ -43,6 +43,7 @@ def main():
     assign.add_argument('--depends-on',action='append',default=[])
     accept=commands.add_parser('accept-handoff');accept.add_argument('--request-id',required=True);accept.add_argument('--assignment-id',required=True);accept.add_argument('--result-sha256',required=True);accept.add_argument('--evidence',required=True)
     declare=commands.add_parser('declare');declare.add_argument('--request-id',required=True);declare.add_argument('--title',required=True);declare.add_argument('--kind',required=True)
+    verify=commands.add_parser('verify-repair');verify.add_argument('--request-id',required=True);verify.add_argument('--evidence',required=True)
     export=commands.add_parser('export-journal');export.add_argument('--task-id',default='');export.add_argument('--limit',type=int,default=20)
     ack=commands.add_parser('ack-journal');ack.add_argument('--receipt-file',required=True)
     args=p.parse_args();db=Path(args.db)
@@ -57,6 +58,9 @@ def main():
         import department_tasks
         result=department_tasks.accept_handoff(db,args.request_id,args.assignment_id,args.result_sha256,args.evidence)
     elif args.command=='declare':result=work.declare_current(db,args.request_id,args.title,args.kind)
+    elif args.command=='verify-repair':
+        import department_tasks
+        result=department_tasks.verify_repair(db,args.request_id,args.evidence)
     elif args.command=='export-journal':result=journal.pending(db,args.task_id,args.limit)
     else:result=journal.acknowledge(db,json.loads(Path(args.receipt_file).read_text(encoding='utf-8-sig')))
     print(json.dumps(result,ensure_ascii=False,indent=2))

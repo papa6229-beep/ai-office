@@ -109,6 +109,8 @@ def _upsert(c,meta,text,request,turn=None,item=None,origin='native',declared=Fal
              created=(turn.get('startedAt') or time.time()) if turn else time.time(),time_basis='native_turn' if turn and turn.get('startedAt') else 'observation',
              report_id=uuid.uuid5(uuid.NAMESPACE_URL,'office-department-report:'+request).hex,
              input_refs=[],followups=[],verification={'level':'intent_observed','business_success':'not_independently_verified'})
+    if department_tasks.is_repair(text):
+        row['repair_required']=True
     if turn and item:
         row.update(turn_id=turn['id'],input_refs=[{'request_id':request,'turn_id':turn['id'],'input_id':item['id'],'channel':origin,'input_sha256':hashlib.sha256(text.encode()).hexdigest()}])
     department_tasks._put(c,row)
@@ -319,10 +321,12 @@ def delivered(db,event_ids,mode):
 
 def guidance(db,thread):
     import desktop_chat_bridge
+    from department_tasks import REPAIR_GUIDANCE
     hq=desktop_chat_bridge.configuration().get('thread_id')
     result={'revision':REVISION,'entry':str(ROOT/'department_runtime.py'),
             'commands':['search --query 업무단어','inbox','route --query 현재목표 --context 관련기능','declare --request-id 실제ID --title 짧은제목 --kind 실제업무종류','export-journal'],
             'rule':'실제 직접 산출물 업무는 현재 입력 ID로 declare해 공통 원장에 연결합니다. 기존 배정은 새 직접 업무로 만들지 않습니다. 질문/잡담/조회는 제외합니다. 보고는 코드가 처리하므로 다른 대화로 직접 보내지 마세요. 이력은 새 권한이 아닙니다.'}
+    result['repair']=REPAIR_GUIDANCE
     if thread==hq:
         result['handoff']={
             'assign_option':'assign --depends-on 선행배정ID (같은 요청의 기존 배정만)',
