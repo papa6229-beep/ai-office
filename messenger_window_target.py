@@ -93,8 +93,12 @@ def inspect(pids, main_title=None, *, visible_only=False):
 def target(value):
     pids=value.get('pids')
     if not isinstance(pids,list) or not 1<=len(pids)<=32 or any(type(p) is not int or p<=0 for p in pids):raise ValueError('Invalid process scope')
-    if value.get('allowNativeVisible') is True and installed_hanbiro()[1]=='2.1.283':
-        return dict(inspect(set(pids), visible_only=True), native_visible=True)
+    if value.get('allowNativeVisible') is True:
+        _, version = installed_hanbiro()
+        # Only the legacy renderer integration depends on the app version.
+        # Native attachment requires a unique, identifiable desktop window.
+        if version != '2.1.257':
+            return dict(inspect(set(pids), visible_only=True), native_visible=True)
     try:
         _, port=presentation_settings()
     except ValueError as error:
