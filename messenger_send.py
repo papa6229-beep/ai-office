@@ -13,11 +13,16 @@ import time
 import uuid
 
 import file_operations as ops
-import messenger_attachment_worker as intake
 
 ROOT=Path(__file__).resolve().parent
 PRIVATE=ROOT/'.provider_runtime/messenger'
 ASAR=Path.home()/'AppData/Local/Programs/hanbiro-talk/resources/app.asar'
+
+
+def _attachment_reader():
+    # The Chromium cache dependencies belong to the on-demand worker process.
+    import messenger_attachment_worker
+    return messenger_attachment_worker
 
 
 def _version():
@@ -53,7 +58,7 @@ def public(data):
 
 
 def _recipient(room,recipient):
-    domain,_,data=intake._storage();own=data['_aemeath_current_user']
+    domain,_,data=_attachment_reader()._storage();own=data['_aemeath_current_user']
     current=data.get('recoil-atomAllRooms',{}).get('rooms',{}).get(room)
     if not isinstance(current,dict) or current.get('leftRoom'):
         raise ValueError('현재 참여 중인 원본 대화방을 확인해 주세요.')
@@ -65,7 +70,7 @@ def _recipient(room,recipient):
 
 
 def private_room(recipient):
-    _, _, data = intake._storage()
+    _, _, data = _attachment_reader()._storage()
     own = data['_aemeath_current_user']
     rooms = data.get('recoil-atomAllRooms', {}).get('rooms', {})
     matches = []
@@ -135,7 +140,7 @@ def _android_dispatch(ident, record, action, authorize):
             return confirm_send(ident)
         if _recipient(plan['room'], plan['recipient']) != (plan['_domain'], plan['_own'], plan['_peer']):
             raise ValueError('한비로 계정이나 대상 개인방이 바뀌었어요.')
-        rooms = intake.chat_snapshot([], [plan['room']])['rooms']
+        rooms = _attachment_reader().chat_snapshot([], [plan['room']])['rooms']
         if len(rooms) != 1 or rooms[0]['id'] != plan['room']:
             raise ValueError('기존 한비로 개인방 기록을 확인하지 못했어요.')
         messages = [message['text'] for message in rooms[0]['messages']]
@@ -151,7 +156,12 @@ def _android_dispatch(ident, record, action, authorize):
 
         try:
             if action == 'text':
-                guest_send.deliver_text(guest, plan['recipient'], plan['text'], messages, before_send)
+                observed = guest_send.deliver_text(guest, plan['recipient'], plan['text'], messages, before_send)
+                if observed:
+                    plan.update(state='sent', confirmed=time.time(),
+                                verification='원본 Android 한비로 개인방에서 새 발신 메시지 확인')
+                    _save(record, plan)
+                    return public(plan)
             else:
                 path = ops._guard(Path(plan['path']))
                 if path.stat().st_size != plan['size'] or _file_digest(path) != plan['sha256']:
@@ -212,6 +222,7 @@ def dispatch(ident, *, authorize=None):
 def confirm(ident):
     record=_record(ident);plan=json.loads(record.read_text('utf-8'))
     if plan['state'] not in {'dispatching','awaiting_confirmation','unknown'}:return public(plan)
+    intake=_attachment_reader()
     _,_,data=intake._storage();own=data['_aemeath_current_user']
     if own!=plan['_own']:raise ValueError('현재 한비로 계정이 바뀌었어요.')
     matches=[]
@@ -260,6 +271,7 @@ def confirm_text(ident):
     record=_record(ident).parent.parent/'outgoing-text'/(ident+'.json')
     plan=json.loads(record.read_text('utf-8'))
     if plan['state'] not in {'dispatching','awaiting_confirmation','unknown'}:return public(plan)
+    intake=_attachment_reader()
     _,_,data=intake._storage()
     if data['_aemeath_current_user']!=plan['_own']:raise ValueError('현재 한비로 계정이 바뀌었어요.')
     matches={}
@@ -345,7 +357,7 @@ def _registered_action(request):
     if action == 'recent':
         room = private_room(recipient)
         domain, own, _ = _recipient(room, recipient)
-        snapshot = intake.chat_snapshot([], [room])
+        snapshot = _attachment_reader().chat_snapshot([], [room])
         if snapshot['account'] != hashlib.sha256(f'{domain}|{own}'.encode()).hexdigest():
             raise ValueError('조회 중 한비로 계정이 바뀌었어요.')
         rooms = snapshot['rooms']

@@ -43,6 +43,15 @@ def _room(tree, recipient):
             and len(_nodes(tree, 'list_view_chat')) == 1)
 
 
+def _leave_room(guest, tree):
+    bar = _one(_nodes(tree, 'toolBar'), '한비로 대화방 제목 영역을 확인하지 못했어요.')
+    back = [n for n in bar if n.get('class') == 'android.widget.ImageButton'
+            and n.get('clickable') == 'true' and n.get('enabled') == 'true']
+    guest.tap(_one(back, '한비로 대화방의 목록 버튼을 확인하지 못했어요.'))
+    return guest.wait(lambda t: t if _nodes(t, 'tab_chat') and not _nodes(t, 'tv_chat_title') else None,
+                      '한비로 대화 목록으로 돌아가지 못했어요.')
+
+
 @contextmanager
 def connected():
     nateon_guest.connect()
@@ -59,8 +68,7 @@ def open_room(guest, recipient):
     if _room(tree, recipient):
         return tree
     if _nodes(tree, 'tv_chat_title'):
-        guest.call('shell', 'input', 'keyevent', 'KEYCODE_BACK')
-        tree = guest.tree()
+        tree = _leave_room(guest, tree)
     if not _nodes(tree, 'list_view_chat_list'):
         if not _nodes(tree, 'tab_chat'):
             activity = guest.call('shell', 'cmd', 'package', 'resolve-activity', '--brief',
@@ -74,9 +82,7 @@ def open_room(guest, recipient):
         if _room(tree, recipient):
             return tree
         if _nodes(tree, 'tv_chat_title'):
-            guest.call('shell', 'input', 'keyevent', 'KEYCODE_BACK')
-            tree = guest.wait(lambda t: t if _nodes(t, 'tab_chat') else None,
-                              '가상기기 한비로 대화 목록으로 돌아가지 못했어요.')
+            tree = _leave_room(guest, tree)
         if not _nodes(tree, 'list_view_chat_list'):
             guest.tap(_one(_nodes(tree, 'tab_chat'), '한비로 채팅 탭을 하나로 확인하지 못했어요.'))
             tree = guest.wait(lambda t: t if _nodes(t, 'list_view_chat_list') else None,
@@ -218,8 +224,30 @@ def _match_original_room(tree, original_messages):
         raise ValueError('PC와 Android 한비로의 동일 개인방이라는 기록을 확인하지 못했어요.')
 
 
+def _horizontal(node):
+    match = re.fullmatch(r'\[(\d+),\d+\]\[(\d+),\d+\]', node.get('bounds', ''))
+    return tuple(map(int, match.groups())) if match else (0, 0)
+
+
+def outgoing_matches(tree, recipient, text, control='tc_txt_msg'):
+    if not _room(tree, recipient):
+        return 0
+    listing = _nodes(tree, 'list_view_chat')[0]
+    left, right = _horizontal(listing)
+    return sum(
+        any(n.get('text') == text for n in _nodes(row, control))
+        and any(left < right and _horizontal(n)[0] > left + (right - left) * 0.6
+                for n in _nodes(row, 'tc_footer_time'))
+        and not _nodes(row, 'tc_name_user')
+        and not any(any(word in n.get('resource-id', '').lower() for word in ('retry', 'error', 'fail', 'progress'))
+                    for n in row.iter('node'))
+        for row in listing)
+
+
 def deliver_text(guest, recipient, text, original_messages, before_send):
-    _match_original_room(open_room(guest, recipient), original_messages)
+    original = open_room(guest, recipient)
+    _match_original_room(original, original_messages)
+    baseline = outgoing_matches(original, recipient, text)
     try:
         tree = draft_text(guest, recipient, text)
         send = _one([n for n in _nodes(tree, 'kb_imb_send') if n.get('enabled') == 'true'
@@ -232,6 +260,10 @@ def deliver_text(guest, recipient, text, original_messages, before_send):
             guest.call('shell', 'input', 'keyevent', 'KEYCODE_DEL')
         raise
     guest.tap(send)
+    tree = guest.wait(lambda t: t if _room(t, recipient) and outgoing_matches(t, recipient, text) == baseline + 1
+                      and _text(_editor(t, recipient)) in EMPTY_EDITOR else None,
+                      'Android 한비로에서 새 발신 기록을 아직 확인하지 못했어요.')
+    return outgoing_matches(tree, recipient, text) == baseline + 1
 
 
 def deliver_file(guest, recipient, path, digest, original_messages, before_send):
