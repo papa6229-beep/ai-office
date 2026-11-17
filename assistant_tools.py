@@ -103,6 +103,10 @@ _SPECS = {
                              'target':_string(enum=['hanbiro','nateon']),'recipient':_string(maxLengthOverride=160)},['source','file','sender','target','recipient']),
     'messenger_file_receive': ('write','현재 사용자 문장에 지정된 한비로 수신 첨부를 저장하고 완료 기록을 확인합니다.',
                                {'file':_string(maxLengthOverride=600),'sender':_string(maxLengthOverride=40)},['file','sender']),
+    'hanbiro_message_send': ('external','현재 사용자 문장에 직접 지정된 한비로 개인방과 인용한 메시지 본문만 원본 방으로 보냅니다. 발신 기록이 확인될 때만 완료입니다.',
+                             {'recipient':_string(maxLengthOverride=40),'text':_string(maxLengthOverride=2000)},['recipient','text']),
+    'hanbiro_message_receive': ('read','현재 사용자가 지정한 한비로 개인방에서 최근 받은 텍스트 한 건을 PC 캐시에서 조회합니다. 읽음 처리나 발신은 하지 않습니다.',
+                                {'recipient':_string(maxLengthOverride=40)},['recipient']),
     'messenger_attachments_status': ('read','메신저별 화면 비간섭 첨부 수신의 실제 연결 범위를 조회합니다. 네이트온 저장 파일 처리와 미다운로드 첨부 직접 수신을 구별하세요.',{},[]),
     'messenger_attachments_list': ('read','사용자가 지정한 한비로 대화방의 PC 캐시 첨부를 코드로 조회합니다. 화면·마우스를 건드리지 않으며 전체 서버 이력은 아닙니다. 실제 첨부 ref를 반환합니다. 네이트온 직접 수신은 미지원입니다.',{'source':_string(enum=['hanbiro','nateon']),'query':_string(maxLengthOverride=200),'room':_string(maxLengthOverride=100),'offset':{'type':'integer','minimum':0}},['source']),
     'messenger_attachment_download': ('write','사용자가 받으라고 지정한 실제 한비로 첨부 ref를 기존 로그인으로 백그라운드 수신합니다. 보내기·화면 조작을 하지 않습니다. 반환 id로 job을 확인한 뒤 실제 저장 완료를 보고하세요. 정리는 별도 received_files_organize입니다.',{'ref':_string(pattern='^[a-f0-9]{64}$')},['ref']),
@@ -765,6 +769,24 @@ class ToolRegistry:
             if result.get('download_path'):
                 message='한비로에서 받은 파일은 저장했어요. '+message
             return {'status':'error','message':message,'data':result}
+        if name in {'hanbiro_message_send','hanbiro_message_receive'}:
+            import office_routines
+            import messenger_send
+
+            route=office_routines.match(c.get('user_goal',''))
+            if not route or route['id']!=name or route['args']!=a:
+                raise ValueError('현재 사용자 지시에 적힌 한비로 대화 상대와 메시지를 확인해 주세요.')
+            if name=='hanbiro_message_receive':
+                result=messenger_send.registered('recent',a['recipient'])
+                latest=result['message']
+                if latest is None:
+                    return _ok('한비로 PC에 저장된 최근 대화에서 해당 상대가 보낸 텍스트를 찾지 못했어요.',result)
+                return _ok(f"한비로에서 {a['recipient']}님이 보낸 최근 메시지예요.\n\n{latest['text']}",result)
+            result=messenger_send.registered('text',a['recipient'],db=self.db_path,
+                                             request_id=c.get('root_request_id') or c['request_id'],text=a['text'])
+            if result['state']=='sent':
+                return _ok(f"한비로 {a['recipient']} 개인 대화방에서 새 메시지 발신 기록을 확인했어요.",result)
+            return {'status':'error','message':'원래 대화방에서 새 메시지 발신 기록을 아직 확인하지 못했어요.', 'data':result}
         if name.startswith('messenger_attachment'):
             import messenger_attachments as attachments
             if name=='messenger_attachments_status':return _ok('메신저별 실제 첨부 수신 범위예요.',attachments.capabilities(self.db_path))

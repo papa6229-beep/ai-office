@@ -9,7 +9,7 @@ import time
 
 FILE = r'[“‘"\'](?P<file>[^”’"\'\r\n]{1,600})[”’"\']|(?P<bare_file>[^\s“”‘’"\'|]{1,200}\.[A-Za-z0-9]{1,10})'
 SENDER = r'(?:(?P<sender>[가-힣]{2,10}?)\s*(?:사원|님)?\s*(?:이|가)\s*보낸\s+)?'
-TARGET = (r'(?P<target>네이트온|한비로톡|한비로)\s+(?:상품팀\s+)?'
+TARGET = (r'(?P<target>네이트온|한비로톡|한비로)(?:으로|로)?\s+(?:상품팀\s+)?'
           r'(?:[“‘"\'](?P<room>[^”’"\'\r\n]{1,160})[”’"\']|(?P<person>[가-힣]{2,10}?)(?:님)?)'
           r'\s*(?:단체방|개인방)?\s*(?:에게|한테|으로|에)\s*')
 SEND = r'(?:보내|전송해|전달해)\s*(?:줘|주세요|주라)?'
@@ -143,14 +143,8 @@ def run(db, request_id, plan):
             result = nateon_file_send.send_file(request_id, recipient, path, expected_sha256=digest, authorize=authorize)
         else:
             import messenger_send
-            room = messenger_send.private_room(recipient)
-            messenger_send.prepare(request_id, room, recipient, path, expected_sha256=digest)
-            result = messenger_send.dispatch(request_id, authorize=authorize)
-            deadline = time.monotonic() + 12
-            while result['state'] == 'awaiting_confirmation' and time.monotonic() < deadline:
-                task_control.checkpoint()
-                time.sleep(0.5)
-                result = messenger_send.confirm(request_id)
+            result = messenger_send.registered('file', recipient, db=db, request_id=request_id,
+                                               path=str(path), expected_sha256=digest)
     except (OSError, ValueError) as error:
         if download is None:
             raise

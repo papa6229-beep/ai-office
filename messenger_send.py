@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import struct
 import subprocess
+import sys
 import time
 import uuid
 
@@ -231,13 +232,18 @@ def confirm_text(ident):
     return public(plan)
 
 
-def dispatch_text(ident):
+def dispatch_text(ident, *, authorize=None):
+    import task_control
+
     record=_record(ident).parent.parent/'outgoing-text'/(ident+'.json')
     plan=json.loads(record.read_text('utf-8'))
     if plan['state']!='prepared':return public(plan)
     if _recipient(plan['room'],plan['recipient'])!=(plan['_domain'],plan['_own'],plan['_peer']) or _version()!=plan['_version']:
         raise ValueError('계정·받는 사람·앱 버전이 바뀌어 전송하지 않았어요.')
     _bridge('preflight')
+    task_control.checkpoint()
+    if authorize is not None:
+        authorize()
     plan.update(state='dispatching',started=time.time());_save(record,plan)
     try:
         _bridge('send_text',dict(roomKey=plan['room'],userKey=plan['_own'],clientId=plan['_client_id'],
@@ -251,3 +257,85 @@ def dispatch_text(ident):
         except Exception:pass
         raise
     return confirm_text(ident)
+
+
+def registered(action, recipient, *, db=None, request_id=None, **payload):
+    """Use the same Chromium reader runtime as Office attachment intake."""
+    from messenger_attachments import _runtime
+    import task_control
+
+    task_control.checkpoint()
+    request = dict(action=action, recipient=recipient, request_id=request_id,
+                   db=str(Path(db).resolve()) if db is not None else None, **payload)
+    try:
+        result = subprocess.run([str(_runtime()), '-X', 'utf8', str(Path(__file__).resolve())],
+                                input=json.dumps(request, ensure_ascii=False), text=True,
+                                encoding='utf-8', capture_output=True, timeout=350,
+                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except subprocess.TimeoutExpired:
+        raise ValueError('한비로 전용 실행기 응답이 지연됐어요. 발신 기록을 확인하기 전에는 같은 요청을 다시 보내지 않아요.') from None
+    if result.returncode:
+        raise ValueError('한비로 전용 실행기 응답을 확인하지 못했어요. 발신 기록을 확인하기 전에는 같은 요청을 다시 보내지 않아요.')
+    response = json.loads(result.stdout)
+    if response.get('stopped'):
+        raise task_control.Stopped()
+    if response.get('error'):
+        raise ValueError(response['error'])
+    return response['data']
+
+
+def _registered_action(request):
+    import office_fastlane
+    from messenger_file_routines import _authorize_send
+
+    action, recipient = request['action'], request['recipient']
+    if action == 'recent':
+        room = private_room(recipient)
+        domain, own, _ = _recipient(room, recipient)
+        snapshot = intake.chat_snapshot([], [room])
+        if snapshot['account'] != hashlib.sha256(f'{domain}|{own}'.encode()).hexdigest():
+            raise ValueError('조회 중 한비로 계정이 바뀌었어요.')
+        rooms = snapshot['rooms']
+        messages = rooms[0]['messages'] if len(rooms) == 1 and rooms[0]['id'] == room else ()
+        latest = next((message for message in reversed(messages)
+                       if message['direction'] == 'in' and message['sender'] == recipient), None)
+        return dict(message=latest, scope=snapshot['scope'])
+    if action not in {'file', 'text'}:
+        raise ValueError('지원하지 않는 한비로 요청입니다.')
+    ident = request['request_id']
+    if not isinstance(ident, str) or not re.fullmatch('[a-f0-9]{32}', ident):
+        raise ValueError('현재 한비로 요청 번호를 확인해 주세요.')
+    db = Path(request['db'])
+
+    def authorize():
+        _authorize_send(db, ident)
+
+    authorize()
+    room = private_room(recipient)
+    if action == 'file':
+        prepare(ident, room, recipient, request['path'], expected_sha256=request['expected_sha256'])
+        result, confirm_send = dispatch(ident, authorize=authorize), confirm
+    else:
+        prepare_text(ident, room, recipient, request['text'])
+        result, confirm_send = dispatch_text(ident, authorize=authorize), confirm_text
+    deadline = time.monotonic() + 12
+    while result['state'] == 'awaiting_confirmation' and time.monotonic() < deadline:
+        if office_fastlane.stopped(db, ident):
+            break
+        time.sleep(0.5)
+        result = confirm_send(ident)
+    return result
+
+
+if __name__ == '__main__':
+    import task_control
+
+    try:
+        response = dict(data=_registered_action(json.load(sys.stdin)))
+    except task_control.Stopped:
+        response = dict(stopped=True)
+    except ValueError as error:
+        response = dict(error=str(error))
+    except OSError:
+        response = dict(error='한비로 캐시 또는 작업 파일에 접근하지 못했어요. 발신 기록 확인 전에는 같은 요청을 다시 보내지 않아요.')
+    print(json.dumps(response, ensure_ascii=False))
