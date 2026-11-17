@@ -124,6 +124,55 @@ def _bridge(action,payload=None):
     return value
 
 
+def _android_dispatch(ident, record, action, authorize):
+    import hanbiro_guest_send as guest_send
+    import task_control
+
+    confirm_send = confirm_text if action == 'text' else confirm
+    with guest_send.connected() as guest:
+        plan = json.loads(record.read_text('utf-8'))
+        if plan['state'] != 'prepared':
+            return confirm_send(ident)
+        if _recipient(plan['room'], plan['recipient']) != (plan['_domain'], plan['_own'], plan['_peer']):
+            raise ValueError('한비로 계정이나 대상 개인방이 바뀌었어요.')
+        rooms = intake.chat_snapshot([], [plan['room']])['rooms']
+        if len(rooms) != 1 or rooms[0]['id'] != plan['room']:
+            raise ValueError('기존 한비로 개인방 기록을 확인하지 못했어요.')
+        messages = [message['text'] for message in rooms[0]['messages']]
+
+        def before_send():
+            task_control.checkpoint()
+            authorize()
+            current = _recipient(plan['room'], plan['recipient'])
+            if current != (plan['_domain'], plan['_own'], plan['_peer']):
+                raise ValueError('한비로 계정이나 대상 개인방이 바뀌었어요.')
+            plan.update(state='dispatching', started=time.time(), transport='android')
+            _save(record, plan)
+
+        try:
+            if action == 'text':
+                guest_send.deliver_text(guest, plan['recipient'], plan['text'], messages, before_send)
+            else:
+                path = ops._guard(Path(plan['path']))
+                if path.stat().st_size != plan['size'] or _file_digest(path) != plan['sha256']:
+                    raise ValueError('준비 후 파일이 바뀌어 전송하지 않았어요.')
+                guest_send.deliver_file(guest, plan['recipient'], path, plan['sha256'], messages, before_send)
+            plan['state'] = 'awaiting_confirmation'
+            _save(record, plan)
+        except Exception:
+            if plan['state'] == 'dispatching':
+                plan['state'] = 'unknown'
+                _save(record, plan)
+                try:
+                    result = confirm_send(ident)
+                    if result['state'] == 'sent':
+                        return result
+                except (OSError, ValueError):
+                    pass
+            raise
+    return confirm_send(ident)
+
+
 def dispatch(ident, *, authorize=None):
     import task_control
     record=_record(ident);plan=json.loads(record.read_text('utf-8'))
@@ -134,6 +183,8 @@ def dispatch(ident, *, authorize=None):
     domain,own,peer=_recipient(plan['room'],plan['recipient'])
     if (domain,own,peer,_version())!=(plan['_domain'],plan['_own'],plan['_peer'],plan['_version']):
         raise ValueError('계정·받는 사람·앱 버전이 바뀌어 전송하지 않았어요.')
+    if authorize is not None and plan['_version'] != '2.1.257':
+        return _android_dispatch(ident, record, 'file', authorize)
     _bridge('preflight')
     task_control.checkpoint()
     if authorize is not None:
@@ -240,6 +291,8 @@ def dispatch_text(ident, *, authorize=None):
     if plan['state']!='prepared':return public(plan)
     if _recipient(plan['room'],plan['recipient'])!=(plan['_domain'],plan['_own'],plan['_peer']) or _version()!=plan['_version']:
         raise ValueError('계정·받는 사람·앱 버전이 바뀌어 전송하지 않았어요.')
+    if authorize is not None and plan['_version'] != '2.1.257':
+        return _android_dispatch(ident, record, 'text', authorize)
     _bridge('preflight')
     task_control.checkpoint()
     if authorize is not None:
