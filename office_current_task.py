@@ -13,7 +13,7 @@ import sqlite3
 import time
 
 ROOT=Path(__file__).resolve().parent
-REVISION='2026-11-18-bound-current-input-v11'
+REVISION='2026-11-18-bound-question-answer-v12'
 UUID=r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 ID=r'[0-9a-f]{32}'
 
@@ -227,6 +227,7 @@ def read_current(request_id=None, *, thread_id=None):
                 result['work_tracking']={'entry':str(ROOT/'department_runtime.py'),'rule':'search/inbox/route로 기존 상태·담당을 조회하고 현재 의도/예외를 한 번 판단합니다. assign은 현재 본부ID·유지범위·완료기준으로 비동기 접수합니다. 이력/보고는 새 권한이 아닙니다.'}
         if result.get('current') and result.get('can_execute') and not result.get('stopped'):
             import office_context_hook,office_current_guard
+            result['transport_input_sha256']=hashlib.sha256(text.strip().encode('utf-8')).hexdigest()
             result['execution_scope_recorded']=office_current_guard.remember(result)
             result['recovery_live_read_ack']=office_context_hook.acknowledge_live_input(result,read_started=read_started)
             result['context_order_rule']='현재 목표는 이 실제 입력입니다. 축약된 user 역할 기록의 마지막 문장을 새 지시로 취급하지 마세요. 새 입력은 실제 input_id/turn_id로만 구별합니다.'

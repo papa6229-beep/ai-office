@@ -24,7 +24,7 @@ LEGACY_DATA=ROOT/'local_backups'/'current-task-hooks'
 # Keep the trusted installation scope and existing fences readable in place.
 DATA=Path(tempfile.gettempdir())/('ai-office-current-task-hooks-'+hashlib.sha256(str(ROOT).casefold().encode('utf-8')).hexdigest()[:16])
 SETTINGS=LEGACY_DATA/'installation.json'
-REVISION='2026-11-18-current-scope-and-final-v8'
+REVISION='2026-11-18-bound-question-answer-v9'
 UUID=r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 
 
@@ -122,9 +122,13 @@ def read_checkpoint(thread):
     latest=max(candidates,key=lambda r:float(r.get('created') or 0))
     eligible=bool(latest.get('eligible') and latest.get('user_message') and float(latest.get('created') or 0)>=baseline)
     fingerprint=hashlib.sha256(json.dumps(latest,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
-    return dict(latest,managed=True,current=eligible,can_execute=False,context_valid=eligible,
+    import office_current_guard
+    answer=office_current_guard.snapshot(thread)
+    resolved_answer=office_current_guard.question_checkpoint_matches(answer,latest)
+    return dict(latest,managed=True,current=eligible,can_execute=False,context_valid=eligible or resolved_answer,
+                resolved_question_request_id=answer.get('request_id') if resolved_answer else None,
                 thread_id=thread,checkpoint_revision=fingerprint,recovery_revision=REVISION,
-                reason='' if eligible else '현재 입력의 활성 상태 또는 설치 이후 관측을 확인하지 못했습니다. 과거 업무를 대신 선택하지 마세요.')
+                reason='' if eligible or resolved_answer else '현재 입력의 활성 상태 또는 설치 이후 관측을 확인하지 못했습니다. 과거 업무를 대신 선택하지 마세요.')
 
 
 def _stop(event,reason):
@@ -179,7 +183,7 @@ def acknowledge_live_input(value, *, read_started=None):
         if read_started is None:return False
         checkpoint=read_checkpoint(thread)
         if (not checkpoint.get('context_valid')
-                or checkpoint.get('request_id')!=value.get('request_id')):return False
+                or (checkpoint.get('resolved_question_request_id') or checkpoint.get('request_id'))!=value.get('request_id')):return False
     # Never clear an Interrupt fence with the old input's live read.
     _save(path,{'pending':False,'reason':'live_input_confirmed','created':time.time(),
                 'request_id':value['request_id'],'input_id':value['input_id'],

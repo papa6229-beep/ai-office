@@ -178,3 +178,27 @@ not described as a complete natural-language correctness proof.
 
 Official event semantics: https://learn.chatgpt.com/docs/hooks
 Implementation plan: superpowers/plans/2026-11-18-current-input-final-guard.md
+
+## Valid question answers must not deadlock the current-input guard (2026-11-18)
+
+The research team's actual price-limit answer was correctly linked to its
+active original request by the live reader, but the new per-tool guard compared
+it with the native reference envelope as if it were an unrelated input. The
+native capture deliberately marks an unbound question-answer envelope ineligible.
+Checking only that flag discarded the reader's verified origin evidence and
+blocked editing even after repeated successful current-input reads.
+
+Reader v12 now records the actual current transport input digest as well as the
+verified question-origin evidence in its private scope snapshot. Guard v2/hook
+v9 accept only that same newest answer envelope, captured before the successful
+lookup and bound to the same observed turn. The checkpoint can permit a fresh
+read after compaction without granting execution by itself. Completed/stopped
+origins still fail the live reader; a different/newer input does not match.
+
+The actual retained answer envelope and historical successful reader output were
+reconciled without model calls or business replay: old eligibility=false, exact
+verified answer binding=true, old answer against today's newer request=false.
+Three Python sources passed parsing. The earlier v11 server activation was
+observed before this correction; v12 server activation is queued for this
+publishing turn's completion. Fresh production question-answer model behavior
+remains distinct from this exact-record diagnostic.

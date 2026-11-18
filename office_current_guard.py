@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 
-REVISION = '2026-11-18-current-input-final-guard-v1'
+REVISION = '2026-11-18-bound-question-answer-v2'
 PREFIX = '[AI OFFICE 종료 응답 정정 '
 _TAG = re.compile(r'^\[AI OFFICE (?:작업창 요청|요청) ([0-9a-f]{32})\]')
 _REVIEW = re.compile(r'^\[AI OFFICE 종료 응답 정정 ([0-9a-f]{32})\]')
@@ -43,13 +43,34 @@ def remember(value):
             and value.get('thread_id') and value.get('turn_id') and value.get('input_id')):
         return False
     keys = ('thread_id', 'request_id', 'turn_id', 'input_id', 'input_revision', 'source',
-            'origin_source', 'user_message', 'followups', 'can_execute', 'stopped', 'current')
+            'origin_source', 'user_message', 'followups', 'can_execute', 'stopped', 'current',
+            'question_reply', 'transport_input_sha256')
     _hook()._save(_path(value['thread_id'], 'input'),
                   dict({k: value[k] for k in keys if k in value}, observed_at=time.time(), revision=REVISION))
     return True
 
 
+def question_checkpoint_matches(value, checkpoint):
+    """A resolved current answer is control input, not an unbound old reference.
+
+    The live reader has already verified the question's origin and lifecycle.
+    Compare the *actual answer envelope*, not its original task text, with the
+    newest native capture. This never promotes arbitrary reference/history.
+    """
+    proof=value.get('question_reply') or {}
+    text=str(checkpoint.get('user_message') or '').strip()
+    return bool(value.get('current') and value.get('can_execute') and not value.get('stopped')
+                and re.fullmatch('[0-9a-f]{64}',str(proof.get('evidence_sha256') or ''))
+                and checkpoint.get('source')=='native_prompt'
+                and text.startswith('<send_user_message_question_reply>')
+                and value.get('transport_input_sha256')==hashlib.sha256(text.encode('utf-8')).hexdigest()
+                and 0<float(checkpoint.get('created') or 0)<=float(value.get('observed_at') or 0)
+                and (not checkpoint.get('turn_id') or checkpoint['turn_id']==value.get('turn_id')))
+
+
 def agrees(value, checkpoint):
+    if question_checkpoint_matches(value,checkpoint):
+        return True
     if not checkpoint.get('context_valid'):
         return False
     source = value.get('origin_source') or value.get('source')
