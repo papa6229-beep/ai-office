@@ -1017,6 +1017,9 @@ if __name__=='__main__':
     work_message_alerts.start(DB)
     import department_tasks
     department_tasks.start(DB)
+    # Load the shared response guard at startup so reload evidence includes
+    # the real module, even when no department has produced a final yet.
+    import office_current_guard
     start_ai_supervisor()
     import webbrowser, time
     try:

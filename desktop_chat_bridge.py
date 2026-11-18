@@ -353,6 +353,9 @@ def response_for(data,ident,anchor=None,input_marker=None):
     """
     tag=marker(ident)
     def matches(item):
+        import office_current_guard
+        if (item.get('type')=='userMessage' and
+                office_current_guard.review_request(_text(item),thread_id)==ident):return True
         # Pasted historical tags in native human text are not app deliveries.
         if not _is_delivery(item):return False
         lines=_input_text(item,thread_id).strip().splitlines()
@@ -439,6 +442,10 @@ def _publish(ident,text,final,revision=None):
     # locks across the desktop IPC round trip.
     import office_current_task
     boundary=office_current_task.require_current(ident)
+    if final:
+        import office_current_guard
+        if office_current_guard.final_problem(text,boundary):
+            raise BridgeError('현재 원문과 충돌하는 종료 응답은 게시하지 않았습니다. 현재 요청의 실제 상태를 확인하고 답변을 정정하세요.')
     with closing(_db(db)) as c,c:
         c.execute('BEGIN IMMEDIATE')
         stored=c.execute('SELECT data FROM desktop_chat_requests WHERE id=?',(ident,)).fetchone()
@@ -604,6 +611,10 @@ def relay(db,context,attachments=(),timeout=3600):
                     if found['draft'] and found['draft']!=last:
                         last=found['draft'];chat_stream.publish('draft','에이메스가 답변을 쓰고 있어요~',last)
                     if found['answer']:
+                        import office_relay_context,office_current_guard
+                        current=office_relay_context._read_office_record(ident,config['thread_id'])
+                        if office_current_guard.final_problem(found['answer'],current):
+                            raise BridgeError('현재 지시에 없는 중지 또는 다른 요청의 답변을 완료로 인정하지 않았습니다. 원래 업무를 자동 재전송하지 않았습니다.')
                         record['response_wait_ms']=round((time.monotonic()-response_started)*1000)
                         execution_router.record_time('desktop_response_wait',record['response_wait_ms'])
                         record.update(state='done',answer=found['answer'],completed_at=time.time());_save(db,ident,record)

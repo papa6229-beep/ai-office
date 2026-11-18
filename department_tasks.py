@@ -269,8 +269,12 @@ def _response(data,ident,followup_ids=()):
     tag=bridge.marker(ident)
     for turn in data.get('turns',[]):
         items=turn.get('items',[])
+        import office_current_guard
         starts=[i for i,r in enumerate(items) if bridge._is_delivery(r)
                 and _input(r).strip().splitlines()[:1]==[tag]]
+        starts.extend(i for i,r in enumerate(items) if r.get('type')=='userMessage'
+                      and office_current_guard.review_request(bridge._text(r),data.get('thread',{}).get('id'))==ident)
+        starts=sorted(set(starts))
         if not starts:starts=[i for i,r in enumerate(items) if r.get('id') in followup_ids]
         # An assistant's old request tag is not an input boundary. Missing
         # original delivery means unknown, never a synthetic completion.
@@ -290,6 +294,11 @@ def _response(data,ident,followup_ids=()):
                     'result':bridge._without_marker(finals[-1]['text'],ident) if finals else '부서 실행이 '+status+' 상태로 종료됐습니다.','turn_id':turn.get('id')}
         if status=='completed' and finals:
             final=finals[-1]
+            boundary=office_current_guard.snapshot(data.get('thread',{}).get('id'))
+            if (boundary.get('request_id')==ident and
+                    office_current_guard.final_problem(final.get('text',''),boundary)):
+                return {'state':'waiting','completion_unknown':True,'turn_id':turn.get('id'),
+                        'error':'현재 원문과 충돌하는 종료 응답을 완료로 인정하지 않았습니다. 업무는 자동 재전송하지 않습니다.'}
             return {'state':'completed','result':bridge._without_marker(final['text'],ident),
                     'result_truncated':bool(final.get('truncated')),'turn_id':turn.get('id')}
         if status=='completed' and starts:

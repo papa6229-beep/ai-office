@@ -24,7 +24,7 @@ LEGACY_DATA=ROOT/'local_backups'/'current-task-hooks'
 # Keep the trusted installation scope and existing fences readable in place.
 DATA=Path(tempfile.gettempdir())/('ai-office-current-task-hooks-'+hashlib.sha256(str(ROOT).casefold().encode('utf-8')).hexdigest()[:16])
 SETTINGS=LEGACY_DATA/'installation.json'
-REVISION='2026-11-13-compact-recovery-command-first-v7'
+REVISION='2026-11-18-current-scope-and-final-v8'
 UUID=r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 
 
@@ -44,7 +44,16 @@ def _save(path,value):
     temp=path.with_name(path.name+'.'+uuid.uuid4().hex+'.tmp')
     try:
         temp.write_text(json.dumps(value,ensure_ascii=False),encoding='utf-8')
-        os.replace(temp,path)
+        # Windows readers briefly hold a non-delete-sharing file handle.
+        # Preserve the old fence and retry the atomic replacement, rather than
+        # turning a transient read collision into a spurious permission denial.
+        for attempt in range(6):
+            try:
+                os.replace(temp,path)
+                break
+            except PermissionError:
+                if attempt==5:raise
+                time.sleep(.01*(attempt+1))
     finally:
         if temp.exists():temp.unlink()
 
@@ -208,6 +217,11 @@ def handle(data):
     if event=='UserPromptSubmit':
         prompt=data.get('prompt')
         if not isinstance(prompt,str):return _stop(event,'현재 사용자 입력이 없어 과거 업무로 대체하지 않았습니다.')
+        import office_current_guard
+        if office_current_guard.review_record(prompt,thread):
+            # Codex Stop continuations look like user prompts in the protocol.
+            # They must never replace the actual human's execution authority.
+            return {}
         if '## My request:' in prompt:prompt=prompt.rsplit('## My request:',1)[1].strip()
         # Store only this private current prompt, never the full transcript.
         if len(prompt)>16000:return _stop(event,'현재 입력이 복구 한도를 넘어 자동 실행을 보류했습니다.')
@@ -233,10 +247,13 @@ def handle(data):
                          'request_id':checkpoint.get('request_id') if checkpoint.get('source')!='native_prompt' else None,
                          'recovery_epoch':uuid.uuid4().hex,'created':time.time()})
         return {'hookSpecificOutput':{'hookEventName':'SessionStart','additionalContext':text}}
+    if event=='Stop':
+        import office_current_guard
+        return office_current_guard.on_stop(data)
     if event=='PreToolUse':
         fence=_load(fence_path,{})
+        if _recovery_read(data,thread,fence):return {}
         if fence.get('pending'):
-            if _recovery_read(data,thread,fence):return {}
             # Tool-delivered Office inputs do not trigger UserPromptSubmit.
             # Inspect a newer local input before rejecting against the old ID.
             checkpoint=read_checkpoint(thread)
@@ -255,6 +272,11 @@ def handle(data):
                 return _stop(event,recovery_command(thread,fence.get('request_id'))+'\n'
                              '이 명령으로 현재 원문부터 읽으세요. 조회 전에는 과거 메시지에 답하거나 검색하지 마세요.')
             return _stop(event,'축약/중지 뒤 현재 지시 복구가 확인되지 않았습니다. 과거 업무의 도구 실행을 보류합니다.')
+        import office_current_guard
+        value=office_current_guard.snapshot(thread)
+        if data.get('turn_id') and value.get('turn_id')!=data['turn_id']:
+            return _stop(event,recovery_command(thread)+'\n새 턴의 현재 원문을 먼저 확인하세요. 이전 턴의 조회로 대신하지 않습니다.')
+        return office_current_guard.tool_context(data)
     return {}
 
 

@@ -13,7 +13,7 @@ import sqlite3
 import time
 
 ROOT=Path(__file__).resolve().parent
-REVISION='2026-11-04-live-followup-input-v10'
+REVISION='2026-11-18-bound-current-input-v11'
 UUID=r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 ID=r'[0-9a-f]{32}'
 
@@ -32,6 +32,9 @@ def _input(item,hq,thread):
     if item.get('type')=='userMessage':
         text=bridge._text(item)
         if '## My request:' in text:text=text.rsplit('## My request:',1)[1].strip()
+        import office_current_guard
+        if office_current_guard.review_record(text,thread):
+            return text,'guard_continuation',bool(item.get('truncated'))
         return text,'native',bool(item.get('truncated'))
     if not bridge._is_delivery(item):return None
     output=item.get('output')
@@ -166,7 +169,12 @@ def read_current(request_id=None, *, thread_id=None):
         marked=re.match(r'\A\[AI OFFICE (?:작업창 요청|요청) ('+ID+r')\]',text.strip())
         if not text or (truncated and not (source=='office_delivery' and marked)):
             return _denied(thread,'현재 입력이 없거나 잘렸습니다. 과거 기록으로 대체하지 않습니다.')
-        if source=='native' and text.lstrip().startswith('<send_user_message_question_reply>'):
+        if source=='guard_continuation':
+            import office_current_guard
+            result=office_current_guard.recover_review(text,thread)
+            if not result:
+                return _denied(thread,'종료 응답 정정의 원래 입력이 만료·중지·교체되었습니다. 과거 업무를 재개하지 않습니다.',must_pause=True)
+        elif source=='native' and text.lstrip().startswith('<send_user_message_question_reply>'):
             import question_reply_context
             link=question_reply_context.origin(thread,text,turn.get('id'),hq)
             if not link.get('available'):
@@ -218,7 +226,8 @@ def read_current(request_id=None, *, thread_id=None):
             elif thread==hq:
                 result['work_tracking']={'entry':str(ROOT/'department_runtime.py'),'rule':'search/inbox/route로 기존 상태·담당을 조회하고 현재 의도/예외를 한 번 판단합니다. assign은 현재 본부ID·유지범위·완료기준으로 비동기 접수합니다. 이력/보고는 새 권한이 아닙니다.'}
         if result.get('current') and result.get('can_execute') and not result.get('stopped'):
-            import office_context_hook
+            import office_context_hook,office_current_guard
+            result['execution_scope_recorded']=office_current_guard.remember(result)
             result['recovery_live_read_ack']=office_context_hook.acknowledge_live_input(result,read_started=read_started)
             result['context_order_rule']='현재 목표는 이 실제 입력입니다. 축약된 user 역할 기록의 마지막 문장을 새 지시로 취급하지 마세요. 새 입력은 실제 input_id/turn_id로만 구별합니다.'
         return result

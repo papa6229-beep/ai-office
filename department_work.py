@@ -77,6 +77,8 @@ def _refs(data,db):
         for item in boundaries[-1:]:
             if item.get('type')=='userMessage':
                 if item.get('truncated'):continue
+                import office_current_guard
+                if office_current_guard.review_record(_text(item),data['thread']['id']):continue
                 text=human_text(_text(item))
                 yield turn,item,text,'native',hashlib.sha256((data['thread']['id']+'|'+str(item.get('id'))).encode()).hexdigest()[:32]
             elif desktop_chat_bridge._is_delivery(item):
@@ -226,8 +228,13 @@ def response(db,data,task):
     import desktop_chat_bridge,project_questions
     if task.get('direct_stopped'):return {'state':'waiting','error':task.get('error','사용자 보류 상태입니다.')}
     anchors={r['input_id'] for r in task.get('input_refs',[])}
+    import office_current_guard
+    request_ids={task.get('id'),task.get('source_request_id'),
+                 *(r.get('request_id') for r in task.get('input_refs',[]))}
     for turn in data.get('turns',[]):
-        positions=[i for i,item in enumerate(turn.get('items',[])) if item.get('id') in anchors]
+        positions=[i for i,item in enumerate(turn.get('items',[])) if item.get('id') in anchors or
+                   (item.get('type')=='userMessage' and
+                    office_current_guard.review_request(_text(item),task['thread_id']) in request_ids-{None})]
         if not positions:continue
         after=turn['items'][max(positions)+1:]
         if any(i.get('type')=='userMessage' or desktop_chat_bridge._is_delivery(i) for i in after):
@@ -240,6 +247,14 @@ def response(db,data,task):
             return {'state':'failed' if status=='failed' else 'cancelled','turn_id':turn['id'],'result':'실제 native 턴이 '+status+'로 종료됐습니다.','verification':{'level':'native_terminal_observed','business_success':'not_claimed'}}
         if status=='completed' and finals:
             import department_knowledge
+            boundary={'user_message':task.get('instruction') or task.get('title',''),
+                      'followups':task.get('followups',[])}
+            live=office_current_guard.snapshot(task['thread_id'])
+            if live.get('turn_id')==turn['id'] and live.get('request_id') in request_ids-{None}:
+                boundary=live
+            if office_current_guard.final_problem(finals[-1].get('text',''),boundary):
+                return {'state':'waiting','completion_unknown':True,'turn_id':turn['id'],
+                        'error':'현재 지시로 확인되지 않은 중지 응답을 완료로 인정하지 않았습니다. 기존 업무는 보존하며 자동 재전송하지 않습니다.'}
             text=re.sub(r'```[\s\S]*?```','[인용/코드 본문은 원대화 참조]',finals[-1]['text'])
             text='\n'.join(line for line in text.splitlines() if not line.lstrip().startswith('>'))
             return {'state':'completed','turn_id':turn['id'],'final_item_id':finals[-1].get('id'),

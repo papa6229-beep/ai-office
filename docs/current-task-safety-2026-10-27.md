@@ -139,3 +139,42 @@ Verification: both Python files passed syntax parsing and git diff checks; an ac
 The follow-up failure was a sending-path error: a plain HQ prompt sent with the generic chat tool had no matching target-bound project_panel_sends row, so the receiver correctly rejected it as an unidentified unmarked delivery. The resolver was not broadened to trust arbitrary HQ prose. The existing project_panels.send path records the exact target/message, emits the canonical marker and preserves the actual human's requested scope. Department assignments retain their existing recorded dispatch path.
 
 The same human-authorized continuation was delivered once through that registered path. The receiver's actual native PreToolUse callback reported hook v6, and its own live reader confirmed the new project-panel request and cleared the fence (pending=false, live_input_confirmed) in the actual new turn. This was observed from the receiver's persisted callback/ACK records; HQ did not run the receiver's ACK function on its behalf. The receiver was active afterward. This confirms delivery identity and recovery, not completion of the underlying development/independent acceptance work. No tests, synthetic callback, permission change or business replay was performed for this correction. Private evidence: local_backups/live-input-transition-20261030/hq-canonical-delivery.json.
+
+## Current-input and final-stop guard (2026-11-18)
+
+An observed research turn read the correct active input twice, yet applied an
+old stop instruction from retained history. This was a semantic selection
+failure after a successful lookup, not a current-input resolver failure.
+
+The live reader now records an exact private input binding on every successful
+active lookup. Supported tool callbacks require the current turn's binding,
+compare it with the latest local input/revision, and supply a short reminder.
+The original goal is included once per input, then only a compact request
+reference is repeated. No additional classifier or model call is introduced.
+
+A scoped synchronous Stop hook detects wrong request markers and unsupported
+first-person stop promises. It can request one correction per effective input.
+The authenticated correction prompt retains the still-active original goal;
+it is not captured or registered as a new human job or authorization. Newer
+inputs, actual interruption, expired correction records and platform/technical
+failures do not resume an earlier job. Successful effects are not replayed.
+HQ publication/relay and assigned/direct department completion observation also
+reject the unsupported stop as a completed business result.
+
+Verification so far: seven Python sources parsed; the actual native
+PreToolUse callback reported hook v8 and supplied the current request binding.
+The observed erroneous stop response was replayed in isolated runtime storage:
+Stop returned block, preserved the original request, and supplied no new human
+authorization. No model was called and no business task was replayed. The new
+user-config Stop entry was reviewed in the official CLI hooks UI; that view
+showed it Trusted/active. Trust records were not manually edited.
+
+Server consumer changes are registered with the existing native-ledger reload
+broker and await this publishing turn's completion. That is distinct from the
+already observed process-per-callback hook code. Live model correction after
+a production Stop callback and arbitrary-command semantic fidelity are not
+proved by the isolated replay. This detector is deliberately bounded and is
+not described as a complete natural-language correctness proof.
+
+Official event semantics: https://learn.chatgpt.com/docs/hooks
+Implementation plan: superpowers/plans/2026-11-18-current-input-final-guard.md
