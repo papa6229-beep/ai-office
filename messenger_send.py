@@ -57,6 +57,16 @@ def public(data):
     return {k:v for k,v in data.items() if not k.startswith('_')}
 
 
+def _after_dispatch(message, plan):
+    # Android and the PC can have different clocks. A server-issued message
+    # number observed immediately before sending is a stronger boundary.
+    boundary=plan.get('_before_native_number')
+    number=str(message.get('numberKey') or '')
+    if plan.get('transport')=='android' and isinstance(boundary,int) and boundary>0:
+        return number.isdecimal() and int(number)>boundary
+    return float(message.get('createDate',0))/1000>=plan['started']-2
+
+
 def _recipient(room,recipient):
     domain,_,data=_attachment_reader()._storage();own=data['_aemeath_current_user']
     current=data.get('recoil-atomAllRooms',{}).get('rooms',{}).get(room)
@@ -151,6 +161,18 @@ def _android_dispatch(ident, record, action, authorize):
             current = _recipient(plan['room'], plan['recipient'])
             if current != (plan['_domain'], plan['_own'], plan['_peer']):
                 raise ValueError('한비로 계정이나 대상 개인방이 바뀌었어요.')
+            _,_,cache=_attachment_reader()._storage()
+            numbers=[]
+            for key,buckets in cache.items():
+                if not key.startswith('recoil-atomAllMessageList_'):continue
+                for bucket in _attachment_reader()._values(buckets):
+                    if not isinstance(bucket,dict):continue
+                    for message in _attachment_reader()._message_rows(bucket.get(plan['room'],{})):
+                        number=str(message.get('numberKey') or '')
+                        if number.isdecimal():numbers.append(int(number))
+            if not numbers:
+                raise ValueError('발신 직전 원본 대화의 메시지 번호를 확인하지 못했어요.')
+            plan['_before_native_number']=max(numbers)
             plan.update(state='dispatching', started=time.time(), transport='android')
             _save(record, plan)
 
@@ -234,7 +256,7 @@ def confirm(ident):
                 detail=message.get('messageDetail') or {}
                 if (message.get('userKey')==own and detail.get('fileName')==plan['name']
                     and int(detail.get('fileSize',0))==plan['size']
-                    and float(message.get('createDate',0))/1000>=plan['started']-2):
+                    and _after_dispatch(message,plan)):
                     matches.append(message)
     if len(matches)==1:
         message=matches[0];detail=message['messageDetail']
@@ -281,8 +303,10 @@ def confirm_text(ident):
             if not isinstance(bucket,dict):continue
             for m in intake._message_rows(bucket.get(plan['room'],{})):
                 if (m.get('userKey')==plan['_own'] and m.get('messageType')==1
-                    and m.get('messageBody')==plan['text'] and not m.get('isDeleted')
-                    and float(m.get('createDate',0))/1000>=plan['started']-2
+                    and isinstance(m.get('messageBody'),str)
+                    and m['messageBody'].replace('\r\n','\n').replace('\r','\n')
+                        ==plan['text'].replace('\r\n','\n').replace('\r','\n') and not m.get('isDeleted')
+                    and _after_dispatch(m,plan)
                     and not m.get('isSending') and not m.get('isPending') and m.get('numberKey')):
                     matches[str(m['numberKey'])]=m
     if len(matches)==1:

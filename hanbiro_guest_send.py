@@ -238,7 +238,8 @@ def outgoing_matches(tree, recipient, text, control='tc_txt_msg'):
     listing = _nodes(tree, 'list_view_chat')[0]
     left, right = _horizontal(listing)
     return sum(
-        any(n.get('text') == text for n in _nodes(row, control))
+        any(n.get('text', '').replace('\r\n', '\n').replace('\r', '\n')
+            == text.replace('\r\n', '\n').replace('\r', '\n') for n in _nodes(row, control))
         and any(left < right and _horizontal(n)[0] > left + (right - left) * 0.6
                 for n in _nodes(row, 'tc_footer_time'))
         and not _nodes(row, 'tc_name_user')
