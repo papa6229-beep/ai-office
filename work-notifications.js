@@ -33,7 +33,7 @@
       const id=crypto.randomUUID().replaceAll('-','');
       let resolve,reject;
       const promise=new Promise((done,fail)=>{resolve=done;reject=fail;});
-      const timer=setTimeout(()=>{pending.delete(id);reject(Error('메신저 내부 연결 응답을 확인하지 못했어요.'));},25000);
+      const timer=setTimeout(()=>{pending.delete(id);reject(Error('메신저 내부 연결 응답을 확인하지 못했어요.'));},source==='hanbiro'?45000:25000);
       pending.set(id,{source,notificationId:notification?.id||null,promise,resolve,reject,timer});
       try{window.chrome.webview.postMessage({type:'office-native-messenger',id,source,...(notification?{notification}:{})});}
       catch(error){pending.delete(id);clearTimeout(timer);reject(error);}

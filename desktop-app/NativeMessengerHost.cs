@@ -28,7 +28,7 @@ namespace AemeathDesktop
         readonly TableLayoutPanel hanbiroRecovery = new TableLayoutPanel();
         readonly Button hanbiroLaunch = new Button();
         readonly SemaphoreSlim openGate = new SemaphoreSlim(1,1);
-        internal const string Revision="20261116-hanbiro-one-click-v11";
+        internal const string Revision="20261119-hanbiro-roster-search-v12";
         string hanbiroSelection="none";
         bool hanbiroRendererVisible;
         IntPtr hanbiroPopup;
@@ -402,7 +402,7 @@ namespace AemeathDesktop
                         var output=process.StandardOutput.ReadToEndAsync();var error=process.StandardError.ReadToEndAsync();
                         process.StandardInput.Write(new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(new{pids=new List<int>(allowedPids),allowNativeVisible=true}));
                         process.StandardInput.Close();
-                        if(!process.WaitForExit(6000)){process.Kill();throw new InvalidOperationException("한비로 대화 목록 확인 시간이 초과됐어요.");}
+                        if(!process.WaitForExit(15000)){process.Kill();throw new InvalidOperationException("한비로 대화 목록 확인 시간이 초과됐어요.");}
                         Task.WaitAll(output,error);
                         if(process.ExitCode!=0)throw new InvalidOperationException("한비로 대화 목록 정보를 읽지 못했어요.");
                         return new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<Dictionary<string,object>>(output.Result);
@@ -574,6 +574,7 @@ namespace AemeathDesktop
                 if(windows.Exists(item=>item.Handle==handle))return true;
                 string text=Win.Title(handle);
                 if((Win.GetWindowLong(handle,-16)&0x40000000)!=0||String.IsNullOrWhiteSpace(text))return true;
+                if(source=="hanbiro"&&text.StartsWith("대화방의 모든 대화 기록을 검색합니다.",StringComparison.Ordinal))return true;
                 if(source=="between"&&text!="Between")return true;
                 var className=new StringBuilder(128); Win.GetClassName(handle,className,className.Capacity);
                 if(className.ToString()=="#32770")return true; // File/permission dialogs keep their own modal semantics.

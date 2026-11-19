@@ -70,7 +70,12 @@ def inspect(pids, main_title=None, *, visible_only=False):
         if visible_only and (not u.IsWindowVisible(handle) or u.GetWindow(handle,4)):return True
         text=ctypes.create_unicode_buffer(512);cls=ctypes.create_unicode_buffer(128)
         u.GetWindowTextW(handle,text,len(text));u.GetClassNameW(handle,cls,len(cls))
-        if cls.value!='Chrome_WidgetWin_1' or not text.value.strip() or text.value.strip() in names:return True
+        title=text.value.strip()
+        # Hanbiro opens transcript search as a separate ownerless Electron
+        # window. It is not the roster, even though its class/size match.
+        if title.startswith('대화방의 모든 대화 기록을 검색합니다.'):
+            return True
+        if cls.value!='Chrome_WidgetWin_1' or not title or title in names:return True
         if u.GetWindowLongPtrW(handle,-16)&0x40000000:return True
         rect=w.RECT();u.GetWindowRect(handle,ctypes.byref(rect))
         if u.IsIconic(handle):
