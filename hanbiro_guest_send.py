@@ -77,7 +77,10 @@ def open_room(guest, recipient):
             if not activity or not activity[-1].startswith(PACKAGE + '/'):
                 raise ValueError('Android 한비로 공식 앱을 확인하지 못했어요.')
             guest.call('shell', 'am', 'start', '-n', activity[-1])
-            tree = guest.wait(lambda t: t if _nodes(t, 'tab_chat') or _room(t, recipient) else None,
+            # Launch resumes the last room, which need not be our recipient.
+            # Accept that loaded chat, then leave it through the normal path.
+            tree = guest.wait(lambda t: t if _nodes(t, 'tab_chat') or (
+                                  _nodes(t, 'tv_chat_title') and _nodes(t, 'list_view_chat')) else None,
                               '가상기기 한비로의 로그인이나 대화 목록을 확인해 주세요.')
         if _room(tree, recipient):
             return tree

@@ -13,7 +13,7 @@ import sqlite3
 import time
 
 ROOT=Path(__file__).resolve().parent
-REVISION='2026-11-19-live-native-checkpoint-v13'
+REVISION='2026-11-19-live-native-checkpoint-v14'
 UUID=r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 ID=r'[0-9a-f]{32}'
 
@@ -177,7 +177,7 @@ def read_current(request_id=None, *, thread_id=None):
                 return _denied(thread,'종료 응답 정정의 원래 입력이 만료·중지·교체되었습니다. 과거 업무를 재개하지 않습니다.',must_pause=True)
         elif source=='native' and text.lstrip().startswith('<send_user_message_question_reply>'):
             import question_reply_context
-            link=question_reply_context.origin(thread,text,turn.get('id'),hq)
+            link=question_reply_context.origin(thread,text,turn.get('id'),hq,live_turn=turn)
             if not link.get('available'):
                 return _denied(thread,link['reason'],must_pause=True,question_reply=True)
             origin=link['origin']
