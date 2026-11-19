@@ -260,6 +260,7 @@ def snapshot():
         except (OSError, ValueError):
             data = {'id': '', 'state': 'idle', 'message': ''}
         import desktop_chat_bridge as bridge,assistant_tools as tools,report_automation as report
+        import assistant_runtime  # Load the lazy request runtime before pinning its executing-code proof.
         import office_current_task,department_tasks,office_context_hook
         import office_relay_context,department_manager,ego_report_session,execution_receipts,project_questions,skill_runtime
         import execution_corrections,routine_runtime,office_routines,office_feedback,question_reply_context
