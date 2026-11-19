@@ -24,7 +24,7 @@ LEGACY_DATA=ROOT/'local_backups'/'current-task-hooks'
 # Keep the trusted installation scope and existing fences readable in place.
 DATA=Path(tempfile.gettempdir())/('ai-office-current-task-hooks-'+hashlib.sha256(str(ROOT).casefold().encode('utf-8')).hexdigest()[:16])
 SETTINGS=LEGACY_DATA/'installation.json'
-REVISION='2026-11-18-bound-question-answer-v9'
+REVISION='2026-11-19-live-native-checkpoint-v10'
 UUID=r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 
 
@@ -124,6 +124,15 @@ def read_checkpoint(thread):
     fingerprint=hashlib.sha256(json.dumps(latest,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
     import office_current_guard
     answer=office_current_guard.snapshot(thread)
+    resolved_native=office_current_guard.native_checkpoint_matches(answer,dict(latest,checkpoint_revision=fingerprint))
+    if resolved_native:
+        # Keep the original local fingerprint: new callbacks/DB inputs must
+        # invalidate this proof. This is recovery context, not an execution grant.
+        return dict(latest,source='native_live',request_id=answer['request_id'],
+                    user_message=answer['user_message'],turn_id=answer['turn_id'],input_id=answer['input_id'],
+                    managed=True,current=True,can_execute=False,context_valid=True,thread_id=thread,
+                    checkpoint_revision=fingerprint,recovery_revision=REVISION,
+                    resolved_native_request_id=answer['request_id'])
     resolved_answer=office_current_guard.question_checkpoint_matches(answer,latest)
     return dict(latest,managed=True,current=eligible,can_execute=False,context_valid=eligible or resolved_answer,
                 resolved_question_request_id=answer.get('request_id') if resolved_answer else None,
@@ -183,7 +192,7 @@ def acknowledge_live_input(value, *, read_started=None):
         if read_started is None:return False
         checkpoint=read_checkpoint(thread)
         if (not checkpoint.get('context_valid')
-                or (checkpoint.get('resolved_question_request_id') or checkpoint.get('request_id'))!=value.get('request_id')):return False
+                or (checkpoint.get('resolved_question_request_id') or checkpoint.get('resolved_native_request_id') or checkpoint.get('request_id'))!=value.get('request_id')):return False
     # Never clear an Interrupt fence with the old input's live read.
     _save(path,{'pending':False,'reason':'live_input_confirmed','created':time.time(),
                 'request_id':value['request_id'],'input_id':value['input_id'],

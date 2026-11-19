@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 
-REVISION = '2026-11-18-bound-question-answer-v2'
+REVISION = '2026-11-19-live-native-checkpoint-v3'
 PREFIX = '[AI OFFICE 종료 응답 정정 '
 _TAG = re.compile(r'^\[AI OFFICE (?:작업창 요청|요청) ([0-9a-f]{32})\]')
 _REVIEW = re.compile(r'^\[AI OFFICE 종료 응답 정정 ([0-9a-f]{32})\]')
@@ -44,7 +44,7 @@ def remember(value):
         return False
     keys = ('thread_id', 'request_id', 'turn_id', 'input_id', 'input_revision', 'source',
             'origin_source', 'user_message', 'followups', 'can_execute', 'stopped', 'current',
-            'question_reply', 'transport_input_sha256')
+            'question_reply', 'transport_input_sha256', 'native_checkpoint', 'turn_status')
     _hook()._save(_path(value['thread_id'], 'input'),
                   dict({k: value[k] for k in keys if k in value}, observed_at=time.time(), revision=REVISION))
     return True
@@ -68,8 +68,26 @@ def question_checkpoint_matches(value, checkpoint):
                 and (not checkpoint.get('turn_id') or checkpoint['turn_id']==value.get('turn_id')))
 
 
+def native_checkpoint_matches(value, checkpoint):
+    """A live native read may supersede a stale callback, never a newer one.
+
+    The reader captures the local checkpoint before the actual app RPC and
+    confirms it is unchanged afterwards. Any later local input changes this
+    fingerprint and requires a new live read. Interrupt fences remain separate.
+    """
+    proof=value.get('native_checkpoint') or {}
+    started=proof.get('read_started')
+    return bool(value.get('source')=='native' and not value.get('question_reply')
+                and value.get('current') and value.get('can_execute') and not value.get('stopped')
+                and value.get('turn_status')=='inProgress' and value.get('input_id') and value.get('turn_id')
+                and isinstance(started,(int,float))
+                and 0<float(checkpoint.get('created') or 0)<=started<=float(value.get('observed_at') or 0)
+                and re.fullmatch('[0-9a-f]{64}',str(proof.get('revision') or ''))
+                and proof['revision']==checkpoint.get('checkpoint_revision'))
+
+
 def agrees(value, checkpoint):
-    if question_checkpoint_matches(value,checkpoint):
+    if question_checkpoint_matches(value,checkpoint) or native_checkpoint_matches(value,checkpoint):
         return True
     if not checkpoint.get('context_valid'):
         return False

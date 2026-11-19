@@ -4,7 +4,7 @@ Uses the installed desktop MCP client, not a second inference agent. Local IPC
 addresses and delivery state stay in Git-excluded storage. Never auto-launches
 Codex, changes its model, or falls back to another inference path.
 """
-from contextlib import closing, contextmanager
+from contextlib import closing, contextmanager, ExitStack
 import atexit
 import datetime
 import json
@@ -20,7 +20,7 @@ import threading
 import time
 import uuid
 
-BRIDGE_REVISION = '2026-11-04-registered-followup-v1'
+BRIDGE_REVISION = '2026-11-19-observation-reconnect-v2'
 ROOT=Path(__file__).resolve().parent
 CONFIG=ROOT/'local_backups'/'desktop-chat'/'connection.json'
 _serial=threading.Lock()
@@ -186,7 +186,8 @@ class DesktopClient:
         raise BridgeError('Codex 앱 응답 대기시간을 넘겼어요.',code='timeout',stage=method)
 
     def tool(self,name,args):
-        result=self.rpc('tools/call',{'name':name,'arguments':args,'_meta':{'threadId':self.config['thread_id']}})
+        result=self.rpc('tools/call',{'name':name,'arguments':args,'_meta':{'threadId':self.config['thread_id']}},
+                        timeout=45 if name=='read_thread' else 20)
         if result.get('isError'):raise _tool_error(result)
         texts=[row['text'] for row in result.get('content',[]) if row.get('type')=='text']
         try:return json.loads(texts[0])
@@ -301,10 +302,28 @@ def _save(db,ident,row):
         existing=c.execute('SELECT data FROM desktop_chat_requests WHERE id=?',(ident,)).fetchone()
         if existing:
             previous=json.loads(existing[0])
-            if previous.get('state')=='done':return
+            if previous.get('state') in {'done','error','cancelled'}:return
             row=dict(previous,**row)
         request_boundary.seal_answer(row)
         c.execute('INSERT OR REPLACE INTO desktop_chat_requests VALUES(?,?)',(ident,json.dumps(row,ensure_ascii=False)))
+
+
+def finish_request(c,ident,execution_state,*,failure=None):
+    """Atomically close a relay when its Office wrapper ends; never replay it."""
+    if not c.execute("SELECT 1 FROM sqlite_master WHERE name='desktop_chat_requests'").fetchone():return False
+    saved=c.execute('SELECT data FROM desktop_chat_requests WHERE id=?',(ident,)).fetchone()
+    if not saved:return False
+    row=json.loads(saved[0])
+    if row.get('state') not in {'new','sending','sent','stop_requested'}:return False
+    previous=row['state']
+    row.update(state='cancelled' if execution_state=='cancelled' else 'error',
+               delivery_state=previous,finished_at=time.time(),observation_state='closed',
+               reconciliation_required=previous in {'sending','sent','stop_requested'},
+               failure={**(failure or {'code':'office_request_finished'}),'execution_state':execution_state},
+               automatic_replay=False)
+    request_boundary.seal_answer(row)
+    c.execute('UPDATE desktop_chat_requests SET data=? WHERE id=?',(json.dumps(row,ensure_ascii=False),ident))
+    return True
 
 
 def marker(ident):return '[AI OFFICE 요청 '+ident+']'
@@ -452,7 +471,8 @@ def _publish(ident,text,final,revision=None):
         if not stored:raise BridgeError('전달된 에이메스 요청이 없어요.')
         row=json.loads(stored[0]);current=os.environ.get('CODEX_THREAD_ID')
         if current!=row.get('thread_id'):raise BridgeError('이 요청이 연결된 Codex 대화에서만 답변할 수 있어요.')
-        if row.get('state') in {'stop_requested','cancelled'}:raise BridgeError('사용자가 중지한 요청입니다.')
+        if row.get('state') not in {'sending','sent','done'}:
+            raise BridgeError('종료되거나 중지된 요청에는 응답을 추가하지 않아요.',code='request_closed')
         if boundary.get('input_revision',0)!=row.get('input_revision',0):
             raise BridgeError('입력 확인 뒤 추가 지시가 바뀌었습니다. 최신 요청을 다시 확인하세요.')
         if row.get('input_revision',0) and revision!=row['input_revision']:
@@ -528,12 +548,15 @@ def relay(db,context,attachments=(),timeout=3600):
         record=_load(db,ident) or {'state':'new','thread_id':config.get('thread_id'),'created':time.time(),
                                   'user_message_id':context.get('user_message_id')}
         if record.get('state')=='done':return record['answer'],record
+        if record.get('state') in {'error','cancelled','stop_requested'}:
+            raise BridgeError('종료된 전달은 자동 재실행하지 않아요. 실제 결과 확인이 필요해요.',code='request_closed')
         record.setdefault('user_goal',context['user_goal'])
         record.setdefault('attachments',list(attachments))
         record.setdefault('input_revision',0)
         record['bridge_revision']=BRIDGE_REVISION
         connect_started=time.monotonic()
-        with connection(config,reuse=True) as client:
+        with ExitStack() as connections:
+            client=connections.enter_context(connection(config,reuse=True))
             connection_ms=round((time.monotonic()-connect_started)*1000)
             execution_router.record_time('desktop_connection',connection_ms)
             if record['state']=='new':
@@ -585,7 +608,27 @@ def relay(db,context,attachments=(),timeout=3600):
                         record['input_delivery_state']='sent'
                         _save(db,ident,record)
                 read_started=time.monotonic()
-                data=client.read(3)
+                for attempt in range(3):
+                    try:
+                        # Only observation is retried. Prompt/follow-up/stop
+                        # delivery stays outside this loop and is never replayed.
+                        if attempt:
+                            task_control.checkpoint()
+                            client=connections.enter_context(connection(config,reuse=True))
+                        data=client.read(3)
+                        record['observation_state']='connected'
+                        break
+                    except BridgeError as error:
+                        if error.code not in {'response_uncertain','timeout','connection_closed','transport_error','endpoint_unavailable'}:
+                            raise
+                        _set_health(False,error)
+                        record.update(observation_state='reconnecting',observation_failure=_failure(error))
+                        record['observation_reconnects']=record.get('observation_reconnects',0)+1
+                        _save(db,ident,record)
+                        client.close();connections.close()
+                        if attempt==2:raise
+                        chat_stream.publish('working','응답 연결을 다시 확인하고 있어요. 진행한 작업은 재전송하지 않아요.')
+                        task_control.checkpoint();time.sleep(.5*(attempt+1))
                 read_ms=round((time.monotonic()-read_started)*1000)
                 execution_router.record_time('desktop_observation_read',read_ms)
                 record['observation_reads']=record.get('observation_reads',0)+1
@@ -625,4 +668,13 @@ def relay(db,context,attachments=(),timeout=3600):
                 age=timeout-(deadline-time.monotonic())
                 time.sleep(.2 if age<30 else .5 if age<120 else 1)
         raise BridgeError('Codex 답변 대기시간을 넘겼어요. 전달한 작업을 다시 실행하지 않았어요.')
+    except BaseException as error:
+        # Preserve the last delivery/effect state, but do not leave an active
+        # sent row behind after the Office wrapper has returned an error.
+        try:
+            with closing(_db(db)) as c,c:
+                c.execute('BEGIN IMMEDIATE')
+                finish_request(c,ident,'cancelled' if isinstance(error,task_control.Stopped) else 'error',failure=_failure(error))
+        except (OSError,ValueError,sqlite3.Error):pass
+        raise
     finally:_serial.release()

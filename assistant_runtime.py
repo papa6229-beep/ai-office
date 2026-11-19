@@ -312,6 +312,8 @@ class AssistantRuntime:
             c.execute('BEGIN IMMEDIATE')
             changed=c.execute("UPDATE assistant_requests SET status='error' WHERE id=? AND status='running' AND response IS NULL",(request_id,)).rowcount
             if changed:
+                import desktop_chat_bridge
+                desktop_chat_bridge.finish_request(c,request_id,'unknown')
                 # The operation may have had effects before failure. Do not
                 # claim completion, expose exception text, or permit a retry.
                 result=_json({'message':'요청 실행이 예외로 종료되어 실제 처리 결과를 확인해야 합니다. 자동 재실행하지 않습니다.',
@@ -520,6 +522,8 @@ class AssistantRuntime:
         response['result'] = result
         with _connect(self.db_path) as c:
             c.execute("UPDATE assistant_requests SET status='done',response=? WHERE id=?", (_json(response), request_id))
+            import desktop_chat_bridge
+            desktop_chat_bridge.finish_request(c,request_id,result['execution_state'])
         phase = result['execution_state']
         if phase=='done' and route.get('provider')=='codex' and (route.get('office_operations',0)+route.get('native_operations',0))>0:
             try:

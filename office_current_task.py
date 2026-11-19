@@ -13,7 +13,7 @@ import sqlite3
 import time
 
 ROOT=Path(__file__).resolve().parent
-REVISION='2026-11-18-bound-question-answer-v12'
+REVISION='2026-11-19-live-native-checkpoint-v13'
 UUID=r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 ID=r'[0-9a-f]{32}'
 
@@ -143,9 +143,10 @@ def read_current(request_id=None, *, thread_id=None):
     # Even a previously emitted checkpoint can precede a new native input.
     # Read the actual latest turn on every explicit current-input lookup;
     # unavailable transport must fail closed instead of reviving a snapshot.
-    import desktop_chat_bridge as bridge,project_panels
+    import desktop_chat_bridge as bridge,project_panels,office_context_hook
     hq=bridge.configuration().get('thread_id')
     try:
+        local_before=office_context_hook.read_checkpoint(thread)
         # One live turn with bounded outputs is enough to identify exact
         # delivery prefixes. Original Office goals still come from their DB
         # records; there is no scan back into completed historical turns.
@@ -228,6 +229,13 @@ def read_current(request_id=None, *, thread_id=None):
         if result.get('current') and result.get('can_execute') and not result.get('stopped'):
             import office_context_hook,office_current_guard
             result['transport_input_sha256']=hashlib.sha256(text.strip().encode('utf-8')).hexdigest()
+            if result.get('source')=='native' and not result.get('question_reply'):
+                local_after=office_context_hook.read_checkpoint(thread)
+                revision=local_before.get('checkpoint_revision')
+                if revision!=local_after.get('checkpoint_revision'):
+                    return _denied(thread,'원문 조회 중 새 입력이 도착했습니다. 최신 원문을 다시 읽으세요.',must_pause=True)
+                if revision:
+                    result['native_checkpoint']={'revision':revision,'read_started':read_started}
             result['execution_scope_recorded']=office_current_guard.remember(result)
             result['recovery_live_read_ack']=office_context_hook.acknowledge_live_input(result,read_started=read_started)
             result['context_order_rule']='현재 목표는 이 실제 입력입니다. 축약된 user 역할 기록의 마지막 문장을 새 지시로 취급하지 마세요. 새 입력은 실제 input_id/turn_id로만 구별합니다.'
