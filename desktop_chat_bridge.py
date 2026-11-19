@@ -20,7 +20,7 @@ import threading
 import time
 import uuid
 
-BRIDGE_REVISION = '2026-11-19-observation-reconnect-v2'
+BRIDGE_REVISION = '2026-11-19-handshake-reconnect-v3'
 ROOT=Path(__file__).resolve().parent
 CONFIG=ROOT/'local_backups'/'desktop-chat'/'connection.json'
 _serial=threading.Lock()
@@ -150,9 +150,9 @@ class DesktopClient:
             cwd=ROOT,env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         threading.Thread(target=self._read,daemon=True).start()
         try:
-            self.rpc('initialize',{'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'aemeath-desktop-chat','version':'1.0'}},8)
+            self.rpc('initialize',{'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'aemeath-desktop-chat','version':'1.0'}},20)
             self.process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n');self.process.stdin.flush()
-            tools=self.rpc('tools/list',{},8)
+            tools=self.rpc('tools/list',{},20)
             if not {'read_thread','send_message_to_thread'}<={row['name'] for row in tools.get('tools',[])}:
                 raise BridgeError('현재 Codex 앱이 대화 연결 도구를 제공하지 않아요.',code='capability_missing')
         except Exception:
@@ -256,21 +256,31 @@ def connection(config=None,*,reuse=False):
     client=_borrow(config) if reuse else None
     failures=[]
     for pipe in ([] if client else list(_pipes(config))[:5]):
-        try:
-            client=DesktopClient(config,pipe);data=client.read(1,400)
-            thread=data.get('thread',{})
-            if thread.get('id')!=config['thread_id'] or Path(thread.get('cwd','')).resolve()!=ROOT:
-                raise BridgeError('연결한 Codex 대화의 작업 폴더가 달라요.',code='context_mismatch')
-            break
-        except (BridgeError,OSError,ValueError) as error:
-            failures.append(_failure(error))
-            if client:client.close()
-            client=None
+        # Initialization and preflight are read-only. A slow local app may
+        # recover on the same endpoint; no prompt or business action is sent.
+        for attempt in range(2):
+            started=time.monotonic()
+            try:
+                client=DesktopClient(config,pipe);data=client.read(1,400)
+                thread=data.get('thread',{})
+                if thread.get('id')!=config['thread_id'] or Path(thread.get('cwd','')).resolve()!=ROOT:
+                    raise BridgeError('연결한 Codex 대화의 작업 폴더가 달라요.',code='context_mismatch')
+                break
+            except (BridgeError,OSError,ValueError) as error:
+                failures.append(dict(_failure(error),elapsed_ms=round((time.monotonic()-started)*1000)))
+                if client:client.close()
+                client=None
+                if attempt or getattr(error,'code',None) not in {'response_uncertain','timeout','connection_closed','transport_error'}:
+                    break
+                import task_control
+                task_control.checkpoint();time.sleep(.25)
+        if client is not None:break
     if client is None:
         denied=any(row['code']=='access_denied' for row in failures)
+        primary=next((row for row in failures if row['code'] in {'response_uncertain','timeout'}),failures[-1] if failures else {})
         error=BridgeError('Codex 연결 접근이 실행 환경에서 거부됐어요. 사용자 재승인이 필요한 상태와 다릅니다.' if denied else
             'Codex 연결을 확인하지 못했어요. 연결 진단 원인을 보존했고 요청을 재전송하거나 다른 모델을 실행하지 않았어요.',
-            code='access_denied' if denied else (failures[-1]['code'] if failures else 'endpoint_missing'),attempts=failures)
+            code='access_denied' if denied else primary.get('code','endpoint_missing'),stage=primary.get('stage','connection'),attempts=failures)
         _set_health(False,error)
         raise error
     _set_health(True)
