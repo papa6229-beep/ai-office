@@ -13,7 +13,7 @@ import sqlite3
 import time
 
 ROOT=Path(__file__).resolve().parent
-REVISION='2026-11-19-live-native-checkpoint-v14'
+REVISION='2026-11-20-live-native-checkpoint-v15'
 UUID=r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 ID=r'[0-9a-f]{32}'
 
@@ -200,6 +200,8 @@ def read_current(request_id=None, *, thread_id=None):
                       'question_id':r['call'],'question_index':r['index'],'question':r['question'],
                       'message':r['answer'],'origin_request_id':result['request_id']} for r in link['answers']]
             result['followups']=[*result.get('followups',[]),*replies]
+            if result.get('source')=='office_relay':
+                result['office_input_revision']=result.get('input_revision',0)
             result['question_reply']={'revision':link['revision'],'evidence_sha256':link['evidence_sha256'],
                                      'origin_turn_id':origin['turn_id'],'native_card_resolved':False}
             result['input_revision']=hashlib.sha256(json.dumps([result['request_id'],turn.get('id'),item.get('id'),result['user_message'],result['followups']],ensure_ascii=False,sort_keys=True).encode()).hexdigest()

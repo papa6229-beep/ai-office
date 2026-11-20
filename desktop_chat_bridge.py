@@ -483,7 +483,10 @@ def _publish(ident,text,final,revision=None):
         if current!=row.get('thread_id'):raise BridgeError('이 요청이 연결된 Codex 대화에서만 답변할 수 있어요.')
         if row.get('state') not in {'sending','sent','done'}:
             raise BridgeError('종료되거나 중지된 요청에는 응답을 추가하지 않아요.',code='request_closed')
-        if boundary.get('input_revision',0)!=row.get('input_revision',0):
+        # Structured answers have a live fingerprint as input_revision; the
+        # Office row still uses its own monotonic revision. Keep both fences.
+        office_revision=boundary.get('office_input_revision',boundary.get('input_revision',0))
+        if office_revision!=row.get('input_revision',0):
             raise BridgeError('입력 확인 뒤 추가 지시가 바뀌었습니다. 최신 요청을 다시 확인하세요.')
         if row.get('input_revision',0) and revision!=row['input_revision']:
             raise BridgeError('최신 추가 지시를 확인한 뒤 해당 revision으로 게시하세요.')
