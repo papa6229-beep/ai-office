@@ -90,13 +90,20 @@ def _login_biz(context, db, emit, *, sms_reader=None, new_page=False):
     if page.url == 'about:blank' or not page.url.startswith(BIZ):
         page.goto(LIST_URL, wait_until='domcontentloaded', timeout=25000)
     since = time.time()
-    if page.locator('input[name=smsnumber]').count():
-        # Resume a current challenge, without sending another SMS.
+    sms_present = page.locator('input[name=smsnumber]').count()
+    sms_active = bool(sms_present and page.evaluate("() => Number(document.querySelector('.chiefadmin_login_time')?.textContent?.trim()) > 0"))
+    if sms_present and not sms_active:
+        # An expired modal still contains #smsnumber and intercepts login clicks.
+        close = page.locator('#smspopup_title .btn_close')
+        if close.count() and close.is_visible():
+            close.click()
+    if sms_active:
+        # Resume only a live challenge, without sending another SMS.
         since -= 300
     elif page.locator('input[name=passwd]').count():
         _account(page, BIZ, 'input[name=id]', 'input[name=passwd]')
         page.locator('button[type=submit]').click(no_wait_after=True)
-        page.locator('#smsnumber').wait_for(timeout=15000)
+        page.wait_for_function("() => Number(document.querySelector('.chiefadmin_login_time')?.textContent?.trim()) > 0 || !!document.querySelector('form[name=search] input[name=keyword]')", timeout=20000)
     if page.locator('#smsnumber').count():
         emit('문자 인증번호 수신 대기 · 코드 실행 중 · AI 호출 없음')
         used=set(); deadline=time.monotonic()+300
