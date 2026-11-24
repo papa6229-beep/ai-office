@@ -6,6 +6,7 @@
   <title>바나나몰 퍼블리싱 스튜디오</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='studio.css') }}">
   <script defer src="{{ url_for('static', filename='publisher.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='product-links.js') }}"></script>
 </head>
 <body>
 <main>
@@ -91,6 +92,7 @@
       <button type="submit" value="new" class="primary"{% if not publish_enabled %} disabled{% endif %}>신규 등록 준비</button>
       <button type="submit" value="replace"{% if not publish_enabled %} disabled{% endif %}>이미지 교체</button>
       <button type="submit" value="delete"{% if not publish_enabled %} disabled{% endif %}>이미지 삭제</button>
+      <button type="button" id="product-links-auto"{% if not publish_enabled %} disabled{% endif %}>상품링크 자동 연결</button>
     </div>
   </form>
   <section class="work-panel" id="results" hidden>
@@ -167,6 +169,18 @@
     <div class="actions">
       <button type="button" id="publish" class="primary" disabled>선택한 이미지 게시</button>
       <button type="button" id="close-picker">닫기</button>
+    </div>
+  </dialog>
+  <dialog id="product-links-dialog" aria-labelledby="product-links-title">
+    <div class="preview-header">
+      <h2 id="product-links-title">상품링크 자동 연결</h2>
+      <button type="button" id="product-links-close">닫기</button>
+    </div>
+    <p id="product-links-status" class="message" role="status" aria-live="polite"></p>
+    <p class="hint">이미지의 표시 영역이 해당 상품을 새 창으로 엽니다. 상품 후보를 선택하고 위치를 확인하세요.</p>
+    <div id="product-links-content"></div>
+    <div class="actions">
+      <button type="button" id="product-links-publish" class="primary" disabled>PC·모바일 링크 게시</button>
     </div>
   </dialog>
   <dialog id="preview-dialog" aria-labelledby="preview-title">

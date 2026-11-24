@@ -505,6 +505,9 @@ def create_app():
                                   env=worker_env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), check=True)
         return json.loads(response.stdout)
 
+    import product_links
+    product_links.install(app, lock, selection_db, run_worker, settings, plan, publish_enabled, replacement_sources)
+
     @app.post('/api/banners/register')
     def register_banners():
         if not publish_enabled:

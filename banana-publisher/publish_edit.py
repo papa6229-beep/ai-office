@@ -87,6 +87,18 @@ class ImageEdit(HTMLParser):
         if len(self.edits) != 1:
             raise UnsafeEdit('현재 편집기에서 선택한 이미지 태그를 한 곳으로 확인하지 못했습니다. 저장하지 않았습니다.')
         start, end, value = self.edits[0]
+        # A changed image must not retain product hotspots for its old artwork.
+        from product_links import START, END
+        for block in re.finditer(re.escape(START) + r'.*?' + re.escape(END), source, re.S):
+            if block.start() <= start < end <= block.end():
+                image = re.search(r'<img\b[^>]*>', block[0], re.I)
+                if image is None:
+                    raise UnsafeEdit('상품 링크의 원본 이미지를 확인하지 못했습니다.')
+                offset = block.start() + image.start()
+                if not offset <= start < end <= offset + len(image[0]):
+                    raise UnsafeEdit('상품 링크 이미지의 수정 위치를 확인하지 못했습니다.')
+                replacement = (image[0][:start - offset] + value + image[0][end - offset:]) if self.new_path else ''
+                return source[:block.start()] + replacement + source[block.end():]
         return source[:start] + value + source[end:]
 
 
@@ -181,7 +193,10 @@ def publish(job):
         with tempfile.TemporaryDirectory(prefix='banana-event-') as folder, Session(db, job['id'], folder) as session:
             try:
                 page = _login_biz(session, db, lambda _: None)
-                if job.get('registration'):
+                if job.get('product_links'):
+                    from product_links_worker import publication_plan
+                    plan = publication_plan(page, job)
+                elif job.get('registration'):
                     plan = registration_plan(page, job)
                 else:
                     plan = {}
@@ -190,6 +205,9 @@ def publish(job):
                         changed = ImageEdit(before[0], job['target']).update(before[0])
                         plan[skin] = (before, [changed, *before[1:]])
                 for skin, (before, expected) in plan.items():
+                    if before == expected:
+                        saved.append(skin)
+                        continue
                     if editor_source(page, job, skin) != before:
                         raise UnsafeEdit('게시 준비 중 편집기 내용이 바뀌었습니다.')
                     applied = page.evaluate('''values => ['htm', 'js', 'css'].map((key, index) => {
