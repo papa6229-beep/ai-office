@@ -85,13 +85,14 @@
     }
     r.primed=true;persist();render();
   }
-  async function loadMainConversation(r){
-    if(r.historyLoading)return;
+  async function loadMainConversation(r,force=false){
+    if(r.historyLoading||(!force&&Date.now()<(r.nextHistoryReadAt||0)))return;
     r.historyLoading=true;
     try{
       const data=await api.readHistory(r.row);
       window.officeMainNativeConversation?.update(data);
       r.history={completion:data.completion};
+      r.nextHistoryReadAt=Date.now()+(data.status==='진행 중'?3000:10000);
       if(!r.historyBackfilled){
         let cursor=data.cursor;
         for(let count=0;cursor&&count<3;count++){
@@ -117,7 +118,7 @@
     if(active===HQ){const view=window.officeMainChatScrollState?.();previous.scroll=view?.top??$('workMessages').scrollTop;previous.followBottom=view?.following??($('workMessages').scrollHeight-$('workMessages').clientHeight-$('workMessages').scrollTop<=40);}else if(hand){previous.scroll=hand.log.scrollTop;previous.followBottom=hand.log.scrollHeight-hand.log.clientHeight-hand.log.scrollTop<=40;}
     active=id;window.officeMainChatVisible=active===HQ;aemeathView.hidden=active!==HQ;handView.hidden=active!==HAND;originalCompanion.hidden=false;handCompanion.hidden=false;
     hand?.setVisible(active===HAND,intent,next.followBottom||next.scroll===null?null:next.scroll);next.intent=intent;
-    if(active===HQ){window.officeMainChatScrollTo?.(next.followBottom||next.scroll===null?null:next.scroll);requestAnimationFrame(()=>{if(!window.officeMainChatScrollTo)$('workMessages').scrollTop=next.followBottom||next.scroll===null?$('workMessages').scrollHeight:next.scroll;loadMainConversation(next);requestAnimationFrame(confirmMainConversation);});}
+    if(active===HQ){window.officeMainChatScrollTo?.(next.followBottom||next.scroll===null?null:next.scroll);requestAnimationFrame(()=>{if(!window.officeMainChatScrollTo)$('workMessages').scrollTop=next.followBottom||next.scroll===null?$('workMessages').scrollHeight:next.scroll;loadMainConversation(next,true);requestAnimationFrame(confirmMainConversation);});}
     render();
   }
   window.officeSupervisorSelect=id=>select(id,false);
@@ -136,7 +137,8 @@
   let polling=false;
   let backgroundStateAt=0;
   async function poll(){if(polling||document.hidden)return;polling=true;try{if(active===HQ)await loadMainConversation(records.get(HQ));else if(Date.now()-backgroundStateAt>12000){await api.readState(records.get(HQ).row);backgroundStateAt=Date.now();}}catch(error){records.get(HQ).error=error.message;render();}finally{polling=false;}}
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden){records.get(HQ).nextHistoryReadAt=0;poll();}});
+  $('work').addEventListener('submit',()=>{records.get(HQ).nextHistoryReadAt=0;},true);
   select(HQ,false);poll();setInterval(poll,3000);
   window.officeSupervisorView={current:()=>active,targets:()=>rows.map(r=>({id:r.id,title:r.title})),select:id=>select(id,false)};
 })();

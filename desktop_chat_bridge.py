@@ -679,7 +679,7 @@ def relay(db,context,attachments=(),timeout=3600):
                     if found['status'] in {'failed','interrupted'}:
                         raise BridgeError('Codex 대화의 작업이 중단됐어요. 같은 요청을 다시 보내지 않았어요.')
                 age=timeout-(deadline-time.monotonic())
-                time.sleep(.2 if age<30 else .5 if age<120 else 1)
+                time.sleep(.75 if age<30 else 1 if age<120 else 2)
         raise BridgeError('Codex 답변 대기시간을 넘겼어요. 전달한 작업을 다시 실행하지 않았어요.')
     except BaseException as error:
         # Preserve the last delivery/effect state, but do not leave an active

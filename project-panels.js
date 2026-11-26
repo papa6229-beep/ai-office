@@ -425,7 +425,7 @@
       const data=await request('project-panel?id='+encodeURIComponent(p.id)+'&host='+encodeURIComponent(p.host)+(older&&p.cursor?'&cursor='+encodeURIComponent(p.cursor):''));
       if(panels.get(key(p))!==p)return;
       p.kind=data.kind||p.kind||'codex';windowLabels(p);renderMessages(p,data,older);if(p.embedded&&!p.minimized&&p.log.clientHeight>0&&p.resumeScroll!==undefined){p.log.scrollTop=p.resumeScroll===null?p.log.scrollHeight:p.resumeScroll;delete p.resumeScroll;}if(older)p.historyLoaded=true;
-      if(!older){p.status=data.status;p.statusNode.textContent=[data.status,data.activity].filter(Boolean).join(' · ');receiveQuestions(p,data);observeCompletion(p,data);rememberDepartmentState(p,data);}p.failures=0;p.next=Date.now()+2500;
+      if(!older){p.status=data.status;p.statusNode.textContent=[data.status,data.activity].filter(Boolean).join(' · ');receiveQuestions(p,data);observeCompletion(p,data);rememberDepartmentState(p,data);}p.failures=0;p.next=Date.now()+(data.status==='진행 중'?2500:10000);
       if(!p.ready)notice(p,'');p.ready=true;loaded=true;dockRender();requestAnimationFrame(()=>markDisplayedCompletion(p));
     }catch(error){p.failures=(p.failures||0)+1;p.next=Date.now()+Math.min(20000,2500*Math.pow(2,p.failures));p.statusNode.textContent='연결 확인 필요';notice(p,error.message,true);}
     finally{p.loading=false;p.older.disabled=false;sendLabel(p);}

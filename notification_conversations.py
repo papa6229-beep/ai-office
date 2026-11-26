@@ -117,8 +117,8 @@ def ingest(c, office_id, device, key, revision, source, title, body, posted, met
 def backfill(c):
     ensure(c)
     rows = c.execute('''SELECT n.* FROM office_notifications n LEFT JOIN notification_room_receipts r
-        ON r.office_id=n.id LEFT JOIN notification_rooms room ON room.id=r.room_id
-        WHERE (r.office_id IS NULL OR room.kind='legacy') AND n.superseded_by IS NULL
+        ON r.office_id=n.id
+        WHERE r.office_id IS NULL AND n.superseded_by IS NULL
         ORDER BY n.rowid DESC LIMIT 4000''').fetchall()
     for row in reversed(rows):
         if not messenger(row['source']): continue
