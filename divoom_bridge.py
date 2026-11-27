@@ -2,6 +2,7 @@
 import base64
 import ctypes
 import io
+import ipaddress
 import hashlib
 import json
 import os
@@ -27,7 +28,7 @@ CONFIG = DATA / 'config.json'
 ORIGINS = {'http://127.0.0.1:8765', 'http://localhost:8765'}
 PORT = 18766
 ASSET_PORT = 18767
-REVISION = '2026-10-29-visible-hq-reconnect-v15'
+REVISION = '2026-11-27-pinned-device-address-v16'
 
 
 def store_key(ip, token):
@@ -89,9 +90,18 @@ class Display:
                 raise ValueError('Artwork pack outside device data')
             self.asset_manifest = json.loads((self.asset_root / 'manifest.json').read_text(encoding='utf-8'))
         self.ip = self.config['ip']
-        if self.ip != '192.168.0.16':
+        address = ipaddress.ip_address(self.ip)
+        if address.version != 4 or not address.is_private or address.is_loopback or address.is_link_local:
+            raise ValueError('Device requires a private LAN IPv4 address')
+        self.device_id = self.config.get('device_id')
+        if self.device_id is not None and (type(self.device_id) is not int or self.device_id <= 0):
+            raise ValueError('Invalid pinned device identity')
+        if self.device_id is None and self.ip != '192.168.0.16':
             raise ValueError('Device identity needs explicit reconfiguration')
-        self.token = load_key(self.ip)
+        self.credential_ip = self.config.get('credential_ip', self.ip)
+        self.token = load_key(self.credential_ip)
+        self.next_address_discovery = 0
+        self.address_recovery = None
         self.nonce = secrets.token_urlsafe(32)
         self.command_lock = threading.Lock()
         self.lock = threading.RLock()
@@ -198,7 +208,53 @@ class Display:
 
     def command(self, payload):
         with self.command_lock:
-            return self._command(payload)
+            try:
+                return self._command(payload)
+            except OSError:
+                # Only retry a read. A timed-out display write is never replayed here.
+                if payload.get('Command') == 'Channel/GetAllConf' and self._recover_address():
+                    return self._command(payload)
+                raise
+
+    def _recover_address(self):
+        if not self.device_id or time.monotonic() < self.next_address_discovery:
+            return False
+        self.next_address_discovery = time.monotonic() + 60
+        try:
+            with urllib.request.urlopen('https://app.divoom-gz.com/Device/ReturnSameLANDevice', timeout=8) as response:
+                discovered = json.load(response)
+            if discovered.get('ReturnCode') != 0:
+                return False
+            matches = [row for row in discovered.get('DeviceList', [])
+                       if str(row.get('DeviceId')) == str(self.device_id)
+                       and row.get('Hardware') in (400, '400')]
+            if len(matches) != 1:
+                return False
+            candidate = str(ipaddress.IPv4Address(matches[0]['DevicePrivateIP']))
+            # Keep file delivery and local-token use inside the configured LAN.
+            network = ipaddress.ip_network(self.ip + '/24', strict=False)
+            if candidate == self.ip or ipaddress.ip_address(candidate) not in network:
+                return False
+            body = json.dumps({'Command': 'Channel/GetAllConf', 'LocalToken': self.token}).encode()
+            request = urllib.request.Request('http://' + candidate + '/post', data=body,
+                                             headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(request, timeout=6) as response:
+                accepted = json.load(response)
+            if accepted.get('error_code') not in (0, '0'):
+                return False
+            with self.lock:
+                updated = dict(self.config, ip=candidate, credential_ip=self.credential_ip)
+                atomic_json(CONFIG, updated)
+                previous = self.ip
+                self.config.update(updated)
+                self.ip = candidate
+                self.continuous_signatures.clear()
+                self.continuous_candidates.clear()
+                self.address_recovery = {'at': time.time(), 'previous_ip': previous,
+                                         'ip': candidate, 'identity_verified': True}
+            return True
+        except (OSError, ValueError, TypeError, KeyError):
+            return False
 
     def _command(self, payload):
         body = json.dumps({**payload, 'LocalToken': self.token}).encode()
@@ -308,6 +364,7 @@ class Display:
     def snapshot(self):
         with self.lock:
             return {'revision': REVISION, 'pid': os.getpid(), 'device_ip': self.ip,
+                    'device_id': self.device_id, 'address_recovery': self.address_recovery,
                     'asset_pack': self.asset_pack or 'original',
                     'connected_ui': time.monotonic() - self.last_heartbeat < 45,
                     'desired': dict(self.desired), 'screens': dict(self.actual),
@@ -688,7 +745,7 @@ def start_background():
             req = urllib.request.Request('http://127.0.0.1:' + str(PORT) + '/health',
                                          headers={'Origin': 'http://127.0.0.1:8765'})
             data = json.load(urllib.request.urlopen(req, timeout=2))
-            if data.get('revision') == REVISION and data.get('device_ip') == '192.168.0.16':
+            if data.get('revision') == REVISION and data.get('device_ip') == json.loads(CONFIG.read_text(encoding='utf-8')).get('ip'):
                 return {'state': 'already_running', 'pid': data.get('pid')}
             raise RuntimeError('Another application owns the display port')
     except OSError:

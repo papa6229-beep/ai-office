@@ -90,3 +90,10 @@ The user confirmed Office shows The Hand HQ completed while physical panel 1 sho
 Sender v15 probes documented local Channel/GetAllConf every three seconds without AI/cloud calls. At startup, observed disconnect/reconnect, observed LightSwitch 0-to-1 wake, or suspended polling gap, restore only saved physical panel 3 through the existing picker renderer. Original rotation is saved ClockId 57 in the existing independent group, not 174 or public 1006. Respect pending previews; preserve panels 4/5 and never reset the whole channel. Refresh unchanged team GIFs after reconnect through existing freshness/rate limits.
 
 Health native_recovery and picker connection_recovery distinguish connection/command acknowledgement from physical verification. This is sender-assisted recovery, not proven permanent firmware boot persistence. A brief outage between successful probes can be missed. GetAllConf has no per-screen readback; local GetChannelInfo was rejected and the cloud read requires authentication. Physical restart verification remains separate.
+
+
+### Address recovery (2026-11-27)
+
+The sender v16 keeps a pinned device ID and the original Credential Manager key location separately from its DHCP address. If the read-only GetAllConf probe cannot reach the saved address, it queries Divoom's official ReturnSameLANDevice discovery endpoint at most once per minute. It accepts exactly one matching device ID and Times Gate hardware 400, within the configured /24 LAN, and validates the existing local key with a read-only probe before saving the new address. The GIF server still serves only registered bytes to that one current device IP. No timed-out display write is replayed by address recovery. Screens 1/2 resume through the existing fresh-state, single-source and playback-rate rules; native-screen behavior is unchanged.
+
+Official discovery reference: https://github.com/DivoomDevelop/mcp-divoom-lan/blob/main/CHANGELOG.md
