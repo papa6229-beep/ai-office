@@ -5,7 +5,7 @@ import threading
 import time
 import urllib.request
 
-CATEGORIES = {'normal':'기본 화면', 'Nature&Weather':'시계·날씨', 'Retro':'레트로', 'Tools':'도구', 'saved':'원래 순환'}
+CATEGORIES = {'normal':'기본 화면', 'Nature&Weather':'시계·날씨', 'Retro':'레트로', 'Tools':'도구', 'saved':'원래 순환', 'pc':'PC 상태'}
 
 class Picker:
     def __init__(self, display, config_path, save_json):
@@ -26,6 +26,9 @@ class Picker:
     def catalog(self, category='Nature&Weather', page=1):
         if category not in CATEGORIES or type(page) is not int or not 1 <= page <= 30:
             raise ValueError('목록 범위를 확인해 주세요.')
+        if category=='pc':
+            return {'items':[{'kind':'native','clock_id':625,'name':'PC 사용률·GPU 온도','category':'pc','page':1,'thumbnail':None}] if page==1 else [],
+                    'category':'pc','page':page,'has_more':False}
         if category=='saved':
             clock=self.display.config.get('original_gallery_clock_id')
             if type(clock) is not int or clock<=0:

@@ -97,3 +97,12 @@ Health native_recovery and picker connection_recovery distinguish connection/com
 The sender v16 keeps a pinned device ID and the original Credential Manager key location separately from its DHCP address. If the read-only GetAllConf probe cannot reach the saved address, it queries Divoom's official ReturnSameLANDevice discovery endpoint at most once per minute. It accepts exactly one matching device ID and Times Gate hardware 400, within the configured /24 LAN, and validates the existing local key with a read-only probe before saving the new address. The GIF server still serves only registered bytes to that one current device IP. No timed-out display write is replayed by address recovery. Screens 1/2 resume through the existing fresh-state, single-source and playback-rate rules; native-screen behavior is unchanged.
 
 Official discovery reference: https://github.com/DivoomDevelop/mcp-divoom-lan/blob/main/CHANGELOG.md
+
+
+### Five-second departments and PC panel (2026-11-27)
+
+Sender v17 uses private config `seconds_per_member` (2–15, default 3; user selected 5). Both encoders retain their existing frame counts and sample source animation at the actual output timestamps. Phase tracking, GIF metadata and minimum full-loop playback use that duration; five members now form a 25-second GIF. Source artwork is unchanged.
+
+The user's selected layout is panel 3 original rotation, panel 4 native Weather ONE, panel 5 native PC clock 625. The optional `pc_monitor_enabled` worker uses Windows GetSystemTimes/GlobalMemoryStatusEx and the installed NVIDIA nvidia-smi. Through the one existing command lock it sends the documented Device/UpdatePCParaInfo packet to LcdId 4 only. CPU temperature and disk temperature are `--`; no sensor driver is installed. Real metrics refresh at roughly five-second intervals, absent sensors stay unavailable. The worker respects picker previews and stops sending when panel 5 is changed to another clock. It reselects its native clock after an observed connection restoration. Health exposes the successful update count, values and error separately from team GIF downloads. Native display acceptance and actual visible confirmation remain separate.
+
+Protocol source: https://github.com/DivoomDevelop/divoom-pc-monitor/blob/main/Transport.cs

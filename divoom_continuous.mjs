@@ -7,7 +7,9 @@ let input=[];let size=0;
 for await(const chunk of process.stdin){size+=chunk.length;if(size>12*1024*1024)throw Error('Artwork input too large');input.push(chunk);}
 const value=JSON.parse(Buffer.concat(input).toString('utf8'));
 if(!Array.isArray(value.members)||value.members.length<1||value.members.length>5)throw Error('Invalid member count');
-const count=value.compact===true?10:20,step=value.compact===true?300:150,bytes=128*128*4,stack=Buffer.alloc(bytes*count*value.members.length);
+const seconds=Number(value.seconds_per_member??3);
+if(!Number.isInteger(seconds)||seconds<2||seconds>15)throw Error('Invalid member duration');
+const count=value.compact===true?10:20,step=seconds*1000/count,bytes=128*128*4,stack=Buffer.alloc(bytes*count*value.members.length);
 for(let n=0;n<value.members.length;n++){
  const source=Buffer.from(value.members[n],'base64');
  const meta=await sharp(source,{animated:true}).metadata();

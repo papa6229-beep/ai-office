@@ -28,7 +28,7 @@ CONFIG = DATA / 'config.json'
 ORIGINS = {'http://127.0.0.1:8765', 'http://localhost:8765'}
 PORT = 18766
 ASSET_PORT = 18767
-REVISION = '2026-11-27-pinned-device-address-v16'
+REVISION = '2026-11-27-pc-panel-duration-v17'
 
 
 def store_key(ip, token):
@@ -135,6 +135,8 @@ class Display:
         self.observation_source = None
         self.ignored_snapshots = 0
         self.activity_version = None
+        self.member_seconds = max(2, min(15, int(self.config.get('seconds_per_member', 3))))
+        self.pc_monitor = None
         self.continuous_ready_at = 0
         self.continuous_next_panel = 0
         self.asset_server = None
@@ -370,10 +372,11 @@ class Display:
                     'desired': dict(self.desired), 'screens': dict(self.actual),
                     'transmissions': self.transmissions, 'error': self.last_error,
                     'panels': dict(self.panel_actual), 'uploading': self.uploading,
-                    'rotation_seconds': 3 if self.config.get('team_rotation_mode')=='continuous' else self.rotation_seconds,
+                    'rotation_seconds': self.member_seconds if self.config.get('team_rotation_mode')=='continuous' else self.rotation_seconds,
                     'recent_presentations': list(self.recent_presentations),
                     'transport': 'continuous-team-gif' if self.config.get('team_rotation_mode')=='continuous' else 'gif-file-url',
-                    'observed_at': self.observed_at, 'seconds_per_member': 3, 'asset_port': ASSET_PORT,
+                    'observed_at': self.observed_at, 'seconds_per_member': self.member_seconds, 'asset_port': ASSET_PORT,
+                    'pc_monitor': self.pc_monitor.snapshot() if self.pc_monitor else {'enabled':False},
                     'observation_mode':'single-source-v1','observation_source':self.observation_source,
                     'activity_semantics':'current-work-v2','activity_version':self.activity_version,
                     'ignored_snapshots':self.ignored_snapshots,
@@ -402,7 +405,7 @@ class Display:
                     total+=max(10,source.info.get('duration',100))
                     ends.append(total)
                 for index in range(10):
-                    stamp=(index*300)%total
+                    stamp=(index*self.member_seconds*100)%total
                     selected=next(n for n,end in enumerate(ends) if end>stamp)
                     frames.append(originals[selected])
         sheet=Image.new('RGB',(128*len(images),128*10))
@@ -412,7 +415,7 @@ class Display:
         indexed=[frame.quantize(palette=palette,dither=Image.Dither.NONE) for frame in frames]
         output=io.BytesIO()
         indexed[0].save(output,format='GIF',save_all=True,append_images=indexed[1:],
-            duration=300,loop=0,disposal=2,optimize=False,background=0,include_color_table=False)
+            duration=self.member_seconds*100,loop=0,disposal=2,optimize=False,background=0,include_color_table=False)
         return output.getvalue()
 
     def continuous_asset(self, ordered, states):
@@ -426,7 +429,7 @@ class Display:
                 images.append(base64.b64encode(self.asset_files[key]).decode('ascii'))
             metadata.append({'thread':row['thread'],'label':row['label'],
                              'state':kind,'observed_state':observed})
-        cache_key=hashlib.sha256(json.dumps([(row['thread'],row['state']) for row in metadata]).encode()).hexdigest()
+        cache_key=hashlib.sha256(json.dumps([self.member_seconds,[(row['thread'],row['state']) for row in metadata]]).encode()).hexdigest()
         if cache_key in self.continuous_cache:
             result=self.continuous_cache.pop(cache_key)
             self.continuous_cache[cache_key]=result
@@ -439,7 +442,7 @@ class Display:
             if not node or not (modules/'sharp').is_dir():
                 raise RuntimeError('The existing Node image runtime is unavailable')
             output=subprocess.run([node,str(ROOT/'divoom_continuous.mjs'),str(modules)],
-                input=json.dumps({'members':images,'compact':ordered[0].get('group')=='hand'}).encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                input=json.dumps({'members':images,'compact':ordered[0].get('group')=='hand','seconds_per_member':self.member_seconds}).encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                 timeout=20,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             if output.returncode:
                 raise RuntimeError('Continuous artwork encoding failed')
@@ -499,7 +502,7 @@ class Display:
                 start_index=0
                 phase=self.continuous_phase.get(panel)
                 if phase:
-                    start_index=(phase[1]+int((now-phase[0])/3))%len(members)
+                    start_index=(phase[1]+int((now-phase[0])/self.member_seconds))%len(members)
                 ordered=members[start_index:]+members[:start_index]
                 try:
                     with self.lock:
@@ -519,8 +522,8 @@ class Display:
                     accepted={'screen':panel+1,'group':members[0].get('group',''),
                               'mode':'continuous-team-gif','asset_pack':self.asset_pack,
                               'encoding':'fixed-palette-full-frame' if members[0].get('group')=='hand' else 'sharp',
-                              'asset_key':key,'members':metadata,'seconds_per_member':3,
-                              'duration_ms':len(members)*3000,'frames':frames,
+                              'asset_key':key,'members':metadata,'seconds_per_member':self.member_seconds,
+                              'duration_ms':len(members)*self.member_seconds*1000,'frames':frames,
                               'accepted_at':time.time(),'command_ms':command_ms,'gif_bytes':downloaded['bytes']}
                     with self.lock:
                         self.panel_actual[str(panel+1)]=accepted
@@ -530,7 +533,7 @@ class Display:
                         self.transmissions+=1
                         self.last_error=''
                     self.continuous_signatures[panel]=signature
-                    self.continuous_ready_at=time.monotonic()+15
+                    self.continuous_ready_at=time.monotonic()+len(members)*self.member_seconds
                     self.continuous_next_panel=(panel+1)%2
                     self.continuous_updates[panel]=time.monotonic()
                     self.continuous_phase[panel]=(time.monotonic(),start_index)
@@ -723,6 +726,10 @@ def serve():
         raise
     from divoom_picker import Picker
     picker=Picker(display, CONFIG, atomic_json)
+    if display.config.get('pc_monitor_enabled') is True:
+        from divoom_pc_monitor import PCMonitor
+        display.pc_monitor=PCMonitor(display,picker)
+        threading.Thread(target=display.pc_monitor.run, daemon=True, name='times-gate-pc-metrics').start()
     threading.Thread(target=picker.watch, daemon=True, name='times-gate-preview-return').start()
     threading.Thread(target=display.run, daemon=True, name='times-gate-display').start()
     atomic_json(DATA / 'runtime.json', display.snapshot())
